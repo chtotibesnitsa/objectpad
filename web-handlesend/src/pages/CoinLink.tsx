@@ -10,6 +10,8 @@ import { usePreferences } from '@/hooks/use-preferences';
 import { copyText } from '@/lib/format';
 import type { BuildingCoin, CoinPreview } from '@/shared/domain';
 import { ObjectView } from './ObjectDetail';
+import { ShareCardDialog } from '@/components/ShareCardDialog';
+import { explorerTx } from '@/shared/pons';
 
 const ModelViewer = lazy(() => import('@/components/ModelViewer'));
 interface ShortLink { state: 'live' | 'reserved'; objectId?: string; building?: BuildingCoin | null; preview?: CoinPreview | null; }
@@ -17,7 +19,7 @@ const short = (h: string): string => `${h.slice(0, 12)}…${h.slice(-8)}`;
 
 /** Public pre-launch page: only the 3D model, the AI object profile and the SHA-256 fingerprints. Never capture photos. */
 function SealedPreview({ p, code }: { p: CoinPreview; code: string }) {
-  const [copied, setCopied] = useState<string>(''); const url = `https://www.objectpad.fun/o/${code}`;
+  const [copied, setCopied] = useState<string>(''); const [shareOpen, setShareOpen] = useState<boolean>(false); const url = `https://www.objectpad.fun/o/${code}`;
   const copy = (value: string, key: string) => void copyText(value).then(ok => { if (ok) { setCopied(key); setTimeout(() => setCopied(''), 1600); } });
   const tags = [...p.colors, ...p.materials].slice(0, 8);
   const facts: [string, string][] = [['Object', p.objectName ?? '—'], ['Tag', p.objectTag ?? '—'], ['Triangles', p.triangles?.toLocaleString() ?? '—'], ['Textures', p.textures !== null ? String(p.textures) : '—'], ['Size', p.bounds ? p.bounds.max.map((v, i) => Math.abs(v - (p.bounds?.min[i] ?? 0)).toFixed(2)).join(' × ') + ' u' : '—'], ['Angles captured', String(p.views)]];
@@ -32,7 +34,7 @@ function SealedPreview({ p, code }: { p: CoinPreview; code: string }) {
           <div className="flex items-center gap-3.5">{p.iconUrl ? <img src={p.iconUrl} alt="" className="size-16 rounded-full bg-white object-cover shadow-[0_0_0_1px_rgba(12,13,16,.08)]"/> : <span className="flex size-16 items-center justify-center rounded-full bg-[#0F1115] font-mono text-[9px] font-extrabold text-white">LOADING</span>}<div className="min-w-0"><h1 className="display truncate text-[34px] leading-none sm:text-[42px]">{p.name}</h1>{p.symbol && <span className="chip-dark mt-2">${p.symbol}</span>}</div></div>
           {p.story && <p className="mt-4 text-[15px] font-semibold leading-7 text-ink/70">{p.story}</p>}
           <p className="mt-4 rounded-2xl bg-ink/[0.04] px-3.5 py-3 text-[13.5px] font-bold text-ink/70">{p.stage === 'launching' ? 'The launch transaction is on its way to Robinhood Chain. This page turns into the live chart and trade page by itself.' : 'Sealed by its creator. It goes live on Robinhood Chain as soon as the launch is sent, and this page turns into the chart and trade page by itself.'}</p>
-          <div className="mt-4 flex flex-wrap gap-2"><button onClick={() => copy(url, 'link')} className="btn-ghost press min-h-11 px-4 text-sm">{copied === 'link' ? <Check size={15}/> : <Copy size={15}/>}{copied === 'link' ? 'Copied' : 'Copy coin link'}</button>{p.xUrl && <a href={p.xUrl} target="_blank" rel="noreferrer nofollow" className="btn-ghost press min-h-11 px-4 text-sm">X</a>}{p.telegram && <a href={p.telegram} target="_blank" rel="noreferrer nofollow" className="btn-ghost press min-h-11 px-4 text-sm">Telegram</a>}</div>
+          <div className="mt-4 flex flex-wrap gap-2"><button onClick={() => copy(url, 'link')} className="btn-ghost press min-h-11 px-4 text-sm">{copied === 'link' ? <Check size={15}/> : <Copy size={15}/>}{copied === 'link' ? 'Copied' : 'Copy coin link'}</button><button onClick={() => setShareOpen(true)} className="btn press min-h-11 px-4 text-sm">Share on X</button>{p.xUrl && <a href={p.xUrl} target="_blank" rel="noreferrer nofollow" className="btn-ghost press min-h-11 px-4 text-sm">X</a>}{p.telegram && <a href={p.telegram} target="_blank" rel="noreferrer nofollow" className="btn-ghost press min-h-11 px-4 text-sm">Telegram</a>}</div>
         </div>
         <div className="raised rounded-[28px] p-5">
           <p className="spec flex items-center gap-1.5 !text-[11px]"><Sparkles size={11}/>AI object profile</p>
@@ -49,6 +51,7 @@ function SealedPreview({ p, code }: { p: CoinPreview; code: string }) {
       <div className="mt-5 grid gap-2 sm:grid-cols-2">{([['3D model sha256', p.modelHash], ['Capture sha256', p.manifestHash]] as [string, string | null][]).map(([k, v]) => <button key={k} disabled={!v} onClick={() => v && copy(v, k)} className="press flex min-h-14 items-center justify-between gap-3 rounded-2xl bg-white/[0.07] px-4 text-left"><span><span className="block font-mono text-[10.5px] font-bold uppercase text-white/45">{k}</span><span className="font-mono text-[13px] font-bold">{v ? short(v) : 'computing…'}</span></span>{copied === k ? <Check size={15}/> : <Copy size={15} className="text-white/50"/>}</button>)}</div>
       <div className="mt-4 grid gap-2 text-[12.5px] font-bold text-white/70 sm:grid-cols-3">{[[ScanLine, 'Scanned in 3D from a real object'], [ShieldCheck, 'AI checked one of one'], [Cuboid, 'Name + tag + hashes on-chain']].map(([Icon, label]) => { const I = Icon as typeof ScanLine; return <span key={String(label)} className="flex items-center gap-2"><I size={14}/>{String(label)}</span>; })}</div>
     </section>
+    <ShareCardDialog open={shareOpen} onOpenChange={setShareOpen} url={url} postText={`I just tokenized a real ${p.category || p.objectName || 'object'}: $${p.symbol} on @ObjectPad. Scanned in 3D, named on-chain, one of one.`} input={{ name: p.name, symbol: p.symbol, imageUrl: p.iconUrl, category: p.category }}/>
   </div>;
 }
 
