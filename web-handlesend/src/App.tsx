@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import { AuthBoundary } from './lib/session';
@@ -63,4 +64,4 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="settings" element={<Settings/>}/>
   <Route path="operator" element={<Operator/>}/>
   <Route path="*" element={<div className="page py-24"><h1 className="display text-5xl">Nothing here.</h1><p className="mt-4 text-muted">This page doesn’t exist, or the coin isn’t live yet.</p><Link to="/explore" className="mt-6 inline-flex min-h-11 items-center btn px-6 font-semibold ">Explore coins</Link></div>}/>
-</Route></Routes></Suspense></Boundary></BrowserRouter></PreferencesProvider></AuthBoundary></QueryClientProvider>; }
+</Route></Routes></Suspense></Boundary></BrowserRouter></PreferencesProvider></AuthBoundary><Analytics/></QueryClientProvider>; }
