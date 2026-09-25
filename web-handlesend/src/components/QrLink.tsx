@@ -27,19 +27,22 @@ export function AndroidAppButton({ className }: { className?: string }) {
 }
 
 /**
- * Featured Android download card: a big smoked liquid-glass panel, sized like the QR scan box next to it, so the
- * download reads as an equally important way in. Carries a small live badge and a bold black-and-white download
- * button. Renders nothing until the signed APK is published.
+ * Featured Android download bar: a wide, short smoked liquid-glass strip that fills the full width available (e.g.
+ * under the CA pill), so it reads as an equally important way in without towering over the page. Carries a small
+ * live badge and a bold black-and-white download button. Renders nothing until the signed APK is published.
  */
 export function AndroidFeatureCard({ className, badge = 'Update #1' }: { className?: string; badge?: string }) {
   if (!OBJECTPAD_APK_URL) return null;
-  return <div className={cn('smoke relative flex w-full flex-col items-center overflow-hidden rounded-[34px] p-6 text-center', className)}>
+  return <div className={cn('smoke relative flex w-full flex-col gap-4 overflow-hidden rounded-[26px] p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-5', className)}>
     <div className="pointer-events-none absolute -right-10 -top-14 size-40 rounded-full bg-white/10 blur-3xl" aria-hidden="true"/>
-    <span className="relative inline-flex min-h-8 items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-3.5 py-1 font-mono text-[11px] font-extrabold uppercase tracking-[0.1em] text-white backdrop-blur-md"><span className="pulse-dot size-1.5 shrink-0 rounded-full bg-up"/>{badge} · live</span>
-    <span className="relative mt-5 flex size-16 shrink-0 items-center justify-center rounded-full" style={{ background: 'radial-gradient(circle at 35% 25%, #fff, #DCE0E6 70%)', boxShadow: 'inset 0 1px 0 #fff, inset 0 -2px 4px rgba(12,13,16,.12), 0 0 0 1px rgba(255,255,255,.4), 0 10px 20px -8px rgba(0,0,0,.6)' }}><Smartphone size={30} strokeWidth={2.3} className="text-ink"/></span>
-    <h3 className="display relative mt-4 text-[25px] leading-[0.98] text-white sm:text-[28px]">ObjectPad for<br/>Android is live.</h3>
-    <p className="relative mt-2 max-w-[250px] text-[13.5px] font-bold text-white/65">Anybody can download it and test it immediately. No Play Store, no waiting.</p>
-    <a href={OBJECTPAD_APK_URL} download className="btn press relative mt-5 min-h-[56px] w-full justify-center text-[15.5px]"><Download size={18} strokeWidth={2.4}/>Download the APK</a>
-    <p className="relative mt-2.5 font-mono text-[10.5px] font-extrabold uppercase tracking-wide text-white/45">Signed release · direct install · free</p>
+    <div className="relative flex items-center gap-3.5">
+      <span className="flex size-12 shrink-0 items-center justify-center rounded-full" style={{ background: 'radial-gradient(circle at 35% 25%, #fff, #DCE0E6 70%)', boxShadow: 'inset 0 1px 0 #fff, inset 0 -2px 4px rgba(12,13,16,.12), 0 0 0 1px rgba(255,255,255,.4), 0 8px 16px -8px rgba(0,0,0,.6)' }}><Smartphone size={22} strokeWidth={2.4} className="text-ink"/></span>
+      <div className="min-w-0">
+        <span className="inline-flex min-h-6 items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-2.5 py-0.5 font-mono text-[10px] font-extrabold uppercase tracking-[0.1em] text-white backdrop-blur-md"><span className="pulse-dot size-1.5 shrink-0 rounded-full bg-up"/>{badge} · live</span>
+        <h3 className="display mt-1.5 text-[19px] leading-[1.02] text-white sm:text-[21px]">ObjectPad for Android is live.</h3>
+        <p className="mt-0.5 text-[12.5px] font-bold text-white/60">Anybody can download and test it immediately · no Play Store, no waiting.</p>
+      </div>
+    </div>
+    <a href={OBJECTPAD_APK_URL} download className="btn press relative min-h-[52px] shrink-0 justify-center px-6 text-[14.5px] sm:ml-auto"><Download size={17} strokeWidth={2.4}/>Download the APK</a>
   </div>;
 }
