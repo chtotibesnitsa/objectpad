@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom';
-import { Activity, BookOpen, Compass, Flame, Home, LogOut, ScanLine, Vault, Volume2, VolumeX, X } from 'lucide-react';
+import { Activity, BookOpen, Compass, Flame, Home, LogOut, ScanLine, Vault, Volume2, VolumeX, X, X as XLogo } from 'lucide-react';
 import { Brand } from './Brand';
 import { LiveTicker, ObjectPadCa } from './LiveTicker';
 import { BurnToasts } from './BurnToasts';
@@ -11,6 +11,7 @@ import { usePreferences } from '@/hooks/use-preferences';
 import { useTreasury } from '@/lib/treasury';
 import { useReadiness } from '@/lib/market';
 import { pendingScan } from '@/lib/handoff';
+import { OBJECTPAD_X_URL } from '@/lib/brand';
 import { shortAddress } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -37,6 +38,9 @@ function TabStrip() {
     {TABS.map((tab, i) => <NavLink key={tab.to} to={tab.to} className={cn('relative z-10 flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[14px] px-3 text-[14.5px] font-bold tracking-[-0.015em] transition-colors duration-300', i === index ? 'text-ink' : 'text-ink/65 hover:text-ink')}><tab.icon size={16} strokeWidth={2.5}/>{tab.label}</NavLink>)}
   </nav>;
 }
+
+/** Link to ObjectPad's official X account — social proof that this is a real, active project. */
+function XLink({ className = '' }: { className?: string }) { return <a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" aria-label="ObjectPad on X" className={`press flex items-center justify-center rounded-full bg-ink text-white transition-transform hover:scale-105 ${className}`}><XLogo size={15} strokeWidth={2.4}/></a>; }
 
 /** Live treasury balance: the wallet that pays for every free launch. */
 function TreasuryChip() {
@@ -116,7 +120,7 @@ export default function Layout() {
     <CryptoBackdrop/>
     {!scanning && <div className="hidden lg:block"><LiveTicker/></div>}
     {!scanning && <header className="phone-bar sticky top-0 z-40 lg:hidden">
-      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><TreasuryMini/></div>
+      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><div className="flex items-center gap-2"><XLink className="size-9"/><TreasuryMini/></div></div>
       <div className="border-t border-ink/[0.06]"><LiveTicker/></div>
     </header>}
     {!scanning && <header className="sticky top-0 z-40 hidden lg:block">
@@ -127,6 +131,7 @@ export default function Layout() {
         </div>
         <TabStrip/>
         <div className="flex shrink-0 items-center justify-end gap-2">
+          <XLink className="size-[52px]"/>
           <TreasuryChip/>
           {session.configured && session.ready && session.authenticated && <span className="raised hidden min-h-12 items-center gap-2 rounded-[16px] px-3.5 font-mono text-[12px] font-bold 2xl:flex"><span className="size-2 rounded-full bg-up"/>{session.wallet ? shortAddress(session.wallet, 5, 4) : 'Signed in'}</span>}
           <Link to="/launch" className="btn press flex min-h-[52px] pl-1.5 pr-5 text-[14.5px]"><span className="orb size-10"><GlassIcon name="qr" size={30} className="!filter-none"/></span>Scan & launch</Link>
@@ -136,7 +141,7 @@ export default function Layout() {
     <main id="main" key={location.pathname} className="page-enter min-h-[70dvh]"><Outlet/></main>
     {!scanning && <footer className="mt-8 px-4 pb-[calc(104px+env(safe-area-inset-bottom))] lg:hidden">
       <div className="raised rounded-[24px] p-5">
-        <div className="flex items-center justify-between gap-3"><Brand/><button onClick={toggleSound} className="flex min-h-11 items-center gap-2 text-[13px] font-bold text-ink/65" aria-pressed={sound}>{sound ? <Volume2 size={16}/> : <VolumeX size={16}/>}Sound</button></div>
+        <div className="flex items-center justify-between gap-3"><Brand/><div className="flex items-center gap-2"><XLink className="size-10"/><button onClick={toggleSound} className="flex min-h-11 items-center gap-2 text-[13px] font-bold text-ink/65" aria-pressed={sound}>{sound ? <Volume2 size={16}/> : <VolumeX size={16}/>}Sound</button></div></div>
         <div className="mt-4 rounded-2xl bg-ink/[0.04] px-3.5 py-3 font-mono text-[12px] uppercase"><ObjectPadCa className="flex-wrap"/><p className="mt-1.5 font-bold text-ink/55">Chain 4663 · Robinhood Chain</p></div>
         <p className="mt-4 text-[12px] font-medium leading-5 text-ink/60">ObjectPad is not affiliated with, endorsed by or officially connected with Robinhood Markets, Inc. A scan record does not prove ownership, authenticity or value. Coins carry no redemption right.</p>
       </div>
@@ -145,7 +150,7 @@ export default function Layout() {
       <div className="steel relative overflow-hidden rounded-[30px] p-6 sm:p-8">
         <AsciiObject src="/models/points/bull.json" cols={60} rows={22} className="absolute -right-6 -top-4 hidden text-[11.5px] text-ink/[0.08] md:block"/>
         <div className="relative grid gap-8 md:grid-cols-[1.1fr_1.6fr]">
-          <div><Brand/><p className="mt-4 max-w-xs text-[15px] font-bold leading-6 text-ink/75">Real objects. Scanned in 3D. Launched free on Robinhood Chain.</p><Link to="/launch" className="btn press mt-5 min-h-12 pl-1.5 pr-5 text-sm"><span className="orb size-9"><GlassIcon name="qr" size={26} className="!filter-none"/></span>Scan & launch free</Link></div>
+          <div><Brand/><p className="mt-4 max-w-xs text-[15px] font-bold leading-6 text-ink/75">Real objects. Scanned in 3D. Launched free on Robinhood Chain.</p><div className="mt-5 flex flex-wrap items-center gap-2"><Link to="/launch" className="btn press min-h-12 pl-1.5 pr-5 text-sm"><span className="orb size-9"><GlassIcon name="qr" size={26} className="!filter-none"/></span>Scan & launch free</Link><a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" className="btn-ghost press min-h-12 px-4 text-sm"><XLogo size={15} strokeWidth={2.4}/>@ObjectPadFun</a></div></div>
           <div className="grid grid-cols-2 gap-6 text-sm font-bold sm:grid-cols-3">
             <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Discover</span><Link to="/explore">Object coins</Link><Link to="/explore?tab=market">Live market</Link><Link to="/burn">$OBJECTPAD burn</Link><Link to="/treasury">Treasury</Link></div>
             <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Create</span><Link to="/launch">Scan & launch</Link><Link to="/inventory">Saved scans</Link><Link to="/earnings">Creator earnings</Link><Link to="/craft">Crafting Table</Link></div>
