@@ -19,6 +19,13 @@ export class Store {
   rate(key: string, limit: number, period: number): void {
     const now = Date.now(); this.atomic(() => { const row = this.one<{ count: number; expires: number }>('SELECT count,expires FROM op_rate_limits WHERE key=?', key); if (row && row.expires > now && row.count >= limit) throw new ApiError('RATE_LIMITED', 429); this.run('INSERT INTO op_rate_limits(key,count,expires) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET count=excluded.count,expires=excluded.expires', key, row && row.expires > now ? row.count + 1 : 1, row && row.expires > now ? row.expires : now + period); });
   }
+  /** Throws when `key` already reached `limit` in its window. Consumes nothing (pair with `bump` after the action succeeds). */
+  peek(key: string, limit: number, code = 'RATE_LIMITED'): void { const row = this.one<{ count: number; expires: number }>('SELECT count,expires FROM op_rate_limits WHERE key=?', key); if (row && row.expires > Date.now() && row.count >= limit) throw new ApiError(code, 429); }
+  /** Counts one use of `key` without a limit check (the check ran earlier with `peek`). Never throws. */
+  bump(key: string, period: number): void { try { const now = Date.now(); const row = this.one<{ count: number; expires: number }>('SELECT count,expires FROM op_rate_limits WHERE key=?', key); this.run('INSERT INTO op_rate_limits(key,count,expires) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET count=excluded.count,expires=excluded.expires', key, row && row.expires > now ? row.count + 1 : 1, row && row.expires > now ? row.expires : now + period); } catch { /* counting never breaks a sent transaction */ } }
+  /** Throws when today's shared budget is used up. Consumes nothing (pair with `bumpBudget`). */
+  peekBudget(key: string, limit: number, code: string): void { const day = Math.floor(Date.now() / 86_400_000); if ((this.one<{ count: number }>('SELECT count FROM op_rate_limits WHERE key=?', `${key}:${day}`)?.count ?? 0) >= limit) throw new ApiError(code, 429); }
+  bumpBudget(key: string): void { try { const day = Math.floor(Date.now() / 86_400_000); this.run('INSERT INTO op_rate_limits(key,count,expires) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1', `${key}:${day}`, (day + 2) * 86_400_000); } catch { /* never throws */ } }
   /** Consumes one unit of a shared daily budget; throws when exhausted. */
   budget(key: string, limit: number, code: string): void {
     const day = Math.floor(Date.now() / 86_400_000); const name = `${key}:${day}`;

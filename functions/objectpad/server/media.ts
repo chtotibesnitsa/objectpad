@@ -79,6 +79,27 @@ export function compactForProvider(bytes: Uint8Array, budget = 640_000): Uint8Ar
   return smallest;
 }
 
+/**
+ * Coin logo upload (3D snapshot or the creator's own image). JPEG is decoded and re-encoded, which drops EXIF/GPS; PNG keeps
+ * only its image chunks (no text or metadata chunks). Square-ish, 128–2048 px.
+ */
+export function normalizeIcon(bytes: Uint8Array): { bytes: Uint8Array; type: 'image/png' | 'image/jpeg' } {
+  const kind = imageKind(bytes); const size = imageDimensions(bytes);
+  if (!size || Math.min(size.width, size.height) < 128 || Math.max(size.width, size.height) > 2048 || Math.max(size.width, size.height) > 3 * Math.min(size.width, size.height)) throw new ApiError('ICON_INVALID', 422);
+  if (kind === 'jpeg') {
+    let decoded: Rgba;
+    try { const image = decodeJpeg(bytes, { useTArray: true, formatAsRGBA: true, tolerantDecoding: false, maxResolutionInMP: 4.3, maxMemoryUsageInMB: 64 }) as Rgba; decoded = { data: image.data, width: image.width, height: image.height }; } catch { throw new ApiError('ICON_INVALID', 422); }
+    return { bytes: new Uint8Array((encodeJpeg({ data: decoded.data, width: decoded.width, height: decoded.height }, 90) as { data: Uint8Array }).data), type: 'image/jpeg' };
+  }
+  const keep = new Set(['IHDR', 'PLTE', 'tRNS', 'IDAT', 'IEND']); const parts: Uint8Array[] = [bytes.subarray(0, 8)]; const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let offset = 8; offset + 12 <= bytes.length;) {
+    const length = view.getUint32(offset); const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)); const end = offset + 12 + length; if (end > bytes.length) throw new ApiError('ICON_INVALID', 422);
+    if (keep.has(type)) parts.push(bytes.subarray(offset, end)); offset = end; if (type === 'IEND') break;
+  }
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let at = 0; for (const p of parts) { out.set(p, at); at += p.length; }
+  return { bytes: out, type: 'image/png' };
+}
+
 export interface ModelInspection { inspection: GlbInspection; bounds: { min: number[]; max: number[] }; }
 /**
  * Validates a provider GLB for publication. Geometry bounds come from POSITION accessor min/max; textures are checked

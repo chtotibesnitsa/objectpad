@@ -1,12 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { DraftInput, Env, LaunchDraft, ObjectContext, Runtime, SavedSession } from './types';
-import { VIEWS, objectSpecsText, type BuildingCoin, normalizeObjectName, objectNameSeed, objectTagFrom, type Readiness, type SponsorStatus } from '../shared/domain';
+import type { DraftInput, Env, LaunchDraft, ObjectContext, RecordPayload, Runtime, SavedSession } from './types';
+import { VIEWS, objectSpecsText, type BuildingCoin, type CoinPreview, normalizeObjectName, objectNameSeed, objectTagFrom, type Readiness, type SponsorStatus } from '../shared/domain';
 import { ApiError, boundedBody, publicName, randomToken, requireOwner, safeTelegramUrl, safeXUrl, sha256, validAddress } from '../shared/security';
 import { MAX_IMAGE_BYTES, perceptualDistance } from '../shared/capture';
 import { verifyAccessToken } from './auth';
 import { Store } from './store';
 import { CaptureService, coinUrlFor } from './capture-service';
-import { RecordService } from './record-service';
+import { lastLaunchEvent, RecordService } from './record-service';
 import { probeToolkit, toolkitProbeStatus } from './toolkit';
 import { lastProviderEvent } from './meshy';
 import { SponsorService } from './sponsor';
@@ -14,7 +14,7 @@ import { HouseService } from './house';
 import { BurnService } from './burn';
 import { UniquenessService } from './uniqueness';
 import { MarketService } from './market';
-import { normalizeImage } from './media';
+import { normalizeIcon, normalizeImage } from './media';
 import { visionJson } from './ai';
 
 export const OBJECTPAD_CLASS = 'ObjectPad';
@@ -146,8 +146,8 @@ export class ObjectPad extends DurableObject<Env> {
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
     await this.exclusive(async () => {
-      try { await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
-      finally { if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
+      try { this.launchSoon = false; await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
+      finally { if (this.launchSoon) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
     });
   }
   private async schedule(delay: number): Promise<void> { try { await this.env.DO?.setAlarm(OBJECTPAD_CLASS, OBJECTPAD_INSTANCE, Date.now() + delay); } catch (error) { console.warn('objectpad.alarm.unavailable', error instanceof Error ? error.message.slice(0, 120) : ''); } }
@@ -176,13 +176,49 @@ export class ObjectPad extends DurableObject<Env> {
     const view = this.captures.publicSession(id); const record = this.store.one<{ id: string; state: string; payload: string }>('SELECT id,state,payload FROM op_records WHERE session_id=?', id);
     if (!record) {
       // Preview of exactly what the launch will write on-chain, once the 3D model exists.
-      const { session } = this.captures.load(id); let onchain: { objectName: string; objectTag: string; specs: string } | null = null;
-      if (session.model && session.manifestHash) { const base = normalizeObjectName(session.suggestion?.catalog || session.suggestion?.object || '') || 'Physical Object'; const taken = Number(this.store.one<{ n: number }>("SELECT COUNT(*) AS n FROM op_records WHERE json_extract(commitment,'$.objectName')=? OR json_extract(commitment,'$.objectName') LIKE ?", base, `${base} #%`)?.n ?? 0); const objectName = taken ? `${base} #${taken + 1}` : base; onchain = { objectName, objectTag: objectTagFrom(await sha256(objectNameSeed(objectName, session.model.originalHash, session.manifestHash))) , specs: objectSpecsText({ triangles: session.model.triangles, bounds: session.model.bounds, textures: session.model.textures, materials: session.suggestion?.materials, colors: session.suggestion?.colors, views: session.views.length }) }; }
-      return { ...view, onchain, launch: null };
+      const { session } = this.captures.load(id);
+      return { ...view, onchain: await this.onchainFor(session), launch: null };
     }
     const payload = JSON.parse(record.payload) as { token?: string; launchHash?: string; launchDataSuffix?: string; commitment: { objectName?: string; objectTag?: string; publicName: string }; symbol: string; feeVault?: string; feeRecipientKind?: string };
     const tx = this.store.one<{ state: string; tx_hash: string | null }>("SELECT state,tx_hash FROM op_transactions WHERE record_id=? AND kind='launch'", record.id);
     return { ...view, launch: { recordId: record.id, recordState: record.state, state: tx?.state ?? 'prepared', hash: tx?.tx_hash ?? null, token: payload.token ?? null, objectName: payload.commitment.objectName ?? null, objectTag: payload.commitment.objectTag ?? null, suffix: payload.launchDataSuffix ?? null, feeWallet: payload.feeVault ?? null, feeRecipientKind: payload.feeRecipientKind ?? 'creator' } };
+  }
+  /** The object name, tag and specs the launch will write on-chain, computed before the record exists. */
+  private async onchainFor(session: SavedSession): Promise<{ objectName: string; objectTag: string; specs: string } | null> {
+    if (!session.model || !session.manifestHash) return null;
+    const base = normalizeObjectName(session.suggestion?.catalog || session.suggestion?.object || '') || 'Physical Object'; const taken = Number(this.store.one<{ n: number }>("SELECT COUNT(*) AS n FROM op_records WHERE json_extract(commitment,'$.objectName')=? OR json_extract(commitment,'$.objectName') LIKE ?", base, `${base} #%`)?.n ?? 0); const objectName = taken ? `${base} #${taken + 1}` : base;
+    return { objectName, objectTag: objectTagFrom(await sha256(objectNameSeed(objectName, session.model.originalHash, session.manifestHash))), specs: objectSpecsText({ triangles: session.model.triangles, bounds: session.model.bounds, textures: session.model.textures, materials: session.suggestion?.materials, colors: session.suggestion?.colors, views: session.views.length }) };
+  }
+  /** Public, photo-free view of a coin before it's live: its 3D model, icon, AI object profile and SHA-256 fingerprints. */
+  private async coinPreview(code: string): Promise<CoinPreview | null> {
+    const row = this.store.one<{ id: string; payload: string }>("SELECT id,payload FROM op_capture_sessions WHERE object_id LIKE ? AND state NOT IN ('cancelled','expired','blocked') ORDER BY created_at DESC LIMIT 1", `${code}%`); if (!row) return null;
+    const s = JSON.parse(row.payload) as SavedSession;
+    const record = this.store.one<{ id: string; payload: string; state: string; moderation_state: string }>('SELECT id,payload,state,moderation_state FROM op_records WHERE session_id=?', row.id);
+    if (record && (record.moderation_state === 'hidden' || record.state === 'hidden')) return null;
+    const p = record ? JSON.parse(record.payload) as RecordPayload : null; const c = p?.commitment;
+    const tx = record ? this.store.one<{ tx_hash: string | null }>("SELECT tx_hash FROM op_transactions WHERE record_id=? AND kind='launch'", record.id) : null;
+    const model = ['model_review', 'approved'].includes(s.state) ? s.model : undefined; const onchain = model ? await this.onchainFor(s) : null;
+    return { code, name: c?.publicName ?? s.launchDraft?.publicName ?? s.suggestion?.name ?? 'New object', symbol: p?.symbol ?? s.launchDraft?.symbol ?? s.suggestion?.ticker ?? '', story: c?.story ?? s.launchDraft?.story ?? s.suggestion?.story ?? '', xUrl: c?.xUrl ?? s.launchDraft?.xUrl ?? '', telegram: c?.telegram ?? s.launchDraft?.telegram ?? '', iconUrl: s.icon?.url ?? model?.thumbnailUrl ?? null, modelUrl: model?.modelUrl ?? null, posterUrl: model?.thumbnailUrl ?? null, modelHash: model?.originalHash ?? null, manifestHash: model ? (s.manifestHash ?? null) : null, objectName: c?.objectName ?? onchain?.objectName ?? null, objectTag: c?.objectTag ?? onchain?.objectTag ?? null, specs: c?.objectSpecs ?? onchain?.specs ?? null, triangles: model?.triangles ?? null, textures: model?.textures ?? null, bounds: model?.bounds ?? null, colors: s.suggestion?.colors ?? [], materials: s.suggestion?.materials ?? [], category: s.suggestion?.catalog ?? s.suggestion?.object ?? '', views: s.views.length, stage: tx?.tx_hash ? 'launching' : model ? 'queued' : 'building', sealedAt: s.launchQueuedAt ?? 0, launchHash: tx?.tx_hash ?? null };
+  }
+  /** Coin icon upload: the automatic 3D snapshot or the creator's own image. Fixed once the launch is broadcast. */
+  private async setIcon(request: Request, id: string, owner: string): Promise<Record<string, unknown>> {
+    const type = request.headers.get('content-type') ?? ''; if (!['image/png', 'image/jpeg'].includes(type)) throw new ApiError('UNSUPPORTED_IMAGE', 415);
+    const source = request.headers.get('X-Icon-Source') === 'custom' ? 'custom' : 'snapshot';
+    const { session } = this.captures.load(id, owner);
+    if (['cancelled', 'expired', 'blocked'].includes(session.state)) throw new ApiError('CAPTURE_CLOSED', 409);
+    const record = this.store.one<{ id: string }>('SELECT id FROM op_records WHERE session_id=?', id);
+    if (record && this.store.one("SELECT id FROM op_transactions WHERE record_id=? AND kind='launch' AND tx_hash IS NOT NULL", record.id)) throw new ApiError('ICON_LOCKED', 409);
+    const modelHash = session.model?.optimizedHash;
+    if (source === 'snapshot') {
+      if (!modelHash || request.headers.get('X-Icon-Model') !== modelHash) throw new ApiError('MODEL_NOT_READY', 409);
+      // A creator's own image always wins over the automatic snapshot.
+      if (session.icon?.source === 'custom' || (session.icon?.source === 'snapshot' && session.icon.modelHash === modelHash)) return this.sessionView(id);
+    }
+    const icon = normalizeIcon(await boundedBody(request, 4_000_000)); const hash = await sha256(icon.bytes); const key = `objectpad/v1/artifacts/${hash}`;
+    await this.runtime.artifactBucket.put(key, icon.bytes, { httpMetadata: { contentType: icon.type } });
+    this.store.run('INSERT OR IGNORE INTO op_artifacts(hash,storage_key,kind,bytes,public,session_id) VALUES (?,?,?,?,?,?)', hash, key, 'icon', icon.bytes.byteLength, 0, id);
+    const fresh = this.captures.load(id).session; fresh.icon = { hash, url: `${this.runtime.apiOrigin}/api/artifacts/${hash}`, source, ...(source === 'snapshot' && modelHash ? { modelHash } : {}), setAt: Date.now() }; this.captures.save(fresh);
+    this.store.metric(source === 'custom' ? 'icon_custom' : 'icon_snapshot'); return this.sessionView(id);
   }
   private async user(request: Request): Promise<string> { if (!this.runtime.privyAppId) throw new ApiError('AUTH_NOT_CONFIGURED', 503); const bearer = request.headers.get('Authorization'); if (!bearer?.startsWith('Bearer ')) throw new ApiError('UNAUTHORIZED', 401); return verifyAccessToken(bearer.slice(7), this.runtime.privyAppId); }
   private assertOrigin(request: Request): void { if (!originAllowed(this.env, request.headers.get('Origin'))) throw new ApiError('ORIGIN_REJECTED', 403); }
@@ -196,11 +232,21 @@ export class ObjectPad extends DurableObject<Env> {
     this.store.run('INSERT OR IGNORE INTO op_profiles(owner,public_id,alias,rights,created_at) VALUES (?,?,?,?,?)', owner, publicId, alias, rights ? 1 : 0, Date.now()); this.store.metric('profile_created');
     return { publicId, alias, wallet: null, rightsAccepted: rights };
   }
+  /**
+   * A finished 3D model, its render and the coin icon are viewable on the coin's own link before launch (the link is what the
+   * creator shares). Capture photos are never artifacts and are never served publicly.
+   */
+  private previewable(kind: string, sessionId: string): boolean {
+    if (!['original', 'thumbnail', 'icon'].includes(kind)) return false;
+    const row = this.store.one<{ state: string }>('SELECT state FROM op_capture_sessions WHERE id=?', sessionId); if (!row || !['model_review', 'approved'].includes(row.state)) return false;
+    return !this.store.one("SELECT id FROM op_records WHERE session_id=? AND (moderation_state='hidden' OR state IN ('hidden','reorg_review'))", sessionId);
+  }
   private async artifact(request: Request, hash: string): Promise<Response> {
     const artifact = this.store.one<{ storage_key: string; kind: string; public: number; session_id: string }>('SELECT * FROM op_artifacts WHERE hash=?', hash); if (!artifact) throw new ApiError('NOT_FOUND', 404);
-    if (!artifact.public) await this.sessionAccess(request, artifact.session_id);
+    const preview = !artifact.public && this.previewable(artifact.kind, artifact.session_id);
+    if (!artifact.public && !preview) await this.sessionAccess(request, artifact.session_id);
     const object = await this.runtime.artifactBucket.get(artifact.storage_key); if (!object) throw new ApiError('ARTIFACT_UNAVAILABLE', 503);
-    return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata?.contentType ?? 'application/octet-stream', 'Content-Length': String(object.size), 'Cache-Control': artifact.public ? 'public,max-age=31536000,immutable' : 'private,no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'", 'Cross-Origin-Resource-Policy': 'cross-origin', ETag: `"${hash}"` } });
+    return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata?.contentType ?? 'application/octet-stream', 'Content-Length': String(object.size), 'Cache-Control': artifact.public ? 'public,max-age=31536000,immutable' : preview ? 'public,max-age=600' : 'private,no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'", 'Cross-Origin-Resource-Policy': 'cross-origin', ETag: `"${hash}"` } });
   }
   /** Phone upload: authorised by the single-use ticket plus the paired device secret. No sign-in on the phone. */
   private async upload(request: Request, ticketId: string): Promise<Response> {
@@ -321,6 +367,7 @@ export class ObjectPad extends DurableObject<Env> {
     const result = await this.records.launch(recordId, owner); await this.schedule(4_000); return { recordId, ...result };
   }
   /** Launches validated captures automatically (up to three attempts each); the creator can always retry manually. */
+  private launchSoon = false;
   private async autoLaunch(): Promise<void> {
     const rows = this.store.all<{ id: string }>("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') ORDER BY created_at ASC LIMIT 5"); if (!rows.length) return;
     // An empty sponsor wallet or spent daily budget pauses automatic launches without using up retry attempts.
@@ -330,9 +377,11 @@ export class ObjectPad extends DurableObject<Env> {
       const record = this.store.one<{ id: string; state: string }>('SELECT id,state FROM op_records WHERE session_id=?', row.id);
       if (record && (record.state !== 'prepared' || this.store.one("SELECT id FROM op_transactions WHERE record_id=? AND kind='launch' AND tx_hash IS NOT NULL", record.id))) continue;
       if (!funded) { if (session.failureCode !== 'SPONSOR_EMPTY') { session.failureCode = 'SPONSOR_EMPTY'; this.captures.save(session); } continue; }
+      // Freshly built model and no icon yet: give an open studio a moment to snapshot the 3D model as the coin icon.
+      if (!session.icon && session.model && Date.now() - session.model.generatedAt < 45_000) { this.launchSoon = true; continue; }
       session.autoLaunchAttempts = (session.autoLaunchAttempts ?? 0) + 1; delete session.failureCode; this.captures.save(session);
       try { await this.launchSession(row.id, session.owner); this.store.metric('autolaunch_submitted'); }
-      catch (error) { const code = error instanceof ApiError ? error.code : 'LAUNCH_FAILED'; const fresh = this.captures.load(row.id).session; fresh.failureCode = code; this.captures.save(fresh); this.store.metric(`autolaunch_${code.toLowerCase().slice(0, 40)}`); console.warn('objectpad.autolaunch', code); }
+      catch (error) { const code = error instanceof ApiError ? error.code : 'LAUNCH_FAILED'; const fresh = this.captures.load(row.id).session; fresh.failureCode = code; if (['SPONSOR_EMPTY', 'LAUNCH_BUDGET_REACHED', 'PONS_LAUNCH_PAUSED'].includes(code)) fresh.autoLaunchAttempts = Math.max(0, (fresh.autoLaunchAttempts ?? 1) - 1); this.captures.save(fresh); this.store.metric(`autolaunch_${code.toLowerCase().slice(0, 40)}`); console.warn('objectpad.autolaunch', code); }
     }
   }
   private engineCache: { at: number; value: Record<string, unknown> } | null = null;
@@ -368,14 +417,14 @@ export class ObjectPad extends DurableObject<Env> {
     if (method === 'GET' && shortMatch) {
       const record = this.store.all<{ id: string; state: string }>('SELECT id,state FROM op_records WHERE id LIKE ? LIMIT 2', `${shortMatch[1]}%`);
       if (record.length === 1 && record[0].state === 'confirmed') return json({ state: 'live', objectId: record[0].id, record: this.records.publicRecord(record[0].id) });
-      if (record.length === 1 || this.store.one('SELECT id FROM op_capture_sessions WHERE object_id LIKE ? LIMIT 1', `${shortMatch[1]}%`)) { await this.pollIfDue(); return json({ state: 'reserved', building: this.buildingCoins(shortMatch[1])[0] ?? null }); }
+      if (record.length === 1 || this.store.one('SELECT id FROM op_capture_sessions WHERE object_id LIKE ? LIMIT 1', `${shortMatch[1]}%`)) { await this.pollIfDue(); return json({ state: 'reserved', building: this.buildingCoins(shortMatch[1])[0] ?? null, preview: await this.coinPreview(shortMatch[1]) }); }
       throw new ApiError('NOT_FOUND', 404);
     }
     if (method === 'GET' && path === '/building') { await this.pollIfDue(); return json({ items: this.buildingCoins() }); }
     // $OBJECTPAD buyback & burn feed (public, real transactions only).
     if (method === 'GET' && path === '/burns') { if (this.burns.due()) await this.schedule(1_000); return json({ ...this.burns.summary(), items: this.burns.list() }); }
     // Live engine check from inside the backend: does the AI gateway and the 3D engine accept our key right now? Cached 2 min.
-    if (method === 'GET' && path === '/engine') return json({ ...await this.engineCheck(), lastProvider: lastProviderEvent });
+    if (method === 'GET' && path === '/engine') return json({ ...await this.engineCheck(), lastProvider: lastProviderEvent, lastLaunch: lastLaunchEvent });
     // Public pipeline heartbeat: anonymous recent capture states and failure codes (no ids, photos or owners). Live proof + diagnostics.
     if (method === 'GET' && path === '/pipeline') {
       const recent = this.store.all<{ state: string; payload: string; created_at: number }>('SELECT state,payload,created_at FROM op_capture_sessions ORDER BY created_at DESC LIMIT 12').map(row => { const s = JSON.parse(row.payload) as { failureCode?: string; job?: { state: string; progress: number }; views?: unknown[]; failureRetries?: number }; return { state: row.state, failureCode: s.failureCode ?? null, job: s.job ?? null, views: s.views?.length ?? 0, retries: s.failureRetries ?? 0, ageSec: Math.round((Date.now() - row.created_at) / 1000) }; });
@@ -388,13 +437,15 @@ export class ObjectPad extends DurableObject<Env> {
     // The phone joins a capture with the single-use QR token alone: no account, no sign-in.
     const claimMatch = path.match(/^\/sessions\/([a-f0-9-]{36})\/claim$/);
     if (method === 'POST' && claimMatch) { this.assertOrigin(request); this.store.rate(`claims:${await this.visitor(request)}`, 60, 3_600_000); const data = await body(request); return json(await this.captures.claim(claimMatch[1], string(data.token, 64))); }
-    const deviceMatch = path.match(/^\/sessions\/([a-f0-9-]{36})(?:\/(handoff|tickets|cancel|draft|launch|views|rescan)(?:\/([a-z-]+))?)?$/);
+    const deviceMatch = path.match(/^\/sessions\/([a-f0-9-]{36})(?:\/(handoff|tickets|cancel|draft|launch|views|rescan|icon)(?:\/([a-z-]+))?)?$/);
     if (deviceMatch && (request.headers.get('X-Capture-Device') || (request.headers.get('Authorization') ?? '').startsWith('Bearer g_') || (request.headers.get('Authorization') ?? '').startsWith('Bearer '))) {
       const [, id, action, view] = deviceMatch;
       if (method !== 'GET') this.assertOrigin(request);
       const owner = await this.sessionAccess(request, id);
       if (method !== 'GET') this.store.rate(`mutation:${owner}`, 120, 60_000);
       if (!action && method === 'GET') { await this.captures.ensureObjectId(id); await this.pollIfDue(); return json(await this.sessionView(id)); }
+      if (action === 'icon' && method === 'PUT') return json(await this.setIcon(request, id, owner));
+      if (action === 'icon' && method === 'DELETE') { const { session } = this.captures.load(id, owner); const record = this.store.one<{ id: string }>('SELECT id FROM op_records WHERE session_id=?', id); if (record && this.store.one("SELECT id FROM op_transactions WHERE record_id=? AND kind='launch' AND tx_hash IS NOT NULL", record.id)) throw new ApiError('ICON_LOCKED', 409); delete session.icon; this.captures.save(session); return json(await this.sessionView(id)); }
       if (method === 'POST') {
         if (action === 'handoff') return json(await this.captures.rotateHandoff(id, owner, this.handoffOrigin(request)));
         if (action === 'rescan') return json(await this.captures.rescan(id, owner));
@@ -409,7 +460,8 @@ export class ObjectPad extends DurableObject<Env> {
           if (!building && !['model_review', 'approved'].includes(session.state)) throw new ApiError('MODEL_NOT_READY', 409);
           if ((request.headers.get('content-type') ?? '').startsWith('application/json')) { const data = await body(request); if (Object.keys(data).length && !this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) { session.launchDraft = parseLaunchDraft(data); this.captures.save(session); } }
           if (owner.startsWith('guest:')) this.store.rate(`guest-launch:${await this.visitor(request)}`, 5, 86_400_000);
-          session.autoLaunch = true; session.launchQueuedAt = session.launchQueuedAt ?? Date.now(); this.captures.save(session);
+          // A tap is a fresh go-ahead: automatic retries start over from here.
+          session.autoLaunch = true; session.autoLaunchAttempts = 0; session.launchQueuedAt = session.launchQueuedAt ?? Date.now(); this.captures.save(session);
           if (building) { this.store.metric('launch_queued_building'); return json({ state: 'queued', reason: 'MODEL_BUILDING', session: await this.sessionView(id) }); }
           try { const result = await this.launchSession(id, owner); return json({ ...result, session: await this.sessionView(id) }); }
           catch (error) {

@@ -17,6 +17,7 @@ import { copyText, shortAddress } from '@/lib/format';
 import { usePreferences } from '@/hooks/use-preferences';
 import { ErrorState, Loading } from '@/components/Feedback';
 import { PrivateModel } from '@/components/PrivateModel';
+import { CoinIconPicker } from '@/components/CoinIconPicker';
 import { BuildLattice } from '@/components/BuildLattice';
 import { TxPanel, useLaunchTx } from '@/components/TxProof';
 import { AsciiReveal, EngineLog, useEngineLog } from '@/components/EngineLog';
@@ -195,9 +196,10 @@ function CoinPanel({ session, call, onSession }: { session: View; call: <T>(path
     <div className="mt-4 grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-2.5"><label className="field">Coin name<input {...form.register('publicName')} placeholder="Chubby Vinyl Frog" autoComplete="off" maxLength={32}/>{errors.publicName && <span className="text-xs text-down">{errors.publicName.message}</span>}</label><label className="field">Ticker<input {...form.register('symbol')} placeholder="FROG" autoComplete="off" maxLength={10} className="uppercase"/>{errors.symbol && <span className="text-xs text-down">{errors.symbol.message}</span>}</label></div>
     <label className="field mt-2.5">Description<textarea {...form.register('story')} rows={2} maxLength={280} placeholder="Where it came from, why it matters."/>{errors.story && <span className="text-xs text-down">{errors.story.message}</span>}</label>
     <div className="mt-2.5 grid gap-2.5 sm:grid-cols-2"><label className="field">X (optional)<input {...form.register('xUrl')} placeholder="https://x.com/handle" autoComplete="off"/>{errors.xUrl && <span className="text-xs text-down">{errors.xUrl.message}</span>}</label><label className="field">Telegram (optional)<input {...form.register('telegram')} placeholder="https://t.me/group" autoComplete="off"/>{errors.telegram && <span className="text-xs text-down">{errors.telegram.message}</span>}</label></div>
-    <label className="field mt-2.5">Website<span className="relative"><input value={coinPath} readOnly disabled aria-readonly="true" className="w-full cursor-not-allowed !bg-ink/[0.04] pr-10 font-mono text-sm !text-ink/70"/><Lock size={15} className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65"/></span><span className="text-[11px] font-normal text-ink/65">Your coin’s permanent ObjectPad page, fixed before launch. It becomes the chart, trade and 3D page.</span></label>
+    <label className="field mt-2.5">Website<span className="relative"><input value={coinPath} readOnly disabled aria-readonly="true" className="w-full cursor-not-allowed !bg-ink/[0.04] pr-10 font-mono text-sm !text-ink/70"/><Lock size={15} className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65"/></span><span className="text-[11px] font-normal text-ink/65">Your coin’s permanent ObjectPad page, fixed before launch. It shows your 3D model now and becomes the chart and trade page at launch.</span></label>
+    <CoinIconPicker session={session} call={call} onSession={onSession} className="mt-2.5"/>
     <label className="field mt-2.5">Fee wallet (optional)<span className="relative"><input {...form.register('feeWallet')} placeholder="0x… receives the 1.5% creator fee" autoComplete="off" className="w-full pr-10 font-mono text-sm"/><Wallet size={15} className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65"/></span>{errors.feeWallet ? <span className="text-xs text-down">{errors.feeWallet.message}</span> : <span className="text-[11px] font-normal text-ink/65">{creator.wallet ? 'Prefilled with your signed-in wallet.' : 'Leave empty: we create a dev wallet for you on this device at launch.'}</span>}</label>
-    {session.onchain && <div className="sunk mt-4 rounded-2xl p-3.5"><p className="spec flex items-center gap-1.5 !text-[11px]"><Cuboid size={11}/>Written into your launch transaction</p><p className="mt-1.5 text-[16px] font-extrabold">{session.onchain.objectName}</p><span className="chip-dark mt-1.5">{session.onchain.objectTag}</span></div>}
+    {session.onchain && <div className="sunk mt-4 rounded-2xl p-3.5"><p className="spec flex items-center gap-1.5 !text-[11px]"><Cuboid size={11}/>Written into your launch transaction</p><p className="mt-1.5 text-[16px] font-extrabold">{session.onchain.objectName}</p><span className="chip-dark mt-1.5">{session.onchain.objectTag}</span>{session.model && <p className="mt-2 flex items-center gap-1.5 font-mono text-[11px] font-bold text-ink/60"><Fingerprint size={12}/>3D sha256 {session.model.originalHash.slice(0, 10)}…{session.model.originalHash.slice(-6)}</p>}<p className="mt-1 text-[11.5px] font-semibold text-ink/55">Your object’s SHA-256 fingerprint goes on-chain, so this exact object can’t be copied or vamped.</p></div>}
     <button type="submit" disabled={!canSubmit || launch.isPending || queued} className="btn press group mt-5 min-h-[62px] w-full !justify-between pl-1.5 pr-5 text-[15.5px]">
       <span className="flex items-center gap-3"><span className="orb size-[50px]">{launch.isPending ? <LoaderCircle size={20} className="animate-spin"/> : <GlassIcon name={ready || building ? 'rocket' : 'mesh'} size={38} className="!filter-none"/>}</span>{queued ? 'Launch queued — building your 3D model' : launch.isPending ? 'Sealing & launching…' : !canSubmit ? 'Unlocks when your 3D model is ready' : ready ? (funded ? 'Launch my coin free' : 'Seal & queue free launch') : 'Launch now — sends the instant it’s built'}</span>{canSubmit ? <ArrowRight size={18}/> : <Lock size={16}/>}
     </button>
@@ -243,20 +245,20 @@ function DevWalletCard({ feeWallet }: { feeWallet: string | null }) {
   </div>;
 }
 
-/** Shown once the coin is launched but the 3D model hasn't finished yet: a photo placeholder, never a dead end. */
-function ModelPending({ session, download }: { session: View; download: (url: string) => Promise<Blob> }) {
-  const urls = useViewUrls(session, download); const cover = urls.front ?? Object.values(urls)[0];
+/** Shown once the coin is sealed but the 3D model hasn't finished yet: the build lattice, never the capture photos. */
+function ModelPending({ session }: { session: View }) {
   return <div className="raised relative flex h-[280px] items-center justify-center overflow-hidden rounded-[32px] bg-[#0F1115] sm:h-[360px]">
-    {cover && <img src={cover} alt="" className="absolute inset-0 size-full object-cover opacity-45 blur-[2px] saturate-0"/>}
+    <BuildLattice progress={session.job?.progress ?? 30} mode="build" className="absolute inset-0 opacity-70 invert"/>
     <div className="relative flex flex-col items-center gap-3 px-6 text-center">
       <span className="orb size-16 bg-white/90"><LoaderCircle size={26} className="animate-spin text-ink"/></span>
-      <p className="text-[17px] font-extrabold text-white">Coin launched. 3D model still processing.</p>
-      <p className="max-w-xs text-[13px] font-bold text-white/60">Your coin is already live on Robinhood Chain. The 3D model swaps in here the moment it finishes — no need to wait.</p>
+      <p className="text-[17px] font-extrabold text-white">Coin sealed. 3D model still building{session.job?.progress ? ` · ${Math.round(session.job.progress)}%` : ''}.</p>
+      <p className="max-w-xs text-[13px] font-bold text-white/60">It goes live on Robinhood Chain the moment the model is done. The 3D model swaps in here by itself.</p>
     </div>
   </div>;
 }
-function LaunchProgress({ session }: { session: View }) {
-  const launch = session.launch!; const tx = useLaunchTx(launch.hash); const [copied, setCopied] = useState<boolean>(false); const { play } = usePreferences();
+function LaunchProgress({ session, call, onSession }: { session: View; call: <T>(path: string, options?: Parameters<typeof api>[1]) => Promise<T>; onSession: (s: View) => void }) {
+  const launch = session.launch!; const tx = useLaunchTx(launch.hash); const [copied, setCopied] = useState<boolean>(false); const { play } = usePreferences(); const qc = useQueryClient();
+  const retry = useMutation({ mutationFn: () => call<{ state: string; hash?: string; session: View }>(`/sessions/${session.id}/launch`, { method: 'POST', body: {}, timeout: 90_000 }), onSuccess: data => { onSession(data.session); if (data.hash) play('seal'); void qc.invalidateQueries({ queryKey: ['objectpad', 'status'] }); } });
   const confirmed = launch.recordState === 'confirmed'; const review = launch.recordState === 'reorg_review' || launch.state === 'reorg_review'; const queued = !launch.hash && Boolean(session.failureCode);
   const stage = confirmed ? 3 : launch.hash ? 2 : 1; const coinPath = session.coinUrl ? new URL(session.coinUrl).pathname : null;
   useEffect(() => { if (confirmed) play('launch'); }, [confirmed, play]);
@@ -266,6 +268,10 @@ function LaunchProgress({ session }: { session: View }) {
       <div className="flex items-center gap-3">{confirmed ? <GlassIcon name="rocket" size={64} className="stamp"/> : review ? <AlertTriangle className="text-down"/> : queued ? <Inbox size={26}/> : <LoaderCircle size={26} className="animate-spin"/>}
         <div><p className="display text-2xl sm:text-3xl">{confirmed ? `$${session.launchDraft?.symbol ?? ''} is live.` : review ? 'Held for review' : queued ? 'Sealed & queued' : launch.hash ? 'Confirming on-chain…' : 'Sending launch…'}</p><p className="text-sm font-semibold text-ink/60">{confirmed ? 'Your object is now a coin on Robinhood Chain.' : review ? 'The receipt didn’t match the sealed record exactly, so it isn’t published yet.' : queued ? describeError(session.failureCode ?? 'SPONSOR_EMPTY') : 'Usually under a minute.'}</p></div></div>
       <ol className="mt-5 grid grid-cols-3 gap-2">{['Sealed', 'Sent', 'Confirmed'].map((label, i) => <li key={label} className={cn('flex min-h-11 items-center justify-center gap-1.5 rounded-full text-xs font-extrabold', i < stage ? 'raised text-ink' : 'sunk text-ink/65')}>{i < stage && <Check size={12} strokeWidth={3}/>}{label}</li>)}</ol>
+      {!launch.hash && !review && <><CoinIconPicker session={session} call={call} onSession={onSession} className="mt-5"/>
+        {queued && session.model && <button onClick={() => retry.mutate()} disabled={retry.isPending} className="btn press group mt-3 min-h-[58px] w-full !justify-between pl-1.5 pr-5 text-[15px]"><span className="flex items-center gap-3"><span className="orb size-[46px]">{retry.isPending ? <LoaderCircle size={18} className="animate-spin"/> : <GlassIcon name="rocket" size={34} className="!filter-none"/>}</span>{retry.isPending ? 'Sending your launch…' : 'Launch now'}</span><ArrowRight size={18}/></button>}
+        {retry.isError && <p role="alert" className="mt-2 rounded-2xl bg-down/[0.07] p-3 text-sm text-down">{retry.error.message}</p>}</>}
+      {coinPath && !confirmed && <Link to={coinPath} className="mt-3 inline-flex min-h-10 items-center gap-1 text-[13px] font-extrabold underline underline-offset-2">Open your coin link<ArrowUpRight size={13}/></Link>}
       {confirmed && coinPath && <div className="mt-5 flex flex-wrap gap-2"><Link to={coinPath} className="btn press min-h-12 px-5 text-sm">Open coin page<ArrowUpRight size={15}/></Link><button onClick={() => void copyText(session.coinUrl ?? '').then(setCopied)} className="btn-ghost press min-h-12 px-5 text-sm">{copied ? <Check size={15}/> : <Copy size={15}/>}{copied ? 'Copied' : 'Copy link'}</button><a href={`https://x.com/intent/post?text=${encodeURIComponent(share)}&url=${encodeURIComponent(session.coinUrl ?? '')}`} target="_blank" rel="noreferrer" className="btn-ghost press min-h-12 px-5 text-sm">Share on X<ExternalLink size={14}/></a></div>}
     </div>
     {confirmed && <DevWalletCard feeWallet={launch.feeWallet}/>}
@@ -328,7 +334,7 @@ export default function Studio() {
     <div className="mt-5"><Stepper session={session}/></div>
     <div className="mt-5 grid gap-4 lg:grid-cols-[1.3fr_1fr]">
       <div className="space-y-4">
-        {session.launch ? (session.model ? <PrivateModel session={session} height="h-[360px] sm:h-[480px]"/> : <ModelPending session={session} download={download}/>)
+        {session.launch ? (session.model ? <PrivateModel session={session} height="h-[360px] sm:h-[480px]"/> : <ModelPending session={session}/>)
           : capturing ? <Handoff session={session} call={call} download={download}/>
           : building ? <Building session={session} download={download}/>
           : modelReady ? <>
@@ -347,7 +353,7 @@ export default function Studio() {
         {reconstruct.isError && !building && <p className="text-sm text-down">{reconstruct.error.message}</p>}
       </div>
       <div className="space-y-4">
-        {session.launch ? <LaunchProgress session={session}/>
+        {session.launch ? <LaunchProgress session={session} call={call} onSession={setSession}/>
           : !TERMINAL.includes(session.state) && session.state !== 'failed' && (building || modelReady) ? <><CoinPanel session={session} call={call} onSession={setSession}/><SaveLink session={session}/></>
           : <div className="raised rounded-[30px] p-5 sm:p-6"><p className="lab">Next: 3D model → coin</p><p className="mt-3 text-[18px] font-extrabold">Launch unlocks once your 3D model is built.</p><ul className="mt-4 space-y-2">{([['mesh', 'One object, plain table, even daylight.'], ['qr', 'Keep it still. Move yourself around it.'], ['ai', 'AI names it and checks it’s one of one.'], ['shield', 'Six angles. The camera guides you.']] as [GlassName, string][]).map(([icon, text]) => <li key={text} className="sunk flex items-center gap-3 rounded-2xl p-2 pr-3"><GlassIcon name={icon} size={36}/><span className="text-[13.5px] font-bold text-ink/75">{text}</span></li>)}</ul></div>}
       </div>

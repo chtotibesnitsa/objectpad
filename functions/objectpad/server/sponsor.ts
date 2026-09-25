@@ -7,8 +7,8 @@ import { rpcUrl, serverClient } from './chain';
 import type { Runtime } from './types';
 import { Store } from './store';
 
-/** Upper bound for one launchAndBuy (measured ≈3.81M gas on 2026-09-23) plus headroom. */
-export const LAUNCH_GAS_BUDGET = 4_800_000n;
+/** One launchAndBuy with the on-chain object record appended (measured ≈4.14M gas on 2026-09-25) plus a small margin. */
+export const LAUNCH_GAS_BUDGET = 4_400_000n;
 /** Free launches per person per 24h, enforced per account/guest and per network. */
 export const PER_PERSON_DAILY = 5;
 

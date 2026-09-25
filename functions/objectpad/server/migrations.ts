@@ -67,4 +67,10 @@ export const MIGRATIONS = [
     'ALTER TABLE op_capture_sessions ADD COLUMN object_id TEXT',
     'CREATE INDEX IF NOT EXISTS op_capture_object ON op_capture_sessions(object_id)',
   ] },
+  { version: 8, statements: [
+    // Launch attempts that never broadcast (treasury short on gas headroom) used to count against the daily limits. Give them back.
+    "DELETE FROM op_rate_limits WHERE key LIKE 'launch:%' OR key LIKE 'launches:%' OR key LIKE 'guest-launch:%'",
+    // Sealed coins whose launch failed wait for their creator's one-tap "Launch now" (so the new coin icon can be set first).
+    "UPDATE op_capture_sessions SET payload=json_set(payload,'$.autoLaunchAttempts',3) WHERE state IN ('model_review','approved') AND EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='prepared' AND NOT EXISTS (SELECT 1 FROM op_transactions t WHERE t.record_id=r.id AND t.tx_hash IS NOT NULL))",
+  ] },
 ] as const;
