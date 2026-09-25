@@ -18,17 +18,19 @@ import { visionJson } from './ai';
 
 export const OBJECTPAD_CLASS = 'ObjectPad';
 export const OBJECTPAD_INSTANCE = 'objectpad-production-v1';
-export const DEFAULT_ORIGIN = 'https://objectpad.rork.app';
+export const DEFAULT_ORIGIN = 'https://objectpad.fun';
+/** ObjectPad's own production domains. Always allowed, whatever the env says. */
+const OWN_ORIGINS = new Set<string>(['https://objectpad.fun', 'https://www.objectpad.fun', 'https://objectpad.com', 'https://www.objectpad.com', 'https://objectpad.rork.app']);
 const DEFAULT_API_ORIGIN = 'https://objectpad-backend.rork.app';
 const PROJECT_ID = 'pdud1tb5ce6u6kv0hgpfl';
 const KEY_PROMPT = 'You verify an "Object Key" check-in. Image 1 is the original scan of a physical object. Image 2 is a new photo taken now. Decide whether image 2 shows the very same physical object (same shape, colours, materials and distinguishing marks; lighting and angle may differ). A photo of a screen, a printout, a different item of the same kind, or a digitally altered copy is NOT a match. Return JSON only: {"same": boolean, "confidence": number from 0 to 1, "reason": short phrase}.';
 
 const clean = (value: string | undefined): string => (value ?? '').trim().replace(/\/$/, '');
-export function canonicalOrigin(env: Env): string { const value = clean(env.OBJECTPAD_ORIGIN); return /^https:\/\/[a-z0-9.-]+$/i.test(value) ? value : DEFAULT_ORIGIN; }
+export function canonicalOrigin(env: Env): string { const value = clean(env.OBJECTPAD_ORIGIN); return /^https:\/\/[a-z0-9.-]+$/i.test(value) && !/\.rork\.(app|live)$/i.test(value) ? value : DEFAULT_ORIGIN; }
 /** Origins allowed to mutate state: the canonical site, explicitly listed origins and this project's own Rork hosts. */
 export function originAllowed(env: Env, origin: string | null): boolean {
   if (!origin) return false;
-  if (origin === canonicalOrigin(env) || clean(env.OBJECTPAD_ALLOWED_ORIGINS).split(',').map(clean).filter(Boolean).includes(origin)) return true;
+  if (OWN_ORIGINS.has(origin) || origin === canonicalOrigin(env) || clean(env.OBJECTPAD_ALLOWED_ORIGINS).split(',').map(clean).filter(Boolean).includes(origin)) return true;
   const project = clean(env.EXPO_PUBLIC_PROJECT_ID) || PROJECT_ID;
   return new RegExp(`^https://[a-z0-9-]*${project}[a-z0-9-]*\\.(?:rork\\.live|rork\\.app)$`).test(origin);
 }
