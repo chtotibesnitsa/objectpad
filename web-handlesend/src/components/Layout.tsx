@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom';
-import { Activity, BookOpen, Compass, Flame, Home, LogOut, ScanLine, Vault, Volume2, VolumeX, X, X as XLogo } from 'lucide-react';
+import { Activity, BookOpen, Compass, Flame, Home, LogOut, ScanLine, Vault, Volume2, VolumeX, X } from 'lucide-react';
 import { Brand } from './Brand';
 import { LiveTicker, ObjectPadCa } from './LiveTicker';
 import { BurnToasts } from './BurnToasts';
@@ -39,8 +39,11 @@ function TabStrip() {
   </nav>;
 }
 
+/** The real X (Twitter) wordmark, not lucide's generic close glyph. */
+function XLogo({ size = 15 }: { size?: number }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>; }
+
 /** Link to ObjectPad's official X account — social proof that this is a real, active project. */
-function XLink({ className = '' }: { className?: string }) { return <a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" aria-label="ObjectPad on X" className={`press flex items-center justify-center rounded-full bg-ink text-white transition-transform hover:scale-105 ${className}`}><XLogo size={15} strokeWidth={2.4}/></a>; }
+function XLink({ className = '' }: { className?: string }) { return <a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" aria-label="ObjectPad on X" className={`press flex items-center justify-center rounded-full bg-ink text-white transition-transform hover:scale-105 ${className}`}><XLogo size={15}/></a>; }
 
 /** Live treasury balance: the wallet that pays for every free launch. */
 function TreasuryChip() {
@@ -150,7 +153,7 @@ export default function Layout() {
       <div className="steel relative overflow-hidden rounded-[30px] p-6 sm:p-8">
         <AsciiObject src="/models/points/bull.json" cols={60} rows={22} className="absolute -right-6 -top-4 hidden text-[11.5px] text-ink/[0.08] md:block"/>
         <div className="relative grid gap-8 md:grid-cols-[1.1fr_1.6fr]">
-          <div><Brand/><p className="mt-4 max-w-xs text-[15px] font-bold leading-6 text-ink/75">Real objects. Scanned in 3D. Launched free on Robinhood Chain.</p><div className="mt-5 flex flex-wrap items-center gap-2"><Link to="/launch" className="btn press min-h-12 pl-1.5 pr-5 text-sm"><span className="orb size-9"><GlassIcon name="qr" size={26} className="!filter-none"/></span>Scan & launch free</Link><a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" className="btn-ghost press min-h-12 px-4 text-sm"><XLogo size={15} strokeWidth={2.4}/>@ObjectPadFun</a></div></div>
+          <div><Brand/><p className="mt-4 max-w-xs text-[15px] font-bold leading-6 text-ink/75">Real objects. Scanned in 3D. Launched free on Robinhood Chain.</p><div className="mt-5 flex flex-wrap items-center gap-2"><Link to="/launch" className="btn press min-h-12 pl-1.5 pr-5 text-sm"><span className="orb size-9"><GlassIcon name="qr" size={26} className="!filter-none"/></span>Scan & launch free</Link><a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" className="btn-ghost press min-h-12 px-4 text-sm"><XLogo size={15}/>@ObjectPadFun</a></div></div>
           <div className="grid grid-cols-2 gap-6 text-sm font-bold sm:grid-cols-3">
             <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Discover</span><Link to="/explore">Object coins</Link><Link to="/explore?tab=market">Live market</Link><Link to="/burn">$OBJECTPAD burn</Link><Link to="/treasury">Treasury</Link></div>
             <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Create</span><Link to="/launch">Scan & launch</Link><Link to="/inventory">Saved scans</Link><Link to="/earnings">Creator earnings</Link><Link to="/craft">Crafting Table</Link></div>
