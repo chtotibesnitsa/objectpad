@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.RorkApp" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#0A0A0B</item>
-        <item name="android:statusBarColor">#0A0A0B</item>
-        <item name="android:navigationBarColor">#0A0A0B</item>
-        <item name="android:windowLightStatusBar">false</item>
+    <style name="Theme.ObjectPad" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#ECEEF1</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

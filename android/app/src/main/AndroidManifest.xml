@@ -2,19 +2,28 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
 
     <application
-        android:allowBackup="true"
+        android:name=".ObjectPadApp"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="CasePad"
+        android:label="ObjectPad"
         android:supportsRtl="true"
-        android:theme="@style/Theme.RorkApp">
+        android:theme="@style/Theme.ObjectPad">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:theme="@style/Theme.RorkApp">
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.ObjectPad">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -23,8 +32,25 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="casepad.fun" />
-                <data android:scheme="https" android:host="www.casepad.fun" />
+                <data android:scheme="https" android:host="objectpad.fun" />
+                <data android:scheme="https" android:host="www.objectpad.fun" />
+                <data android:pathPrefix="/capture/claim" />
+                <data android:pathPrefix="/launch" />
+                <data android:pathPrefix="/objects/" />
+                <data android:pathPrefix="/coin/" />
+            </intent-filter>
+        </activity>
+
+        <!-- Privy X / Twitter sign-in redirect (objectpad://), registered as an allowed scheme on the Privy app client. -->
+        <activity
+            android:name="io.privy.sdk.oAuth.PrivyRedirectActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="objectpad" />
             </intent-filter>
         </activity>
     </application>

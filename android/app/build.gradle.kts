@@ -6,15 +6,16 @@ plugins {
 }
 
 android {
-    namespace = "com.rork.tagstock"
+    namespace = "com.objectpad.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.rork.tagstock"
-        minSdk = 24
+        applicationId = "fun.objectpad.app"
+        // Privy's native sign-in SDK requires Android 9 (API 28) or newer.
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
     }
 
     buildTypes {
@@ -36,6 +37,19 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/INDEX.LIST",
+                "META-INF/*.kotlin_module",
+            )
+        }
     }
 }
 
@@ -61,10 +75,18 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.json)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
-    implementation(libs.koin.androidx.compose)
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.zxing.core)
+    implementation(libs.bouncycastle)
+    implementation(libs.privy.core)
+    implementation(libs.androidx.webkit)
     debugImplementation(libs.androidx.ui.tooling)
 }

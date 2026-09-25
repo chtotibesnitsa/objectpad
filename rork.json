@@ -12,7 +12,7 @@
       "framework": "cloudflare"
     },
     {
-      "name": "CasePad Android",
+      "name": "ObjectPad Android",
       "path": "android",
       "framework": "kotlin"
     },

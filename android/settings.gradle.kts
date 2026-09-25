@@ -18,5 +18,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "tagstock"
+rootProject.name = "objectpad"
 include(":app")
