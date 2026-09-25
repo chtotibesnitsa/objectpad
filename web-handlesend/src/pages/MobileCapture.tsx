@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Camera, Check, Hand, LoaderCircle, RotateCcw, ScanLine, Sun, AlertTriangle, Smartphone, Cuboid, X } from 'lucide-react';
 import { api, RequestError } from '@/lib/api';
-import { deviceSecret, saveDeviceSecret, useSessionCaller } from '@/lib/creator';
+import { deviceSecret, forgetDeviceScan, lastDeviceScan, saveDeviceSecret, useSessionCaller } from '@/lib/creator';
 import { usePreferences } from '@/hooks/use-preferences';
 import { PointCloud } from '@/components/PointCloud';
 import { MEMES } from '@/lib/memes';
@@ -31,9 +31,18 @@ const deg = Math.PI / 180;
 
 function readHandoff(): { id: string; token: string } {
   const params = new URLSearchParams(location.hash.slice(1)); const fresh = { id: params.get('session') ?? '', token: params.get('token') ?? '' };
+  // #session=<id> without a token: resume a scan this phone is already paired to.
+  if (fresh.id && !fresh.token && /^[a-f0-9-]{36}$/.test(fresh.id)) { history.replaceState(null, '', location.pathname); return fresh; }
   if (fresh.id && fresh.token) { try { sessionStorage.setItem(PENDING, JSON.stringify({ ...fresh, expires: Date.now() + 600_000 })); } catch { /* ignore */ } history.replaceState(null, '', location.pathname); return fresh; }
   try { const saved = JSON.parse(sessionStorage.getItem(PENDING) ?? 'null') as { id: string; token: string; expires: number } | null; if (saved && saved.expires > Date.now()) return saved; } catch { /* ignore */ }
+  // The page reloaded (or the tab was reopened) after pairing: link straight back to the last paired scan.
+  const last = lastDeviceScan(); if (last) return { id: last, token: '' };
   return fresh;
+}
+/** Moves this phone to the linked follow-up scan (after a rescan on either device), keeping its pairing. */
+function followScan(from: string, to: string): void {
+  const secret = deviceSecret(from); forgetDeviceScan(from); if (secret) saveDeviceSecret(to, secret);
+  window.location.replace(`/capture/claim?s=${to.slice(0, 8)}#session=${to}`);
 }
 /** Direction the rear camera looks, from W3C device orientation (Z-X'-Y'' Euler): compass-like heading and pitch. */
 function poseFrom(event: DeviceOrientationEvent): Pose | null {
@@ -151,6 +160,7 @@ export default function MobileCapture() {
   const saveOrbit = () => { try { sessionStorage.setItem(`objectpad.orbit.${id}`, JSON.stringify(orbit.current)); } catch { /* ignore */ } };
 
   const adopt = useCallback((next: CaptureSession) => {
+    if (next.successor) { followScan(next.id, next.successor); return; }
     setSession(next);
     if (!['awaiting_mobile', 'capturing', 'review'].includes(next.state)) { navigate(`/launch/${next.id}`, { replace: true }); return; }
     setPhase(current => current === 'pair' ? (next.views.length >= VIEWS.length ? 'review' : 'intro') : current);
@@ -160,13 +170,15 @@ export default function MobileCapture() {
     let cancelled = false;
     (async () => {
       if (deviceSecret(id)) { try { const s = await call<CaptureSession>(`/sessions/${id}`); if (!cancelled) adopt(s); return; } catch { /* fall through to a fresh claim */ } }
-      if (!handoff.token) { setPairError('This scan isn’t paired with this phone. Show a new QR code on your computer.'); return; }
+      if (!handoff.token) { setPairError('This phone isn’t linked to a scan right now. Scan the QR code on your computer again to link back to what you’re working on.'); return; }
       try { const data = await api<{ session: CaptureSession; claimSecret: string }>(`/sessions/${id}/claim`, { method: 'POST', body: { token: handoff.token } }); saveDeviceSecret(id, data.claimSecret); try { sessionStorage.removeItem(PENDING); } catch { /* ignore */ } play('handoff'); if (!cancelled) adopt(data.session); }
       catch (error) { if (!cancelled) setPairError(error instanceof RequestError && error.code === 'HANDOFF_EXPIRED_OR_USED' ? 'This QR code was already used or expired. Tap “New code” on your computer and scan again.' : error instanceof Error ? error.message : 'The scan could not be opened.'); }
     })();
     return () => { cancelled = true; };
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Stay in sync with the computer while scanning: a rescan there moves this phone to the new scan too.
+  useEffect(() => { if (!session || phase === 'pair') return; const t = setInterval(() => { void call<CaptureSession>(`/sessions/${id}`).then(s => { if (s.successor) followScan(s.id, s.successor); else if (!['awaiting_mobile', 'capturing', 'review'].includes(s.state)) navigate(`/launch/${s.id}`, { replace: true }); }).catch(() => undefined); }, 4000); return () => clearInterval(t); }, [session !== null, phase, id, call, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
   const accepted = useMemo(() => new Set<ViewId>(session?.views.map(v => v.view) ?? []), [session]);
   const covered = useMemo(() => new Set<ViewId>([...accepted, ...shots.filter(s => s.status !== 'rejected').map(s => s.view)]), [accepted, shots]);
   const target = ORDER.find(view => !covered.has(view)) ?? null; const targetRef = useRef<ViewId | null>(target); targetRef.current = target;

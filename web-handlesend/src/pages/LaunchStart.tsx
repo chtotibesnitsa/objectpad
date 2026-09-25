@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { LoaderCircle, RefreshCw } from 'lucide-react';
-import { openScan } from '@/lib/handoff';
+import { openScan, resumeDeviceScan } from '@/lib/handoff';
 import { isPhone, useCreator } from '@/lib/creator';
 import { useTreasury } from '@/lib/treasury';
 import { MEMES, type MemeExhibit } from '@/lib/memes';
@@ -21,6 +21,8 @@ export default function LaunchStart() {
   const start = useCallback(async () => {
     setError(null);
     try {
+      // A phone linked to a computer's scan carries on with that scan instead of starting an unlinked one.
+      if (phone) { const linked = await resumeDeviceScan(); if (linked) { navigate(`/capture/claim#session=${linked}`, { replace: true }); return; } }
       const scan = await openScan(creator.token);
       if (phone && scan.url) { navigate(`/capture/claim${new URL(scan.url).hash}`, { replace: true }); return; }
       navigate(`/launch/${scan.session.id}`, { replace: true });

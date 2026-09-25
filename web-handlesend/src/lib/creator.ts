@@ -18,7 +18,11 @@ export async function ensureGuestToken(): Promise<string> {
 }
 /** Secret that pairs this phone with one capture session (issued when the QR code is claimed). */
 export function deviceSecret(id: string): string | null { try { const value = localStorage.getItem(deviceKey(id)); return value && /^[a-f0-9]{64}$/.test(value) ? value : null; } catch { return null; } }
-export function saveDeviceSecret(id: string, secret: string): void { try { localStorage.setItem(deviceKey(id), secret); } catch { /* ignore */ } }
+export function saveDeviceSecret(id: string, secret: string): void { try { localStorage.setItem(deviceKey(id), secret); localStorage.setItem(LAST_DEVICE, id); } catch { /* ignore */ } }
+const LAST_DEVICE = 'objectpad.device.last';
+/** The scan this phone was last paired to by QR, so a reload or a closed tab can link straight back to it. */
+export function lastDeviceScan(): string | null { try { const id = localStorage.getItem(LAST_DEVICE); return id && /^[a-f0-9-]{36}$/.test(id) && deviceSecret(id) ? id : null; } catch { return null; } }
+export function forgetDeviceScan(id: string): void { try { if (localStorage.getItem(LAST_DEVICE) === id) localStorage.removeItem(LAST_DEVICE); } catch { /* ignore */ } }
 /** Phones and tablets get the in-browser scanner; desktops get a QR code that moves the same session to a phone. */
 export function isPhone(): boolean {
   if (typeof navigator === 'undefined') return false;

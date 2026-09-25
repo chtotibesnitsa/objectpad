@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
-import { ensureGuestToken, useCreator } from './creator';
+import { deviceSecret, ensureGuestToken, lastDeviceScan, saveDeviceSecret, useCreator } from './creator';
 import type { CaptureSession } from '@/shared/domain';
 
 const KEY = 'objectpad.pending';
@@ -14,6 +14,22 @@ export async function withTimeout(pending: Promise<string>, ms: number): Promise
 /** Opens the private scan without ever waiting on sign-in: account token if it answers within 2.5s, else the guest token. */
 export async function openScan(token: () => Promise<string>): Promise<ScanLink> {
   return Promise.race([ensureScan(await withTimeout(token(), 2500)), new Promise<ScanLink>((_, reject) => setTimeout(() => reject(new Error('The scanner took too long to open. Tap Try again.')), 20_000))]);
+}
+/**
+ * The scan this phone is linked to by QR (following any rescans), if it is still taking photos. Lets a phone that
+ * reloaded, closed its tab or tapped "Scan" carry on with the computer's scan instead of starting an unlinked one.
+ */
+export async function resumeDeviceScan(): Promise<string | null> {
+  let id = lastDeviceScan();
+  for (let hop = 0; id && hop < 4; hop++) {
+    const secret = deviceSecret(id); if (!secret) return null;
+    try {
+      const session = await api<CaptureSession>(`/sessions/${id}`, { headers: { 'X-Capture-Device': secret } });
+      if (session.successor) { saveDeviceSecret(session.successor, secret); id = session.successor; continue; }
+      return OPEN.includes(session.state) && session.expiresAt > Date.now() ? id : null;
+    } catch { return null; }
+  }
+  return null;
 }
 /** A private scan for this browser plus its single-use phone link. */
 export interface ScanLink { session: CaptureSession; url: string; expires: number; }

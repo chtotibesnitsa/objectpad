@@ -10,6 +10,7 @@ import { RecordService } from './record-service';
 import { probeToolkit, toolkitProbeStatus } from './toolkit';
 import { SponsorService } from './sponsor';
 import { HouseService } from './house';
+import { BurnService } from './burn';
 import { UniquenessService } from './uniqueness';
 import { MarketService } from './market';
 import { normalizeImage } from './media';
@@ -88,13 +89,13 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
     this.runtime = { env, origin: canonicalOrigin(env), apiOrigin: clean(env.OBJECTPAD_API_ORIGIN) || clean(env.EXPO_PUBLIC_RORK_FUNCTIONS_URL) || DEFAULT_API_ORIGIN, privyAppId: (env.OBJECTPAD_PRIVY_APP_ID || env.VITE_PRIVY_APP_ID || '').trim(), toolkitUrl: clean(env.EXPO_PUBLIC_TOOLKIT_URL) || 'https://toolkit.rork.com', toolkitKey: (env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY ?? '').trim(), privateBucket: this.store.bucket('private'), artifactBucket: this.store.bucket('artifacts') };
     this.captures = new CaptureService(this.store, this.runtime); this.sponsor = new SponsorService(this.store, this.runtime); this.records = new RecordService(this.store, this.runtime, this.captures, this.sponsor);
-    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor);
+    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
   }
   private exclusive<T>(action: () => Promise<T>): Promise<T> { const run = this.queue.then(action, action); this.queue = run.then(() => {}, () => {}); return run; }
@@ -124,8 +125,8 @@ export class ObjectPad extends DurableObject<Env> {
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
     await this.exclusive(async () => {
-      try { await this.captures.poll(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
-      finally { if (this.records.hasPending()) await this.schedule(6_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.captures.hasActiveJobs()) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
+      try { await this.captures.poll(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
+      finally { if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
     });
   }
   private async schedule(delay: number): Promise<void> { try { await this.env.DO?.setAlarm(OBJECTPAD_CLASS, OBJECTPAD_INSTANCE, Date.now() + delay); } catch (error) { console.warn('objectpad.alarm.unavailable', error instanceof Error ? error.message.slice(0, 120) : ''); } }
@@ -254,6 +255,16 @@ export class ObjectPad extends DurableObject<Env> {
       catch (error) { const code = error instanceof ApiError ? error.code : 'LAUNCH_FAILED'; const fresh = this.captures.load(row.id).session; fresh.failureCode = code; this.captures.save(fresh); this.store.metric(`autolaunch_${code.toLowerCase().slice(0, 40)}`); console.warn('objectpad.autolaunch', code); }
     }
   }
+  private engineCache: { at: number; value: Record<string, unknown> } | null = null;
+  private async engineCheck(): Promise<Record<string, unknown>> {
+    if (this.engineCache && Date.now() - this.engineCache.at < 120_000) return this.engineCache.value;
+    const auth = { Authorization: `Bearer ${this.runtime.toolkitKey}` }; const t0 = Date.now();
+    const mesh = await fetch(`${this.runtime.toolkitUrl}/v2/meshy/openapi/v1/multi-image-to-3d/00000000-0000-0000-0000-000000000000`, { headers: auth, signal: AbortSignal.timeout(10_000) }).then(r => r.status, () => 0); const meshMs = Date.now() - t0;
+    const t1 = Date.now(); let vision = 0; let visionModel = '';
+    for (const model of ['google/gemini-3.5-flash', 'openai/gpt-5.4-mini']) { vision = await fetch(`${this.runtime.toolkitUrl}/v2/vercel/v1/chat/completions`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply ok' }] }), signal: AbortSignal.timeout(15_000) }).then(r => r.status, () => 0); visionModel = model; if (vision === 200) break; }
+    const value = { checkedAt: Date.now(), keyConfigured: Boolean(this.runtime.toolkitKey), engine3d: { status: mesh, authorized: mesh !== 0 && mesh !== 401 && mesh !== 403, ms: meshMs }, vision: { status: vision, ok: vision === 200, model: visionModel, ms: Date.now() - t1 } };
+    this.engineCache = { at: Date.now(), value }; return value;
+  }
   private operator(owner: string): void { if (!(this.env.OBJECTPAD_OPERATOR_DIDS ?? '').split(',').map(v => v.trim()).filter(Boolean).includes(owner)) throw new ApiError('FORBIDDEN', 403); }
   /** Opportunistic polling while a creator watches progress, in addition to the durable alarm. */
   private async pollIfDue(): Promise<void> {
@@ -280,12 +291,23 @@ export class ObjectPad extends DurableObject<Env> {
       if (record.length === 1 || this.store.one('SELECT id FROM op_capture_sessions WHERE object_id LIKE ? LIMIT 1', `${shortMatch[1]}%`)) return json({ state: 'reserved' });
       throw new ApiError('NOT_FOUND', 404);
     }
+    // $OBJECTPAD buyback & burn feed (public, real transactions only).
+    if (method === 'GET' && path === '/burns') { if (this.burns.due()) await this.schedule(1_000); return json({ ...this.burns.summary(), items: this.burns.list() }); }
+    // Live engine check from inside the backend: does the AI gateway and the 3D engine accept our key right now? Cached 2 min.
+    if (method === 'GET' && path === '/engine') return json(await this.engineCheck());
+    // Public pipeline heartbeat: anonymous recent capture states and failure codes (no ids, photos or owners). Live proof + diagnostics.
+    if (method === 'GET' && path === '/pipeline') {
+      const recent = this.store.all<{ state: string; payload: string; created_at: number }>('SELECT state,payload,created_at FROM op_capture_sessions ORDER BY created_at DESC LIMIT 12').map(row => { const s = JSON.parse(row.payload) as { failureCode?: string; job?: { state: string; progress: number }; views?: unknown[]; failureRetries?: number }; return { state: row.state, failureCode: s.failureCode ?? null, job: s.job ?? null, views: s.views?.length ?? 0, retries: s.failureRetries ?? 0, ageSec: Math.round((Date.now() - row.created_at) / 1000) }; });
+      const jobs = this.store.all<{ state: string; updated_at: number }>('SELECT state,updated_at FROM op_reconstruction_jobs ORDER BY updated_at DESC LIMIT 12');
+      const metrics = this.store.all<{ name: string; value: number }>("SELECT name,value FROM op_metrics WHERE name LIKE 'reconstruction%' OR name LIKE 'glb%' OR name LIKE 'provider%' OR name LIKE 'model%' OR name LIKE 'screening%' OR name LIKE 'frame%' OR name LIKE 'pipeline%' ORDER BY name");
+      return json({ recent, jobs, metrics });
+    }
     // Account-free creators: one guest token per browser, rate-limited per network.
     if (method === 'POST' && path === '/guests') { this.assertOrigin(request); this.store.rate(`guests:${await this.visitor(request)}`, 30, 86_400_000); const token = `g_${randomToken()}`; const id = crypto.randomUUID(); this.store.run('INSERT INTO op_guests(id,token_hash,created_at) VALUES (?,?,?)', id, await sha256(token), Date.now()); this.store.metric('guest_created'); return json({ token }); }
     // The phone joins a capture with the single-use QR token alone: no account, no sign-in.
     const claimMatch = path.match(/^\/sessions\/([a-f0-9-]{36})\/claim$/);
     if (method === 'POST' && claimMatch) { this.assertOrigin(request); this.store.rate(`claims:${await this.visitor(request)}`, 60, 3_600_000); const data = await body(request); return json(await this.captures.claim(claimMatch[1], string(data.token, 64))); }
-    const deviceMatch = path.match(/^\/sessions\/([a-f0-9-]{36})(?:\/(handoff|tickets|cancel|draft|launch|views)(?:\/([a-z-]+))?)?$/);
+    const deviceMatch = path.match(/^\/sessions\/([a-f0-9-]{36})(?:\/(handoff|tickets|cancel|draft|launch|views|rescan)(?:\/([a-z-]+))?)?$/);
     if (deviceMatch && (request.headers.get('X-Capture-Device') || (request.headers.get('Authorization') ?? '').startsWith('Bearer g_') || (request.headers.get('Authorization') ?? '').startsWith('Bearer '))) {
       const [, id, action, view] = deviceMatch;
       if (method !== 'GET') this.assertOrigin(request);
@@ -294,6 +316,7 @@ export class ObjectPad extends DurableObject<Env> {
       if (!action && method === 'GET') { await this.captures.ensureObjectId(id); await this.pollIfDue(); return json(await this.sessionView(id)); }
       if (method === 'POST') {
         if (action === 'handoff') return json(await this.captures.rotateHandoff(id, owner, this.handoffOrigin(request)));
+        if (action === 'rescan') return json(await this.captures.rescan(id, owner));
         if (action === 'cancel') { await this.captures.cancel(id, owner); return json({ state: 'cancelled', providerCancellation: 'not_guaranteed' }); }
         if (action === 'tickets') { const data = await body(request); return json(await this.captures.ticket(id, owner, string(data.view, 30), request.headers.get('X-Capture-Device'))); }
         if (action === 'draft') { const data = await body(request); const { session } = this.captures.load(id, owner); if (this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) throw new ApiError('RECORD_ALREADY_COMMITTED', 409); if (['cancelled', 'blocked', 'failed', 'expired'].includes(session.state)) throw new ApiError('CAPTURE_CLOSED', 409); session.launchDraft = parseLaunchDraft(data); this.captures.save(session); return json(await this.sessionView(id)); }

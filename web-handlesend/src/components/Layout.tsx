@@ -3,6 +3,7 @@ import { NavLink, Outlet, Link, useLocation } from 'react-router-dom';
 import { Activity, BookOpen, Compass, Flame, Home, LogOut, ScanLine, Vault, Volume2, VolumeX, X } from 'lucide-react';
 import { Brand } from './Brand';
 import { LiveTicker, ObjectPadCa } from './LiveTicker';
+import { BurnToasts } from './BurnToasts';
 import { CryptoBackdrop, AsciiObject } from './AsciiField';
 import { GlassIcon, type GlassName } from './GlassIcon';
 import { useSession } from '@/lib/session';
@@ -137,7 +138,7 @@ export default function Layout() {
       <div className="raised rounded-[24px] p-5">
         <div className="flex items-center justify-between gap-3"><Brand/><button onClick={toggleSound} className="flex min-h-11 items-center gap-2 text-[13px] font-bold text-ink/65" aria-pressed={sound}>{sound ? <Volume2 size={16}/> : <VolumeX size={16}/>}Sound</button></div>
         <div className="mt-4 rounded-2xl bg-ink/[0.04] px-3.5 py-3 font-mono text-[12px] uppercase"><ObjectPadCa className="flex-wrap"/><p className="mt-1.5 font-bold text-ink/55">Chain 4663 · Robinhood Chain</p></div>
-        <p className="mt-4 text-[12px] font-medium leading-5 text-ink/60">ObjectPad is not affiliated with, endorsed by or officially connected with Robinhood Markets, Inc. A scan record does not prove ownership, authenticity or value. Coins carry no redemption right. SIM coins run simulated markets and cannot be traded.</p>
+        <p className="mt-4 text-[12px] font-medium leading-5 text-ink/60">ObjectPad is not affiliated with, endorsed by or officially connected with Robinhood Markets, Inc. A scan record does not prove ownership, authenticity or value. Coins carry no redemption right.</p>
       </div>
     </footer>}
     {!scanning && <footer className="mt-16 hidden pb-8 lg:block"><div className="page">
@@ -157,5 +158,6 @@ export default function Layout() {
     </div></footer>}
     {!scanning && <BottomBar onMore={() => setDrawer(true)}/>}
     <Drawer open={drawer} onClose={() => setDrawer(false)}/>
+    {!scanning && <BurnToasts/>}
   </>;
 }

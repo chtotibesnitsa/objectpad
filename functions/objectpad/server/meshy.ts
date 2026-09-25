@@ -1,7 +1,7 @@
 import { ApiError, boundedBody } from '../shared/security';
 import { GLB_LIMIT } from '../shared/glb';
-import { inspectModel, type ModelInspection } from './media';
-export interface ReconstructionTask { id: string; status: 'PENDING' | 'IN_PROGRESS' | 'SUCCEEDED' | 'FAILED' | 'CANCELED'; progress: number; model_urls?: { glb?: string }; thumbnail_url?: string; consumed_credits?: number; task_error?: { message?: string } | null; }
+import { compactForProvider, inspectModel, type ModelInspection } from './media';
+export interface ReconstructionTask { id: string; status: 'PENDING' | 'IN_PROGRESS' | 'SUCCEEDED' | 'FAILED' | 'CANCELED'; progress: number; preceding_tasks?: number; created_at?: number; started_at?: number; finished_at?: number; model_urls?: { glb?: string }; thumbnail_url?: string; consumed_credits?: number; task_error?: { message?: string } | null; }
 export interface ReconstructionProvider {
   createTask(images: Uint8Array[]): Promise<string>;
   getTask(id: string): Promise<ReconstructionTask>;
@@ -10,7 +10,7 @@ export interface ReconstructionProvider {
   validateArtifacts(bytes: Uint8Array): ModelInspection;
 }
 const ARTIFACT_HOSTS = ['assets.meshy.ai', 'assets.meshy.ai.cn'];
-export const MESHY_MODEL = 'meshy-7.1';
+export const MESHY_MODEL = 'meshy-7';
 /**
  * Meshy Multi-Image to 3D (POST /openapi/v1/multi-image-to-3d, GET /openapi/v1/multi-image-to-3d/:id) reached through
  * the Rork Toolkit proxy, which injects the provider credential server-side. Request fields were verified against the
@@ -23,13 +23,18 @@ export class MeshyProvider implements ReconstructionProvider {
     if (!this.toolkitKey) throw new ApiError('RECONSTRUCTION_NOT_CONFIGURED', 503);
     let response: Response;
     try { response = await this.fetcher(`${this.toolkitUrl}/v2/meshy/openapi/v1/multi-image-to-3d${path}`, { method, headers: { Authorization: `Bearer ${this.toolkitKey}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(method === 'POST' ? 55_000 : 20_000), redirect: 'error' }); }
-    catch { throw new ApiError('PROVIDER_REQUEST_FAILED', 502); }
-    if (!response.ok) { console.warn('objectpad.meshy.http', method, response.status); if (response.status === 402) throw new ApiError('PROVIDER_CREDITS', 503); if (response.status === 429) throw new ApiError('PROVIDER_RATE_LIMIT', 503); if (response.status === 400 || response.status === 422) throw new ApiError('PROVIDER_REJECTED_INPUT', 422); throw new ApiError('PROVIDER_REQUEST_FAILED', 502); }
+    catch { throw new ApiError(method === 'POST' ? 'PROVIDER_REQUEST_TIMEOUT' : 'PROVIDER_REQUEST_FAILED', 502); }
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200); console.warn('objectpad.meshy.http', method, response.status, detail);
+      // Any HTTP answer to a create request means no task was started, so it is always safe to try again.
+      if (response.status === 402) throw new ApiError('PROVIDER_CREDITS', 503); if (response.status === 429) throw new ApiError('PROVIDER_RATE_LIMIT', 503); if (response.status === 413) throw new ApiError('PROVIDER_PAYLOAD_TOO_LARGE', 422); if (response.status === 401 || response.status === 403) throw new ApiError('PROVIDER_AUTH', 503); if (response.status === 400 || response.status === 422) throw new ApiError('PROVIDER_REJECTED_INPUT', 422);
+      throw new ApiError(method === 'POST' ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_REQUEST_FAILED', 502);
+    }
     return response.json();
   }
   async createTask(images: Uint8Array[]): Promise<string> {
     if (images.length !== 4) throw new ApiError('FOUR_CANONICAL_VIEWS_REQUIRED');
-    const image_urls = images.map(image => { let binary = ''; for (let offset = 0; offset < image.length; offset += 8192) binary += String.fromCharCode(...image.subarray(offset, offset + 8192)); return `data:image/jpeg;base64,${btoa(binary)}`; });
+    const image_urls = images.map(raw => { const image = compactForProvider(raw); let binary = ''; for (let offset = 0; offset < image.length; offset += 8192) binary += String.fromCharCode(...image.subarray(offset, offset + 8192)); return `data:image/jpeg;base64,${btoa(binary)}`; });
     const result = await this.request('', 'POST', { image_urls, ai_model: this.model, geometry_resolution: this.options.geometry ?? 'standard', should_texture: true, enable_pbr: false, texture_resolution: '2k', should_remesh: true, topology: 'triangle', target_polycount: 30000, symmetry_mode: 'auto' }) as { result?: string };
     if (!result.result || !/^[a-zA-Z0-9_-]{8,100}$/.test(result.result)) throw new ApiError('PROVIDER_AMBIGUOUS_CREATE', 502);
     return result.result;

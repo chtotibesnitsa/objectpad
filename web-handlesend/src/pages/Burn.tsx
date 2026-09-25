@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { usePlatformMarket } from '@/components/MarketBoard';
 import { timeAgo } from '@/lib/format';
+import { BurnHistory } from '@/components/BurnToasts';
 
 interface Burn { id: string; coin: string; icon: string; node?: ReactNode; eth: number; at: number; side: 'buy' | 'sell'; hash: string; live: boolean; href?: string; fresh?: boolean; }
 
@@ -67,6 +68,7 @@ export default function Burn() {
         </li>)}</ul>
       </section>
       <aside className="space-y-4">
+        <BurnHistory/>
         <div className="glass rounded-[26px] p-5 sm:p-6"><h2 className="text-lg font-extrabold">How a burn happens</h2><ol className="mt-4 space-y-3 text-sm">{[['Someone trades', 'Any coin on ObjectPad. 1.5% fee.'], ['0.5% is set aside', 'Split three ways: burn, creator, holders.'], ['$OBJECTPAD is bought', 'Then sent to 0x…dEaD. Gone forever.']].map(([t, d], i) => <li key={t} className="flex gap-3"><span className="step-num size-10 text-lg">{i + 1}</span><div><p className="font-semibold">{t}</p><p className="mt-0.5 leading-6 text-ink/65">{d}</p></div></li>)}</ol></div>
         <div className="glass rounded-[26px] p-5 text-sm sm:p-6"><div className="flex items-center gap-2 font-semibold"><ShieldCheck size={16} className="text-up"/>Contract guarantees</div><ul className="mt-3 space-y-1.5 leading-6 text-ink/65"><li>No owner withdraw path for ETH or tokens.</li><li>Keeper-only execution with a minimum output{stats.data ? `, capped at ${formatEth(stats.data.cap)} ETH per burn` : ''}.</li><li>Burns pause if the curve graduates. Never blind swaps.</li></ul>
           {engine && <a className="mt-4 inline-flex items-center gap-1 font-mono text-[11px] hover:underline" href={explorerAddress(engine)} target="_blank" rel="noreferrer">Engine {shortHash(engine)}<ArrowUpRight size={12}/></a>}

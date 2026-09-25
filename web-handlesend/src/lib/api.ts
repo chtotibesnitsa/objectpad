@@ -59,6 +59,13 @@ const MESSAGES: Record<string, string> = {
   HANDOFF_UNAVAILABLE: 'This scan can’t be opened on another phone right now.',
   OBJECT_RECORD_MISMATCH: 'The launch transaction didn’t carry the expected object record, so it is held for review.',
   CAPTURE_STORAGE_MISSING: 'A stored photo is missing. Rescan the object.',
+  PROVIDER_PAYLOAD_TOO_LARGE: 'The photos were too heavy for the 3D engine. Rebuilding with lighter copies.',
+  PROVIDER_UNAVAILABLE: 'The 3D engine didn’t answer. Rebuilding from the same photos.',
+  PROVIDER_REQUEST_TIMEOUT: 'The 3D engine took too long to accept the job. Rebuilding from the same photos.',
+  PROVIDER_AUTH: 'The 3D engine refused the request. We’re on it — try again in a minute.',
+  PROVIDER_RATE_LIMIT: 'The 3D engine is busy. Try again in a few seconds.',
+  PROVIDER_REJECTED_INPUT: 'The 3D engine couldn’t use these photos. Rescan in even light on a plain surface.',
+  PROVIDER_TIMEOUT: 'The 3D build took too long. Rebuild from the same photos.',
 };
 /** Maps server error codes to plain language without exposing internals. */
 export function describeError(code: string): string { return MESSAGES[code] ?? `The request could not be completed (${code.replaceAll('_', ' ').toLowerCase()}). Retry safely.`; }

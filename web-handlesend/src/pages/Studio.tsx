@@ -56,9 +56,9 @@ function Stepper({ session }: { session: View }) {
 /** Desktop QR that moves this exact session to a phone, with the six angles filling in live. */
 /** Each accepted angle, read back from the private store the moment it lands, so the desktop mirrors the phone. */
 function LivePhotos({ session, download }: { session: View; download: (url: string) => Promise<Blob> }) {
-  const urls = useViewUrls(session, download); const byView = new Map(session.views.map(v => [v.view, v]));
-  return <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">{VIEWS.map((view, i) => { const shot = byView.get(view.id); const url = shot ? urls[view.id] : undefined; return <div key={view.id} className={cn('relative aspect-[3/4] overflow-hidden rounded-2xl transition-all', shot ? 'raised' : 'sunk')}>
-    {url ? <AsciiPhoto src={url}/> : shot ? <div className="flex h-full items-center justify-center bg-[#0F1115] font-mono text-[13px] font-bold text-white/70">0101…</div> : <div className="flex h-full flex-col items-center justify-center gap-1 text-ink/40"><Camera size={18}/><span className="font-mono text-[12px] font-bold">{i + 1}/6</span></div>}
+  const urls = useViewUrls(session, download); const byView = new Map(session.views.map(v => [v.view, v])); const incoming = new Set((session.incoming ?? []).filter(s => Date.now() - s.at < 90_000).map(s => s.view));
+  return <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">{VIEWS.map((view, i) => { const shot = byView.get(view.id); const url = shot ? urls[view.id] : undefined; const arriving = !shot && incoming.has(view.id); return <div key={shot ? `${view.id}-${shot.hash}` : `${view.id}-empty`} className={cn('relative aspect-[3/4] overflow-hidden rounded-2xl transition-all', shot ? 'raised card-pop' : arriving ? 'raised' : 'sunk')}>
+    {url ? <AsciiPhoto src={url}/> : arriving ? <div className="relative flex h-full flex-col items-center justify-center gap-1.5 bg-[#0F1115] text-white"><span className="incoming-sweep absolute inset-0"/><LoaderCircle size={18} className="relative animate-spin"/><span className="relative font-mono text-[11px] font-bold uppercase">receiving</span></div> : shot ? <div className="flex h-full items-center justify-center bg-[#0F1115] font-mono text-[13px] font-bold text-white/70">0101…</div> : <div className="flex h-full flex-col items-center justify-center gap-1 text-ink/40"><Camera size={18}/><span className="font-mono text-[12px] font-bold">{i + 1}/6</span></div>}
     <span className={cn('absolute inset-x-1.5 bottom-1.5 rounded-lg px-1.5 py-1 text-center text-[12px] font-extrabold', shot ? 'bg-white/90 text-ink backdrop-blur' : 'text-ink/65')}>{shot && <Check size={10} strokeWidth={3.5} className="mr-0.5 inline text-up"/>}{view.label.replace(' side', '')}</span>
   </div>; })}</div>;
 }
@@ -118,10 +118,43 @@ function Building({ session, download }: { session: View; download: (url: string
     <div className="border-t border-ink/[0.06] p-5">
       <div className="sunk h-3 overflow-hidden rounded-full"><div className="h-full rounded-full bg-ink transition-[width] duration-700" style={{ width: `${screening ? 4 : Math.max(3, progress)}%` }}/></div>
       <ol className="mt-4 grid grid-cols-5 gap-1.5">{stages.map((stage, i) => <li key={stage} className={cn('truncate rounded-xl px-1 py-2 text-center text-[11px] font-extrabold transition-colors sm:px-2 sm:text-[13px]', i < activeStage ? 'text-ink' : i === activeStage ? 'raised' : 'text-ink/35')}>{i < activeStage && <Check size={12} className="mr-1 hidden sm:inline" strokeWidth={3}/>}{stage}</li>)}</ol>
-      {busy ? <p className="mt-4 rounded-2xl bg-ink px-4 py-3 text-[15px] font-bold text-white">The 3D engine is busy right now. Your model is still building. Keep this page open.</p>
-        : <p className="mt-4 text-[15px] font-bold text-ink/65">{screening ? 'AI is naming your object and making sure it isn’t on ObjectPad already.' : 'Usually under 2 minutes. Play a round while you wait.'}</p>}
+      <EngineTelemetry session={session} now={now}/>
+      {session.suggestion && <AiCard session={session}/>}
+      {busy ? <p className="mt-4 rounded-2xl bg-ink px-4 py-3 text-[15px] font-bold text-white">Taking a bit longer. No need to wait: name your coin and tap launch. It goes live the second the model is done, and the 3D model appears on your coin page by itself.</p>
+        : <p className="mt-4 text-[15px] font-bold text-ink/65">{screening ? 'AI is naming your object and making sure it isn’t on ObjectPad already.' : 'Usually 1–3 minutes. You can launch now; it fires the second the model is done.'}</p>}
       <BitCatcher className="mt-4 hidden h-[220px] sm:block"/>
     </div>
+  </div>;
+}
+
+/** Real engine telemetry: every value comes from the 3D engine's task status, polled by the backend. */
+function EngineTelemetry({ session, now }: { session: View; now: number }) {
+  const job = session.job; const screening = session.state === 'screening' || session.state === 'review';
+  const status = screening ? 'AI_VISION' : session.state === 'validating' ? 'VALIDATING_GLB' : job?.providerStatus ?? (job?.state === 'submitting' ? 'SUBMITTING' : 'QUEUED');
+  const rows: [string, string][] = [
+    ['stage', status.replace('_', ' ')],
+    ['task', job?.taskRef ? `${job.taskRef}…` : screening ? 'naming + one-of-one check' : 'uploading 4 views'],
+    ['engine', job?.model ?? 'multi-view'],
+    ['input', `${job?.images ?? 4} views · ${session.views.length} photos`],
+    ['queue', job?.queue === undefined ? '—' : job.queue === 0 ? 'running now' : `${job.queue} ahead`],
+    ['last poll', job?.polledAt ? `${Math.max(0, Math.round((now - job.polledAt) / 1000))}s ago · #${job.polls ?? 0}` : 'waiting'],
+  ];
+  return <div className="mt-4 overflow-hidden rounded-2xl bg-[#0F1115] p-3.5 font-mono text-[12px] text-white/80">
+    <div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-2 font-extrabold uppercase tracking-wider text-white"><span className="pulse-dot size-1.5 rounded-full bg-up"/>Live engine feed</span><span className="text-white/45">{Math.round(job?.progress ?? 0)}%</span></div>
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">{rows.map(([k, v]) => <div key={k} className="min-w-0"><dt className="text-[10.5px] uppercase text-white/40">{k}</dt><dd key={v} className="slide-in truncate font-bold text-white">{v}</dd></div>)}</dl>
+  </div>;
+}
+
+/** What the vision model saw: object, colours, materials and the coin it suggests. */
+function AiCard({ session }: { session: View }) {
+  const s = session.suggestion!; const tags = [...(s.colors ?? []), ...(s.materials ?? [])].slice(0, 6);
+  return <div className="card-pop sunk mt-3 rounded-2xl p-3.5">
+    <p className="spec flex items-center gap-1.5 !text-[11px]"><Sparkles size={11}/>AI vision · identified</p>
+    <p className="mt-1.5 text-[17px] font-extrabold">{s.catalog ?? s.object}</p>
+    {tags.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{tags.map((t, i) => <span key={t} className="chip card-pop" style={{ animationDelay: `${i * 90}ms` }}>{t}</span>)}</div>}
+    <p className="mt-2.5 text-[13.5px] font-bold text-ink/70">Coin idea: <span className="text-ink">{s.name}</span> <span className="font-mono">${s.ticker}</span></p>
+    <p className="mt-1 text-[12.5px] italic text-ink/60">“{s.story}”</p>
+    <p className="mt-2 font-mono text-[11px] text-ink/50">checked against {s.compared.toLocaleString()} objects · one of one</p>
   </div>;
 }
 
@@ -217,11 +250,14 @@ function LaunchProgress({ session }: { session: View }) {
 export default function Studio() {
   const { id = '' } = useParams(); const navigate = useNavigate(); const creator = useCreator(); const { call, download } = useSessionCaller(id); const qc = useQueryClient(); const { play } = usePreferences();
   const key = ['objectpad', 'session', id, creator.signedIn];
-  const query = useQuery({ queryKey: key, queryFn: () => call<View>(`/sessions/${id}`), retry: (count, error) => !(error instanceof RequestError && error.status === 404) && count < 2, refetchInterval: q => { const s = q.state.data; if (!s) return false; if (s.launch?.recordState === 'confirmed' || TERMINAL.includes(s.state)) return false; if (['screening', 'reconstructing', 'validating'].includes(s.state)) return 2000; if (s.launch) return 3500; if (s.state === 'model_review') return 10000; return 2500; } });
+  const query = useQuery({ queryKey: key, queryFn: () => call<View>(`/sessions/${id}`), retry: (count, error) => !(error instanceof RequestError && error.status === 404) && count < 2, refetchInterval: q => { const s = q.state.data; if (!s) return false; if (s.launch?.recordState === 'confirmed' || TERMINAL.includes(s.state)) return false; if (['screening', 'reconstructing', 'validating'].includes(s.state)) return 2000; if (s.launch) return 3500; if (s.state === 'model_review') return 10000; if (['awaiting_mobile', 'capturing', 'review'].includes(s.state)) return 1200; return 2500; } });
   const setSession = (s: View) => qc.setQueryData(key, s);
   const reconstruct = useMutation({ mutationFn: () => call<View>(`/sessions/${id}/reconstruct`, { method: 'POST', body: {}, timeout: 150_000 }), onSuccess: setSession, onSettled: () => void query.refetch() });
   const regenerate = useMutation({ mutationFn: () => call<View>(`/sessions/${id}/regenerate`, { method: 'POST', body: {}, timeout: 90_000 }), onSuccess: setSession });
+  // Rescan keeps both devices linked: a fresh scan for the same owner; the paired phone follows automatically.
+  const rescan = useMutation({ mutationFn: () => call<{ session: View }>(`/sessions/${id}/rescan`, { method: 'POST', body: {} }), onSuccess: data => { forgetScan(id); rememberScan(data.session.id); navigate(`/launch/${data.session.id}`); } });
   const session = query.data; const state = session?.state; const announced = useRef<string>('');
+  useEffect(() => { if (session?.successor) navigate(`/launch/${session.successor}`, { replace: true }); }, [session?.successor, navigate]);
   const engine = useEngineLog(session); const [revealed, setRevealed] = useState<boolean>(false);
   useEffect(() => { if (!state || announced.current === state) return; if (state === 'model_review') play('model'); if (state === 'blocked' || state === 'failed') play('rejected'); announced.current = state; }, [state, play]);
   // Start the AI check and 3D rebuild as soon as all six angles are in.
@@ -231,7 +267,8 @@ export default function Studio() {
   useEffect(() => { if (!session || session.state !== 'review' || session.views.length < VIEWS.length || !isIdle) return; if (!session.failureCode) mutate(); else if (session.failureCode === 'MEDIA_VALIDATION_UNAVAILABLE' && !autoScreen.current) { autoScreen.current = true; mutate(); } }, [session, isIdle, mutate]);
   // A failed 3D build retries itself once straight away; after that the creator gets a one-tap "Try again now".
   const autoRetried = useRef<boolean>(false); const { mutate: regen, isIdle: regenIdle } = regenerate;
-  useEffect(() => { if (session?.state === 'failed' && (session.failureRetries ?? 0) === 0 && !autoRetried.current && regenIdle) { autoRetried.current = true; regen(); } }, [session?.state, session?.failureRetries, regenIdle, regen]);
+  const autoCount = useRef<number>(0);
+  useEffect(() => { const soft = ['PROVIDER_PAYLOAD_TOO_LARGE', 'PROVIDER_UNAVAILABLE', 'PROVIDER_REQUEST_TIMEOUT', 'PROVIDER_RATE_LIMIT', 'PROVIDER_FAILED', 'PROVIDER_TIMEOUT'].includes(session?.failureCode ?? ''); if (session?.state === 'failed' && regenIdle && autoCount.current < 3 && (soft || (session.failureRetries ?? 0) === 0)) { autoCount.current += 1; autoRetried.current = true; const t = setTimeout(() => regen(), 1500); return () => clearTimeout(t); } }, [session?.state, session?.failureCode, session?.failureRetries, regenIdle, regen]);
   // A guest who signs in keeps this scan: it moves into their account's inventory.
   const adopt = useMutation({ mutationFn: async () => api<{ adopted: number }>('/account/adopt', { token: await creator.token(), method: 'POST', body: { sessionId: id, ...(guestToken() ? { guestToken: guestToken() } : {}), ...(deviceSecret(id) ? { deviceSecret: deviceSecret(id) } : {}) } }), onSettled: () => void qc.invalidateQueries({ queryKey: ['objectpad', 'session', id] }) });
   const { mutate: adoptNow, isIdle: adoptIdle } = adopt;
@@ -246,7 +283,8 @@ export default function Studio() {
   const modelReady = ['model_review', 'approved'].includes(session.state) && Boolean(session.model);
   const left = MAX_REGENERATIONS - (session.regenerations ?? 0);
   const providerFailed = session.state === 'failed' || (session.state === 'blocked' && code === 'PROVIDER_SUBMISSION_UNCERTAIN');
-  const retriesLeft = 4 - (session.failureRetries ?? 0);
+  const retriesLeft = 8 - (session.failureRetries ?? 0);
+  const rescanButton = (big = false) => <button onClick={() => rescan.mutate()} disabled={rescan.isPending} className={cn('btn-ghost press px-5', big ? 'min-h-[56px] text-[15px]' : 'min-h-11 text-sm')}>{rescan.isPending ? <LoaderCircle size={15} className="animate-spin"/> : <ScanLine size={15}/>}{rescan.isPending ? 'Starting new scan…' : 'Rescan'}</button>;
   const title = session.launchDraft?.publicName ?? session.suggestion?.name ?? (capturing ? 'New scan' : 'Your object');
   return <div className="page py-5 sm:py-8">
     <div className="flex flex-wrap items-end justify-between gap-3"><div className="min-w-0"><p className="lab hidden sm:inline-flex">{session.guest ? 'Your scan · saved in this browser' : 'Saved to your inventory'} · {session.id.slice(0, 8)}</p><h1 className="display text-[32px] sm:mt-3 sm:text-[52px]">{title}</h1></div><div className="hidden flex-wrap gap-2 sm:flex"><span className="chip"><Lock size={11}/>Private until launch</span><span className="chip">$0 · treasury pays</span></div></div>
@@ -261,14 +299,14 @@ export default function Studio() {
             <div className="raised grid grid-cols-2 items-center gap-2 rounded-[22px] p-2.5 sm:flex sm:flex-wrap">
               <span className="col-span-2 px-2 text-sm font-extrabold sm:col-auto">Like it?</span>
               <button onClick={() => regenerate.mutate()} disabled={left <= 0 || regenerate.isPending} className="btn-ghost press min-h-10 px-4 text-[13px] disabled:opacity-40">{regenerate.isPending ? <LoaderCircle size={14} className="animate-spin"/> : <RefreshCw size={14}/>}Regenerate 3D <span className="font-mono text-[11.5px] text-ink/65">{left} left</span></button>
-              <button onClick={() => navigate('/launch')} className="btn-ghost press min-h-10 px-4 text-[13px]"><ScanLine size={14}/>Rescan</button>
+              <button onClick={() => rescan.mutate()} disabled={rescan.isPending} className="btn-ghost press min-h-10 px-4 text-[13px]">{rescan.isPending ? <LoaderCircle size={14} className="animate-spin"/> : <ScanLine size={14}/>}Rescan</button>
               {session.model && <span className="ml-auto hidden px-2 font-mono text-[11px] text-ink/65 sm:block">{session.model.triangles.toLocaleString()} tris · {session.model.textures} textures · {session.views.length} photos</span>}
               {regenerate.isError && <p className="w-full px-2 text-xs text-down">{regenerate.error.message}</p>}
             </div>
           </>
-          : session.state === 'review' && code ? <div className="glass rounded-[28px] p-8 text-center"><AlertTriangle size={30} className="mx-auto text-down"/><h2 className="display mt-4 text-3xl">Let’s try that again.</h2><p className="mx-auto mt-2 max-w-md text-sm text-ink/65">{describeError(code)}</p><div className="mt-5 grid gap-2 sm:flex sm:justify-center"><button onClick={() => reconstruct.mutate()} disabled={reconstruct.isPending} className="btn press min-h-[56px] px-6 text-[15px]">{reconstruct.isPending ? <LoaderCircle size={16} className="animate-spin"/> : <RefreshCw size={16}/>}Try again now</button><Link to="/launch" className="btn-ghost press min-h-11 px-5 text-sm"><ScanLine size={15}/>Rescan</Link></div></div>
-          : providerFailed ? <div className="raised rounded-[30px] p-6 sm:p-8"><GlassIcon name="mesh" size={56}/><h2 className="display mt-4 text-[30px] leading-none sm:text-3xl">{retriesLeft > 0 ? 'The 3D engine hiccupped.' : 'We couldn’t build this one.'}</h2><p className="mt-3 max-w-md text-[15px] font-semibold text-ink/65">{retriesLeft > 0 ? 'Your photos are safe. Rebuild from the same photos. Free, and it doesn’t use up your rebuilds.' : 'Rescan the object on a plain surface in even light.'}</p><div className="mt-5 grid gap-2 sm:flex">{retriesLeft > 0 && <button onClick={() => regenerate.mutate()} disabled={regenerate.isPending} className="btn press min-h-[56px] px-6 text-[15px]">{regenerate.isPending ? <LoaderCircle size={16} className="animate-spin"/> : <RefreshCw size={16}/>}{regenerate.isPending ? 'Restarting…' : 'Try again now'}</button>}<Link to="/launch" className="btn-ghost press min-h-[56px] px-6 text-[15px]"><ScanLine size={16}/>Rescan</Link></div>{regenerate.isError && <p className="mt-3 text-sm font-semibold text-down">{regenerate.error.message}</p>}</div>
-          : <div className="glass rounded-[28px] p-8"><GlassIcon name="shield" size={56}/><h2 className="display mt-4 text-3xl">{code === 'DUPLICATE_OBJECT' ? 'Already on ObjectPad.' : session.state === 'failed' ? 'The 3D rebuild didn’t work.' : session.state === 'cancelled' ? 'Scan cancelled.' : session.state === 'expired' ? 'This scan expired.' : 'This scan is on hold.'}</h2><p className="mt-2 max-w-md text-sm text-ink/65">{code === 'PROVIDER_SUBMISSION_UNCERTAIN' ? 'We couldn’t confirm the 3D job started, so we paused instead of paying twice. An operator will review it.' : code ? describeError(code) : 'Start a fresh scan any time.'}</p><div className="mt-5 flex flex-wrap gap-2">{session.state === 'failed' && left > 0 && <button onClick={() => regenerate.mutate()} disabled={regenerate.isPending} className="btn press min-h-11 px-5 text-sm"><RefreshCw size={15}/>Rebuild from the same photos</button>}<Link to="/launch" className="btn-ghost press min-h-11 px-5 text-sm"><ScanLine size={15}/>Scan something else</Link></div>{regenerate.isError && <p className="mt-3 text-sm text-down">{regenerate.error.message}</p>}</div>}
+          : session.state === 'review' && code ? <div className="glass rounded-[28px] p-8 text-center"><AlertTriangle size={30} className="mx-auto text-down"/><h2 className="display mt-4 text-3xl">Let’s try that again.</h2><p className="mx-auto mt-2 max-w-md text-sm text-ink/65">{describeError(code)}</p><div className="mt-5 grid gap-2 sm:flex sm:justify-center"><button onClick={() => reconstruct.mutate()} disabled={reconstruct.isPending} className="btn press min-h-[56px] px-6 text-[15px]">{reconstruct.isPending ? <LoaderCircle size={16} className="animate-spin"/> : <RefreshCw size={16}/>}Try again now</button>{rescanButton()}</div></div>
+          : providerFailed ? <div className="raised rounded-[30px] p-6 sm:p-8"><GlassIcon name="mesh" size={56}/><h2 className="display mt-4 text-[30px] leading-none sm:text-3xl">{retriesLeft > 0 ? 'The 3D engine hiccupped.' : 'We couldn’t build this one.'}</h2><p className="mt-3 max-w-md text-[15px] font-semibold text-ink/65">{retriesLeft > 0 ? 'Your photos are safe. Rebuild from the same photos. Free, and it doesn’t use up your rebuilds.' : 'Rescan the object on a plain surface in even light.'}</p><div className="mt-5 grid gap-2 sm:flex">{retriesLeft > 0 && <button onClick={() => regenerate.mutate()} disabled={regenerate.isPending} className="btn press min-h-[56px] px-6 text-[15px]">{regenerate.isPending ? <LoaderCircle size={16} className="animate-spin"/> : <RefreshCw size={16}/>}{regenerate.isPending ? 'Sending to the 3D engine…' : 'Try again now'}</button>}{rescanButton(true)}</div>{code && <p className="mt-3 font-mono text-[11.5px] font-bold text-ink/50">last error · {code.toLowerCase()}</p>}{(regenerate.isError || rescan.isError) && <p className="mt-3 text-sm font-semibold text-down">{(regenerate.error ?? rescan.error)?.message}</p>}</div>
+          : <div className="glass rounded-[28px] p-8"><GlassIcon name="shield" size={56}/><h2 className="display mt-4 text-3xl">{code === 'DUPLICATE_OBJECT' ? 'Already on ObjectPad.' : session.state === 'failed' ? 'The 3D rebuild didn’t work.' : session.state === 'cancelled' ? 'Scan cancelled.' : session.state === 'expired' ? 'This scan expired.' : 'This scan is on hold.'}</h2><p className="mt-2 max-w-md text-sm text-ink/65">{code === 'PROVIDER_SUBMISSION_UNCERTAIN' ? 'We couldn’t confirm the 3D job started, so we paused instead of paying twice. An operator will review it.' : code ? describeError(code) : 'Start a fresh scan any time.'}</p><div className="mt-5 flex flex-wrap gap-2">{session.state === 'failed' && left > 0 && <button onClick={() => regenerate.mutate()} disabled={regenerate.isPending} className="btn press min-h-11 px-5 text-sm"><RefreshCw size={15}/>Rebuild from the same photos</button>}{session.state === 'cancelled' || session.state === 'expired' ? <Link to="/launch" className="btn-ghost press min-h-11 px-5 text-sm"><ScanLine size={15}/>Scan something else</Link> : rescanButton()}</div>{regenerate.isError && <p className="mt-3 text-sm text-down">{regenerate.error.message}</p>}</div>}
         {reconstruct.isError && !building && <p className="text-sm text-down">{reconstruct.error.message}</p>}
       </div>
       <div className="space-y-4">

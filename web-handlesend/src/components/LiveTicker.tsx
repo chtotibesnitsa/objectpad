@@ -6,6 +6,7 @@ import { copyText } from '@/lib/format';
 import { OBJECTPAD_CA, OBJECTPAD_COIN_PATH } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 import { usePlatformMarket } from './MarketBoard';
+import { BurnChip } from './BurnToasts';
 
 /** Minimum items per half of the loop, so the strip is always full edge to edge on any screen width. */
 const MIN_ITEMS = 24;
@@ -30,7 +31,7 @@ export const LiveTicker = memo(function LiveTicker() {
     <span className={cn('rounded-full px-1.5 py-px font-bold tnum', up ? 'bg-up/15 text-up' : 'bg-down/15 text-down')}>{up ? '▲' : '▼'} {pct(item.changePct)}</span>
   </Link>; });
   return <div className="relative flex h-11 items-center overflow-hidden border-b border-white/70 bg-[linear-gradient(180deg,#F7F8FA,#E6E9EE)] font-mono text-[12px] font-bold uppercase tracking-wide shadow-[inset_0_-1px_0_rgba(12,13,16,.08)]" aria-label="ObjectPad coins">
-    <span className="relative z-10 flex h-full shrink-0 items-center gap-2 border-r border-ink/[0.08] bg-white/80 pl-3 pr-3 text-ink backdrop-blur-md sm:pl-5"><span className="pulse-dot size-1.5 rounded-full bg-up"/><ObjectPadCa/></span>
+    <span className="relative z-10 flex h-full shrink-0 items-center gap-2 border-r border-ink/[0.08] bg-white/80 pl-3 pr-3 text-ink backdrop-blur-md sm:pl-5"><span className="pulse-dot size-1.5 rounded-full bg-up"/><ObjectPadCa/><span className="hidden md:flex"><BurnChip/></span></span>
     <div className="marquee-mask min-w-0 flex-1 overflow-hidden"><div className="marquee-run flex w-max hover:[animation-play-state:paused] motion-reduce:animate-none" style={{ '--marquee': `${Math.max(40, items.length * 3.4)}s` } as CSSProperties}><div className="flex pl-3">{row(0)}</div><div className="flex pl-3">{row(1)}</div></div></div>
   </div>;
 });

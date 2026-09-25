@@ -15,7 +15,9 @@ const ARCHIVE_MATCH_VIEWS = 8;
 const ARCHIVE_MATCH_DISTANCE = 3;
 /** A creator may ask for a fresh 3D rebuild of the same photos this many times before launching. */
 export const MAX_REGENERATIONS = 2;
-export const MAX_FAILURE_RETRIES = 4;
+export const MAX_FAILURE_RETRIES = 8;
+/** Create-request failures where the engine answered (so no paid task exists) and a retry is always safe. */
+const DEFINITE = ['PROVIDER_REJECTED_INPUT', 'PROVIDER_CREDITS', 'PROVIDER_RATE_LIMIT', 'RECONSTRUCTION_NOT_CONFIGURED', 'PROVIDER_PAYLOAD_TOO_LARGE', 'PROVIDER_AUTH', 'PROVIDER_UNAVAILABLE', 'FOUR_CANONICAL_VIEWS_REQUIRED', 'PROVIDER_AMBIGUOUS_CREATE'];
 /** Deterministic Object ID for a capture session, known before anything launches. */
 export const objectIdFor = (sessionId: string): Promise<string> => sha256(`objectpad:v1:${sessionId}`);
 /** The coin's permanent short link on ObjectPad (first 12 hex characters of the Object ID). */
@@ -79,7 +81,10 @@ export class CaptureService {
     this.store.metric('device_recovered'); return { session: this.publicSession(id, owner), claimSecret };
   }
   async authorizeDevice(id: string, owner: string, secret: string | null): Promise<SavedSession> { const { row, session } = this.load(id, owner); if (!secret || !/^[a-f0-9]{64}$/.test(secret) || await sha256(secret) !== row.claim_hash || row.expires <= Date.now() || !['capturing', 'review'].includes(row.state)) throw new ApiError('CAPTURE_DEVICE_NOT_AUTHORIZED', 403); return session; }
-  async ticket(id: string, owner: string, view: string, secret: string | null): Promise<{ url: string; token: string; expiresAt: number }> { await this.authorizeDevice(id, owner, secret); if (!isViewId(view)) throw new ApiError('VIEW_INVALID'); this.store.rate(`uploads:${owner}`, 80, 3_600_000); const ticketId = crypto.randomUUID(); const token = randomToken(); const expiresAt = Date.now() + 120_000; this.store.run('INSERT INTO op_upload_tickets(id,session_id,owner,view_id,token_hash,expires) VALUES (?,?,?,?,?,?)', ticketId, id, owner, view, await sha256(token), expiresAt); return { url: `/uploads/${ticketId}`, token, expiresAt }; }
+  async ticket(id: string, owner: string, view: string, secret: string | null): Promise<{ url: string; token: string; expiresAt: number }> { await this.authorizeDevice(id, owner, secret); if (!isViewId(view)) throw new ApiError('VIEW_INVALID'); this.store.rate(`uploads:${owner}`, 80, 3_600_000); const ticketId = crypto.randomUUID(); const token = randomToken(); const expiresAt = Date.now() + 120_000; this.store.run('INSERT INTO op_upload_tickets(id,session_id,owner,view_id,token_hash,expires) VALUES (?,?,?,?,?,?)', ticketId, id, owner, view, await sha256(token), expiresAt);
+    // Announce the photo in flight so the desktop shows it arriving before the bytes land.
+    const { session } = this.load(id); session.incoming = [...(session.incoming ?? []).filter(s => s.view !== view && Date.now() - s.at < 90_000), { view: view as CaptureView['view'], at: Date.now() }]; this.save(session);
+    return { url: `/uploads/${ticketId}`, token, expiresAt }; }
   /** Step 1 (serialized): verify and consume a single-use upload ticket bound to this account and capture device. */
   async beginUpload(ticketId: string, request: Request): Promise<{ sessionId: string; view: string; owner: string }> {
     const ticket = this.store.one<{ session_id: string; owner: string; view_id: string; token_hash: string; expires: number; consumed: number }>('SELECT * FROM op_upload_tickets WHERE id=?', ticketId);
@@ -112,7 +117,7 @@ export class CaptureService {
     const id = crypto.randomUUID(); const storageKey = `objectpad/v1/captures/${session.id}/${normalized.hash}.jpg`;
     await this.runtime.privateBucket.put(storageKey, normalized.bytes, { httpMetadata: { contentType: 'image/jpeg' } });
     const frame: CaptureView = { id, view: ticket.view_id as CaptureView['view'], hash: normalized.hash, width: normalized.width, height: normalized.height, bytes: normalized.bytes.byteLength, acceptedAt: Date.now(), quality: { blur: Math.round(normalized.blur), exposure: Math.round(normalized.exposure), duplicateDistance: distance, centered: normalized.centered, backgroundConsistent: normalized.backgroundConsistent } };
-    session.moderation = 'pending'; delete session.approvedManifestHash; session.views.push(frame); if (session.views.length >= VIEWS.length) session.state = 'review';
+    session.moderation = 'pending'; delete session.approvedManifestHash; session.views.push(frame); session.incoming = (session.incoming ?? []).filter(s => s.view !== frame.view); if (session.views.length >= VIEWS.length) session.state = 'review';
     this.store.atomic(() => { this.store.run('INSERT INTO op_capture_views(id,session_id,view_id,hash,storage_key,payload) VALUES (?,?,?,?,?,?)', id, session.id, frame.view, frame.hash, storageKey, JSON.stringify({ ...frame, signature: normalized.signature, scan: { code: normalized.scan.code, model: normalized.scan.model } })); this.save(session); });
     this.store.metric('frame_accepted'); if (session.state === 'review') this.store.metric('capture_completed'); return this.publicSession(session.id, owner);
   }
@@ -133,7 +138,28 @@ export class CaptureService {
     }
     if ([...matches.values()].some(count => count >= ARCHIVE_MATCH_VIEWS)) { this.store.metric('archive_near_duplicate_rejected'); throw new ApiError('NEAR_DUPLICATE_CAPTURE', 409); }
   }
-  async retake(id: string, owner: string, viewId: string, secret: string | null): Promise<CaptureSession> { const session = await this.authorizeDevice(id, owner, secret); const frame = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); this.store.atomic(() => { this.store.run('DELETE FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); session.views = session.views.filter(v => v.view !== viewId); session.moderation = 'pending'; delete session.approvedManifestHash; session.state = 'capturing'; this.save(session); }); if (frame) await this.runtime.privateBucket.delete(frame.storage_key); return this.publicSession(id, owner); }
+  async retake(id: string, owner: string, viewId: string, secret: string | null): Promise<CaptureSession> { const session = await this.authorizeDevice(id, owner, secret); const frame = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); this.store.atomic(() => { this.store.run('DELETE FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); session.views = session.views.filter(v => v.view !== viewId); session.incoming = (session.incoming ?? []).filter(s => s.view !== viewId); session.moderation = 'pending'; delete session.approvedManifestHash; session.state = 'capturing'; this.save(session); }); if (frame) await this.runtime.privateBucket.delete(frame.storage_key); return this.publicSession(id, owner); }
+  /**
+   * Linked rescan: a fresh capture for the same owner. The old scan points at it (`successor`), so the desktop follows
+   * automatically, and a paired phone is paired to the new scan straight away (no new QR needed).
+   */
+  async rescan(id: string, owner: string): Promise<{ session: CaptureSession }> {
+    const { row, session: old } = this.load(id, owner);
+    if (old.successor) { const next = this.store.one<SessionRow>('SELECT id,state FROM op_capture_sessions WHERE id=?', old.successor); if (next && !['cancelled', 'expired'].includes(next.state)) return { session: this.publicSession(next.id) }; }
+    if (this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) throw new ApiError('RECORD_ALREADY_COMMITTED', 409);
+    this.store.rate(`sessions:${owner}`, 20, 86_400_000);
+    // The paired phone keeps its device secret: the new scan accepts the same phone, so it carries straight on.
+    const nextId = crypto.randomUUID(); const now = Date.now(); const expiresAt = now + 2 * 60 * 60_000; const paired = row.claim_hash;
+    const next: SavedSession = { id: nextId, owner, state: paired ? 'capturing' : 'awaiting_mobile', createdAt: now, expiresAt, views: [], rights: true, moderation: 'pending', autoLaunch: old.autoLaunch ?? true };
+    const objectId = await objectIdFor(nextId);
+    this.store.atomic(() => {
+      this.store.run('INSERT INTO op_capture_sessions(id,owner,state,token_hash,claim_hash,handoff_expires,expires,created_at,payload,object_id) VALUES (?,?,?,?,?,?,?,?,?,?)', nextId, owner, next.state, null, paired, now, expiresAt, now, JSON.stringify(next), objectId);
+      old.successor = nextId; if (!['model_review', 'approved'].includes(old.state)) old.state = 'cancelled'; this.save(old);
+      this.store.run('UPDATE op_capture_sessions SET token_hash=NULL WHERE id=?', id); this.store.run('UPDATE op_upload_tickets SET consumed=1 WHERE session_id=?', id);
+      this.store.run("UPDATE op_reconstruction_jobs SET state='cancelled' WHERE session_id=? AND state IN ('submitting','pending','generating','validating')", id);
+    });
+    this.store.metric('capture_rescanned'); return { session: this.publicSession(nextId) };
+  }
   async cancel(id: string, owner: string): Promise<void> { const { session } = this.load(id, owner); if (this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) throw new ApiError('RECORD_ALREADY_COMMITTED', 409); session.state = 'cancelled'; this.store.atomic(() => { this.save(session); this.store.run('UPDATE op_capture_sessions SET token_hash=NULL,claim_hash=NULL WHERE id=?', id); this.store.run('UPDATE op_upload_tickets SET consumed=1 WHERE session_id=?', id); this.store.run("UPDATE op_reconstruction_jobs SET state='cancelled' WHERE session_id=? AND state NOT IN ('complete','failed')", id); }); this.store.metric('capture_cancelled'); }
   /** Reconstruction step 1 (serialized): verify coverage and exact/perceptual duplicates, then reserve the capture for AI screening. */
   beginReconstruct(id: string, owner: string): boolean {
@@ -158,7 +184,7 @@ export class CaptureService {
     const manifest = captureManifest(id, session.views); const manifestHash = await sha256(manifest); await this.runtime.privateBucket.put(`objectpad/v1/manifests/${manifestHash}.json`, manifest, { httpMetadata: { contentType: 'application/json' } });
     const images: Uint8Array[] = []; for (const view of selected) { const row = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE id=?', view.id); const object = row ? await this.runtime.privateBucket.get(row.storage_key) : null; if (!object) throw new ApiError('CAPTURE_STORAGE_MISSING', 503); images.push(new Uint8Array(await object.arrayBuffer())); }
     const provider = this.provider(); const jobId = crypto.randomUUID(); const now = Date.now();
-    session.state = 'reconstructing'; session.manifestHash = manifestHash; session.job = { state: 'submitting', progress: 0, startedAt: now }; session.suggestion = screening.suggestion; delete session.screeningAt;
+    session.state = 'reconstructing'; session.manifestHash = manifestHash; session.job = { state: 'submitting', progress: 0, startedAt: now, model: provider.model, images: images.length }; session.suggestion = screening.suggestion; delete session.screeningAt;
     this.store.atomic(() => { save(screening); this.store.run('INSERT INTO op_reconstruction_jobs(id,session_id,state,provider_id,created_at,updated_at,payload) VALUES (?,?,?,?,?,?,?)', jobId, id, 'submitting', null, now, now, JSON.stringify({ canonicalIds: selected.map(v => v.id), canonicalViews: selected.map(v => v.view), model: provider.model })); this.save(session); });
     return { jobId, images };
   }
@@ -167,11 +193,12 @@ export class CaptureService {
   /** Step 5 (serialized): record the provider id, or classify the failure without ever retrying paid work blindly. */
   finishReconstruct(id: string, jobId: string, result: { providerId?: string; error?: unknown }): void {
     const { session } = this.load(id);
-    if (result.providerId) { this.store.run("UPDATE op_reconstruction_jobs SET state='pending',provider_id=?,updated_at=? WHERE id=?", result.providerId, Date.now(), jobId); session.job = { state: 'pending', progress: 0, startedAt: session.job?.startedAt ?? Date.now() }; this.save(session); this.store.metric('reconstruction_submitted'); return; }
+    if (result.providerId) { this.store.run("UPDATE op_reconstruction_jobs SET state='pending',provider_id=?,updated_at=? WHERE id=?", result.providerId, Date.now(), jobId); session.job = { ...session.job, state: 'pending', progress: 0, startedAt: session.job?.startedAt ?? Date.now(), submittedAt: Date.now(), taskRef: result.providerId.slice(0, 8), providerStatus: 'PENDING' }; this.save(session); this.store.metric('reconstruction_submitted'); return; }
     const error = result.error;
     // A rejected request never started paid work and can be retried; anything else is ambiguous and needs review.
-    const definite = error instanceof ApiError && ['PROVIDER_REJECTED_INPUT', 'PROVIDER_CREDITS', 'PROVIDER_RATE_LIMIT', 'RECONSTRUCTION_NOT_CONFIGURED'].includes(error.code);
-    if (definite) { this.store.atomic(() => { this.store.run('DELETE FROM op_reconstruction_jobs WHERE id=?', jobId); session.state = 'review'; delete session.job; session.failureCode = (error as ApiError).code; this.save(session); }); this.store.metric(`reconstruction_${(error as ApiError).code.toLowerCase()}`); return; }
+    const definite = error instanceof ApiError && DEFINITE.includes(error.code);
+    // The engine answered, so nothing was started or paid for: the capture waits in 'failed' and one tap (or the automatic retry) rebuilds it.
+    if (definite) { this.store.atomic(() => { this.store.run("UPDATE op_reconstruction_jobs SET state='failed',updated_at=? WHERE id=?", Date.now(), jobId); session.state = 'failed'; session.failureCode = (error as ApiError).code; if (session.job) session.job = { ...session.job, state: 'failed', failureCode: (error as ApiError).code }; this.save(session); }); this.store.metric(`reconstruction_${(error as ApiError).code.toLowerCase().slice(0, 40)}`); return; }
     this.store.run("UPDATE op_reconstruction_jobs SET state='review_required',updated_at=? WHERE id=?", Date.now(), jobId); session.state = 'blocked'; session.failureCode = 'PROVIDER_SUBMISSION_UNCERTAIN'; this.save(session); this.store.metric('provider_submission_uncertain');
   }
   hasActiveJobs(): boolean { return Boolean(this.store.one("SELECT id FROM op_reconstruction_jobs WHERE state IN ('submitting','pending','generating','validating') LIMIT 1")); }
@@ -186,7 +213,7 @@ export class CaptureService {
       if (!job.provider_id) continue; const { session } = this.load(job.session_id); if (session.state === 'cancelled') continue;
       try {
         if (Date.now() - job.created_at > 20 * 60_000) throw new ApiError('PROVIDER_TIMEOUT');
-        const task = await provider.getTask(job.provider_id); session.job = { state: task.status.toLowerCase(), progress: Math.max(0, Math.min(100, Number(task.progress) || 0)), startedAt: session.job?.startedAt ?? job.created_at };
+        const task = await provider.getTask(job.provider_id); session.job = { ...session.job, state: task.status.toLowerCase(), progress: Math.max(0, Math.min(100, Number(task.progress) || 0)), startedAt: session.job?.startedAt ?? job.created_at, providerStatus: task.status, queue: typeof task.preceding_tasks === 'number' ? task.preceding_tasks : undefined, providerStartedAt: task.started_at || undefined, polledAt: Date.now(), polls: (session.job?.polls ?? 0) + 1 };
         if (task.status === 'FAILED' || task.status === 'CANCELED') throw new ApiError('PROVIDER_FAILED');
         if (task.status !== 'SUCCEEDED') { this.store.run("UPDATE op_reconstruction_jobs SET state='generating',updated_at=? WHERE id=?", Date.now(), job.id); this.save(session); continue; }
         session.state = 'validating'; this.save(session); this.store.run("UPDATE op_reconstruction_jobs SET state='validating',updated_at=? WHERE id=?", Date.now(), job.id);
@@ -196,7 +223,7 @@ export class CaptureService {
         for (const artifact of artifacts) { const hash = await sha256(artifact.bytes); const key = `objectpad/v1/artifacts/${hash}`; await this.runtime.artifactBucket.put(key, artifact.bytes, { httpMetadata: { contentType: artifact.type } }); const stored = await this.runtime.artifactBucket.get(key); if (!stored || await sha256(new Uint8Array(await stored.arrayBuffer())) !== hash) throw new ApiError('ARTIFACT_STORAGE_VERIFICATION'); hashes[artifact.kind] = hash; this.store.run('INSERT OR IGNORE INTO op_artifacts(hash,storage_key,kind,bytes,session_id) VALUES (?,?,?,?,?)', hash, key, artifact.kind, artifact.bytes.byteLength, session.id); }
         const origin = this.runtime.apiOrigin;
         const model: ModelArtifact = { originalHash: hashes.original, optimizedHash: hashes.original, thumbnailHash: hashes.thumbnail, modelUrl: `${origin}/api/artifacts/${hashes.original}`, thumbnailUrl: `${origin}/api/artifacts/${hashes.thumbnail}`, bytes: downloaded.model.byteLength, triangles: checked.inspection.triangles, textures: checked.inspection.textures, bounds: checked.bounds, generatedAt: Date.now(), provider: 'Meshy', providerModel: provider.model, processedViews: 4, validated: true, thumbnailSource: 'provider_preview', optimization: 'provider_output_within_limits' };
-        session.model = model; session.state = 'model_review'; session.job = { state: 'complete', progress: 100, startedAt: session.job?.startedAt ?? job.created_at };
+        session.model = model; session.state = 'model_review'; session.job = { ...session.job, state: 'complete', progress: 100, startedAt: session.job?.startedAt ?? job.created_at, providerStatus: 'SUCCEEDED', finishedAt: Date.now() }; delete session.failureCode;
         // Every stored frame already passed automated screening at upload. Record that as the capture's moderation decision.
         session.moderation = 'approved'; session.approvedManifestHash = session.manifestHash;
         this.store.atomic(() => { this.save(session); this.store.run("UPDATE op_reconstruction_jobs SET state='complete',updated_at=? WHERE id=?", Date.now(), job.id); });
@@ -214,14 +241,14 @@ export class CaptureService {
     if (this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) throw new ApiError('RECORD_ALREADY_COMMITTED', 409);
     // A provider failure (or an uncertain submission) is our problem, not the creator's: those retries never use up the
     // two "I don't like it" rebuilds, up to MAX_FAILURE_RETRIES per capture.
-    const failure = session.state === 'failed' || (session.state === 'blocked' && session.failureCode === 'PROVIDER_SUBMISSION_UNCERTAIN');
+    const failure = session.state === 'failed' || (session.state === 'blocked' && session.failureCode === 'PROVIDER_SUBMISSION_UNCERTAIN') || (session.state === 'review' && Boolean(session.manifestHash) && Boolean(session.failureCode));
     if (!(session.state === 'model_review' || failure) || !session.manifestHash) throw new ApiError('MODEL_NOT_READY', 409);
     if (failure ? (session.failureRetries ?? 0) >= MAX_FAILURE_RETRIES : (session.regenerations ?? 0) >= MAX_REGENERATIONS) throw new ApiError('REGENERATE_LIMIT', 429);
     const job = this.store.one<JobRow>('SELECT * FROM op_reconstruction_jobs WHERE session_id=?', id); if (!job || !['complete', 'failed', 'review_required'].includes(job.state)) throw new ApiError('MODEL_NOT_READY', 409);
     const canonical = (JSON.parse(job.payload) as { canonicalViews?: string[] }).canonicalViews ?? ['front', 'left', 'back', 'right'];
     const images: Uint8Array[] = []; for (const view of canonical) { const row = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', id, view); const object = row ? await this.runtime.privateBucket.get(row.storage_key) : null; if (!object) throw new ApiError('CAPTURE_STORAGE_MISSING', 503); images.push(new Uint8Array(await object.arrayBuffer())); }
     this.store.budget('reconstructions', Math.max(1, Number(this.runtime.env.OBJECTPAD_DAILY_RECONSTRUCTIONS) || 40), 'RECONSTRUCTION_BUDGET_REACHED');
-    const now = Date.now(); session.state = 'reconstructing'; session.job = { state: 'submitting', progress: 0, startedAt: now }; if (failure) session.failureRetries = (session.failureRetries ?? 0) + 1; else session.regenerations = (session.regenerations ?? 0) + 1; delete session.model; delete session.failureCode;
+    const now = Date.now(); session.state = 'reconstructing'; session.job = { state: 'submitting', progress: 0, startedAt: now, model: this.provider().model, images: images.length }; if (failure) session.failureRetries = (session.failureRetries ?? 0) + 1; else session.regenerations = (session.regenerations ?? 0) + 1; delete session.model; delete session.failureCode;
     this.store.atomic(() => { this.store.run("UPDATE op_reconstruction_jobs SET state='submitting',provider_id=NULL,created_at=?,updated_at=? WHERE id=?", now, now, job.id); this.save(session); });
     this.store.metric('model_regenerated'); return { jobId: job.id, images };
   }

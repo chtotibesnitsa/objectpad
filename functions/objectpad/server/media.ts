@@ -59,6 +59,26 @@ export async function normalizeImage(bytes: Uint8Array, runtime: Runtime): Promi
   return { bytes: normalized, hash: await sha256(normalized), width: decoded.width, height: decoded.height, blur: quality.blur, exposure: quality.exposure, signature: quality.signature, centered: scan.centered, backgroundConsistent: borderConsistency(analysis), scan };
 }
 
+/**
+ * Re-encodes a stored capture frame small enough for the 3D engine request. Four frames travel base64-encoded in one
+ * JSON body, and the gateway rejects bodies over 4.5 MB (HTTP 413) before the engine ever sees them, so each frame is
+ * walked down a size/quality ladder until it fits `budget` bytes.
+ */
+export function compactForProvider(bytes: Uint8Array, budget = 640_000): Uint8Array {
+  if (bytes.byteLength <= budget) return bytes;
+  let decoded: Rgba;
+  try { const image = decodeJpeg(bytes, { useTArray: true, formatAsRGBA: true, tolerantDecoding: true, maxResolutionInMP: 4.3, maxMemoryUsageInMB: 96 }) as Rgba; decoded = { data: image.data, width: image.width, height: image.height }; }
+  catch { return bytes; }
+  let smallest = bytes;
+  for (const [side, quality] of [[1280, 84], [1152, 80], [1024, 76], [896, 72], [768, 68]] as const) {
+    const scaled = downscale(decoded, side);
+    const out = new Uint8Array((encodeJpeg({ data: scaled.data, width: scaled.width, height: scaled.height }, quality) as { data: Uint8Array }).data);
+    if (out.byteLength < smallest.byteLength) smallest = out;
+    if (out.byteLength <= budget) return out;
+  }
+  return smallest;
+}
+
 export interface ModelInspection { inspection: GlbInspection; bounds: { min: number[]; max: number[] }; }
 /**
  * Validates a provider GLB for publication. Geometry bounds come from POSITION accessor min/max; textures are checked
