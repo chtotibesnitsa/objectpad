@@ -17,6 +17,7 @@ import { useTreasury } from '@/lib/treasury';
 import { copyText } from '@/lib/format';
 import { Donut } from '@/components/Charts';
 import { Reveal } from '@/components/Reveal';
+import { AndroidFeatureCard } from '@/components/QrLink';
 import { CREATOR_TAX_BPS, VAULT_SPLIT } from '@/shared/economy';
 
 const ExhibitViewer = lazy(() => import('@/components/ExhibitViewer'));
@@ -108,7 +109,7 @@ export function Treasury() {
       <div className="relative mt-5 grid max-w-3xl gap-2 sm:grid-cols-3">{[['Free per person', `${t.perPerson} / day`], ['Covers now', t.loading ? '…' : `${t.affordable} launches`], ['Per launch', t.costEth ? `${t.costEth.toFixed(5)} ETH` : '…']].map(([k, v]) => <div key={k} className="sunk rounded-2xl px-4 py-3"><p className="stat-label">{k}</p><p className="mt-1 text-[22px] font-extrabold tnum">{v}</p></div>)}</div>
     </section>
     <section className="mt-4 grid gap-4 md:grid-cols-[auto_1fr]">
-      <div className="steel flex flex-col items-center rounded-[32px] p-6">{t.address ? <><div className="raised crop relative rounded-[26px] p-5"><i/><i/><i/><i/><QRCodeSVG value={t.address} size={184} level="M" marginSize={0} fgColor="#0C0D10" title="Treasury address"/></div><p className="mt-3 font-mono text-[11px] font-bold text-ink/65">Robinhood Chain · ETH · chain 4663</p></> : <Loading label="Reading treasury…"/>}</div>
+      <div className="steel flex flex-col items-center rounded-[32px] p-6">{t.address ? <><div className="raised crop relative rounded-[26px] p-5"><i/><i/><i/><i/><QRCodeSVG value={t.address} size={184} level="M" marginSize={0} fgColor="#0C0D10" title="Treasury address"/></div><p className="mt-3 font-mono text-[11px] font-bold text-ink/65">Robinhood Chain · ETH · chain 4663</p><AndroidFeatureCard className="mt-4 w-full max-w-[260px]"/></> : <Loading label="Reading treasury…"/>}</div>
       <div className="raised rounded-[32px] p-6 sm:p-8">
         <h1 className="display text-[36px] sm:text-[44px]">Fund the treasury</h1>
         {t.address && <button onClick={() => void copyText(t.address ?? '').then(setCopied)} className="pill press mt-5 w-full !justify-between !pr-3 font-mono !text-[13px]"><span className="flex min-w-0 items-center gap-2.5"><span className="orb">{copied ? <Check size={16}/> : <Copy size={16}/>}</span><span className="truncate">{t.address}</span></span></button>}

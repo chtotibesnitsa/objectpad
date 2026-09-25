@@ -13,7 +13,7 @@ import { AsciiField, AsciiObject } from '@/components/AsciiField';
 import { GlassIcon, type GlassName } from '@/components/GlassIcon';
 import { SpecimenCard, LaunchTile } from '@/components/CoinCard';
 import { TxPanel, sampleTx, useLaunchTx } from '@/components/TxProof';
-import { AndroidAppButton, QrLinkReveal } from '@/components/QrLink';
+import { AndroidFeatureCard, QrLinkReveal } from '@/components/QrLink';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useInView } from '@/hooks/use-in-view';
 import { useTreasury } from '@/lib/treasury';
@@ -80,6 +80,7 @@ function Hero() {
         <p className="enter mt-6 max-w-xl text-[22px] font-extrabold leading-[1.35] tracking-[-0.015em] sm:text-[26px]" style={delay(120)}>Scan your <RotatingWord/> with your phone. We launch its coin. <span className="whitespace-nowrap">You pay $0.</span></p>
         <div className="enter mt-7 flex flex-col gap-3 sm:flex-row sm:items-center" style={delay(180)}><HeroCta/><Link to="/explore" className="btn-ghost press min-h-[56px] px-6 text-[15px]">See the coins<ArrowUpRight size={16}/></Link></div>
         <div className="enter mt-4 max-w-[560px]" style={delay(210)}><CaPill/></div>
+        <div className="enter mt-4 max-w-[400px]" style={delay(225)}><AndroidFeatureCard/></div>
         <div className="enter mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[14.5px] font-extrabold text-ink/70" style={delay(240)}>{['$0 launch', 'No account', 'Full 3D scan', '1 object = 1 coin'].map(t => <span key={t} className="flex items-center gap-1.5"><Check size={16} strokeWidth={3} className="text-ink"/>{t}</span>)}</div>
       </div>
       <div className="enter" style={delay(100)}><ScanHero/></div>
@@ -132,7 +133,7 @@ function FreeLaunch() {
               {link.url && !resume && <a href={`/capture/claim${link.url.includes('#') ? link.url.slice(link.url.indexOf('#')) : ''}`} className="mt-1.5 text-[14px] font-bold text-ink/60 underline underline-offset-4 hover:text-ink">or use this computer’s camera</a>}
               {link.url && !resume && link.expires > now && <QrLinkReveal url={link.url} className="mt-1"/>}
               <p className="mt-3 flex items-center gap-2 font-mono text-[11.5px] font-extrabold uppercase text-ink/65">{resume ? <><span className="pulse-dot size-2 rounded-full bg-up"/>Phone connected</> : link.url && link.expires > now ? <><span className="pulse-signal size-2 rounded-full bg-ink"/>Private to you · waiting for your phone · {clock(link.expires - now)}</> : 'Single-use · no account'}</p>
-              <AndroidAppButton className="mt-3"/>
+              <AndroidFeatureCard className="mt-4" badge="Or, install the app"/>
             </>}
         </div>
       </div>

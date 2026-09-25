@@ -17,7 +17,7 @@ import { copyText, shortAddress } from '@/lib/format';
 import { usePreferences } from '@/hooks/use-preferences';
 import { ErrorState, Loading } from '@/components/Feedback';
 import { PrivateModel } from '@/components/PrivateModel';
-import { AndroidAppButton, QrLinkReveal } from '@/components/QrLink';
+import { AndroidFeatureCard, QrLinkReveal } from '@/components/QrLink';
 import { CoinIconPicker } from '@/components/CoinIconPicker';
 import { BuildLattice } from '@/components/BuildLattice';
 import { TxPanel, useLaunchTx } from '@/components/TxProof';
@@ -98,6 +98,7 @@ function Handoff({ session, call, download }: { session: View; call: <T>(path: s
         <div className="smoke mt-3 w-full rounded-[20px] px-4 py-3 text-center"><p className="flex items-center justify-center gap-2 text-[15px] font-extrabold text-white"><Smartphone size={16}/>{connected ? 'Scanning on your phone' : pairNew ? 'Scan with the new phone' : 'Scan with your phone'}</p><p className="mt-0.5 font-mono text-[12px] font-bold uppercase text-white/60">{connected ? 'paired · this scan only' : live && link ? `single use · ${clock(link.expires - now)}` : 'waiting for a code'}</p></div>
         {live && link && !connected && <QrLinkReveal url={link.url} className="mt-2"/>}
         {pairNew && <button onClick={() => setPairNew(false)} className="mt-2 min-h-10 text-[13px] font-bold text-ink/60 hover:text-ink">Keep the current phone</button>}
+        {!phone && !connected && <AndroidFeatureCard className="mt-3"/>}
       </div>
       <div className="flex min-w-0 flex-col">
         <p className="lab">Step {connected || count ? 2 : 1} · {connected ? 'Photos coming in' : pairNew ? 'Connect a new phone' : count ? 'Continue on a phone' : 'Connect your phone'}</p>
@@ -108,7 +109,6 @@ function Handoff({ session, call, download }: { session: View; call: <T>(path: s
         <div className="mt-auto flex flex-wrap gap-2 pt-5">
           {(phone || !connected) && <button onClick={() => void openHere()} className="btn-ghost press min-h-11 px-4 text-sm"><ScanLine size={15}/>{phone ? 'Scan on this phone' : 'Already on a phone? Open here'}</button>}
           {connected && <button onClick={newPhone} className="btn-ghost press min-h-11 px-4 text-sm"><Smartphone size={14}/>Connect a new phone</button>}
-          {!phone && !connected && <AndroidAppButton/>}
         </div>
         {rotate.isError && <p className="mt-3 text-sm font-semibold text-down">{rotate.error.message}</p>}
       </div>
