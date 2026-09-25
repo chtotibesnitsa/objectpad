@@ -18,10 +18,19 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = "objectpad-release-2026"
+            keyAlias = "objectpad-release"
+            keyPassword = "objectpad-release-2026"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

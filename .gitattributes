@@ -6,3 +6,4 @@ web-handlesend/public/trailers/casepad-seedance-full-2-r3-1080p.mp4 filter=lfs d
 web-handlesend/public/trailers/casepad-seedance-full-3-r3-1080p.mp4 filter=lfs diff=lfs merge=lfs -text
 web-handlesend/public/trailers/casepad-kling-full-1-r3-1080p.mp4 filter=lfs diff=lfs merge=lfs -text
 web-handlesend/public/trailers/objectpad-*.mp4 filter=lfs diff=lfs merge=lfs -text
+web-handlesend/public/downloads/objectpad.apk filter=lfs diff=lfs merge=lfs -text
