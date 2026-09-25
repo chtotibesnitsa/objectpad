@@ -8,7 +8,6 @@ import { BURN_ENGINE_ABI, DEAD_ADDRESS, perTradeSplitBps, TOKEN_SUPPLY, VAULT_SP
 import { ERC20_ABI, explorerTx } from '@/shared/pons';
 import { shortHash } from '@/shared/security';
 import { Donut } from '@/components/Charts';
-import { previewCoins } from '@/lib/preview';
 import { GlassIcon } from '@/components/GlassIcon';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -29,12 +28,9 @@ export default function Burn() {
     return { spent: spent as bigint, burned: burned as bigint, count: count as bigint, cap: cap as bigint, pending, dead: dead as bigint, curveState, logs: logs.slice(-30).reverse() };
   } });
   const split = perTradeSplitBps();
-  // Every trade on every ObjectPad coin routes 0.5% to buy $OBJECTPAD and burn it. Specimen coins are simulated and tagged SIM.
-  // Live coins: every real trade read from Robinhood Chain routes 0.5% to the burn. Specimen coins stream simulated trades, tagged SIM.
+  // Live coins: every real trade read from Robinhood Chain routes 0.5% to the burn. 
   const board = usePlatformMarket();
-  const [stream, setStream] = useState<Burn[]>([]);
-  useEffect(() => { const coins = previewCoins(); const t = setInterval(() => { const c = coins[Math.floor(Math.random() * coins.length)]; const eth = 0.004 + Math.random() ** 3 * 0.8; const h = Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join(''); setStream(list => [{ id: `s-${Date.now()}`, coin: c.ticker, icon: c.exhibit.coin, eth: eth * 0.005, at: Date.now(), side: (Math.random() < 0.66 ? 'buy' : 'sell') as 'buy' | 'sell', hash: `0x${h.slice(0, 8)}…${h.slice(-6)}`, live: false, fresh: true }, ...list].slice(0, 30)); }, 3200); return () => clearInterval(t); }, []);
-  const autoBurns = useMemo<Burn[]>(() => { const base = board.trades.slice(0, 60).map(t => ({ id: t.id, coin: t.symbol, icon: '', node: t.icon, eth: t.eth * 0.005, at: t.at, side: t.side, hash: t.id.length > 20 ? `${t.id.slice(0, 10)}…${t.id.slice(-6)}` : `0x${t.trader.slice(2, 10)}…`, live: t.live, href: t.href })); return [...stream, ...base].sort((a, b) => Number(b.live) - Number(a.live) || b.at - a.at).slice(0, 60); }, [board.trades, stream]);
+  const autoBurns = useMemo<Burn[]>(() => { const base = board.trades.slice(0, 60).map(t => ({ id: t.id, coin: t.symbol, icon: '', node: t.icon, eth: t.eth * 0.005, at: t.at, side: t.side, hash: t.id.length > 20 ? `${t.id.slice(0, 10)}…${t.id.slice(-6)}` : `0x${t.trader.slice(2, 10)}…`, live: t.live, href: t.href })); return [...base].sort((a, b) => Number(b.live) - Number(a.live) || b.at - a.at).slice(0, 60); }, [board.trades]);
   const burnedEth = autoBurns.reduce((sum, b) => sum + b.eth, 0);
   const [, setTick] = useState<number>(0); useEffect(() => { const t = setInterval(() => setTick(v => v + 1), 1000); return () => clearInterval(t); }, []);
   return <div className="page py-6 sm:py-10">

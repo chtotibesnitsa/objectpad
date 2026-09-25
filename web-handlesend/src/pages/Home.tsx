@@ -17,7 +17,7 @@ import { usePreferences } from '@/hooks/use-preferences';
 import { useInView } from '@/hooks/use-in-view';
 import { useTreasury } from '@/lib/treasury';
 import { useMarket, useReadiness } from '@/lib/market';
-import { previewCoins } from '@/lib/preview';
+import { useCoins } from '@/lib/coins';
 import { useScanLink } from '@/lib/handoff';
 import { isPhone } from '@/lib/creator';
 import { api } from '@/lib/api';
@@ -139,10 +139,10 @@ function FreeLaunch() {
 
 /** Coins from real scanned objects, each a real spinning 3D scan with its own coin page. */
 function CoinsShelf() {
-  const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null; const coins = previewCoins().slice(0, 7);
+  const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null; const feed = useCoins(); const coins = useMemo(() => (feed.data?.items ?? []).slice(0, 7), [feed.data]);
   return <section className="page py-12 sm:py-16">
     <SectionHead code="03 · Object coins" title="Real things. Real charts." aside={<Link to="/explore" className="pill press !pr-5"><span className="orb"><GlassIcon name="chart" size={30} className="!filter-none"/></span>All coins<ArrowRight size={15}/></Link>}/>
-    <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">{coins.map((coin, i) => <Reveal key={coin.ticker} delay={i * 50}><SpecimenCard coin={coin} ethUsd={ethUsd} index={i}/></Reveal>)}<Reveal delay={350}><LaunchTile/></Reveal></div>
+    <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">{coins.map((coin, i) => <Reveal key={coin.id} delay={i * 50}><SpecimenCard coin={coin} ethUsd={ethUsd} index={i}/></Reveal>)}<Reveal delay={350}><LaunchTile/></Reveal></div>
   </section>;
 }
 

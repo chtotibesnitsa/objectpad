@@ -11,7 +11,7 @@ import { useArchive, useBuilding, type ListedObject, type SortKey } from '@/lib/
 import { BuildingCard } from '@/components/BuildingCoin';
 import { useInView } from '@/hooks/use-in-view';
 import { useMarket } from '@/lib/market';
-import { previewCoins } from '@/lib/preview';
+import { useCoins } from '@/lib/coins';
 import { SpecimenCard, LaunchTile } from '@/components/CoinCard';
 import { GlassIcon } from '@/components/GlassIcon';
 import { eth, tinyUsd, usd } from '@/lib/format';
@@ -50,7 +50,8 @@ export default function Explore() {
   useEffect(() => { const now = new Set(buildingItems.map(b => b.code)); if ([...seenBuilding.current].some(code => !now.has(code))) void qc.invalidateQueries({ queryKey: ['objectpad', 'archive'] }); seenBuilding.current = now; }, [buildingItems, qc]);
   const set = (key: string, value: string | null) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); };
   const items: ListedObject[] = query.data?.items ?? [];
-  const previews = useMemo(() => { const q = deferred.trim().toLowerCase(); const list = previewCoins().filter(c => kind === 'all' || (kind === 'memes' ? /meme/i.test(c.exhibit.kind) : kind === 'toys' ? /toy|collectible|figurine/i.test(c.exhibit.kind) : kind === 'desk' ? !/meme|toy|collectible|figurine/i.test(c.exhibit.kind) : kind !== 'live')).filter(c => !q || `${c.name} ${c.ticker} ${c.tag} ${c.exhibit.catalog}`.toLowerCase().includes(q)); if (sort === 'marketcap' || sort === 'trending') return [...list].sort((a, b) => b.marketCapEth - a.marketCapEth); if (sort === 'newest') return [...list].sort((a, b) => b.launchedAt - a.launchedAt); return [...list].sort((a, b) => b.volumeEth - a.volumeEth); }, [deferred, sort, kind]);
+  const feed = useCoins(); const liveIds = useMemo(() => new Set(items.map(i => i.record.objectId)), [items]);
+  const previews = useMemo(() => { const q = deferred.trim().toLowerCase(); const list = (feed.data?.items ?? []).filter(c => c.kind === 'original' && !liveIds.has(c.id)).filter(c => !q || `${c.name} ${c.symbol} ${c.tag ?? ''} ${c.objectName ?? ''}`.toLowerCase().includes(q)); if (sort === 'newest') return [...list].sort((a, b) => b.launchedAt - a.launchedAt); if (sort === 'volume') return [...list].sort((a, b) => b.volume24hEth - a.volume24hEth); return [...list].sort((a, b) => b.marketCapEth - a.marketCapEth); }, [deferred, sort, feed.data, liveIds]);
   return <div className="page py-6 sm:py-10">
     <div className="flex flex-wrap items-end justify-between gap-5"><div className="flex items-end gap-4"><GlassIcon name={tab === 'market' ? 'chart' : 'mesh'} size={84} float className="hidden sm:block"/><div><p className="lab">Explore · Robinhood Chain</p><h1 className="display mt-3 text-[46px] sm:text-[64px]">{tab === 'market' ? 'Coin list.' : 'Object coins.'}</h1><p className="mt-2 max-w-xl text-[17px] font-extrabold text-ink/65">{tab === 'market' ? 'Every ObjectPad coin, ranked by 24h volume.' : 'Every coin here is a real thing someone scanned.'}</p></div></div>
       <SegmentedTabs label="View" value={tab} onChange={value => set('tab', value === 'market' ? 'market' : null)} items={[{ value: 'objects', label: 'Grid', icon: <Box size={14}/> }, { value: 'market', label: 'List', icon: <Activity size={14}/> }]}/></div>
@@ -59,11 +60,11 @@ export default function Explore() {
         <div className="flex flex-wrap gap-1.5">{[['all', 'All'], ['live', 'Live'], ['memes', 'Memes'], ['toys', 'Toys'], ['desk', 'Desk & other']].map(([v, l]) => <button key={v} onClick={() => setKind(v)} className={cn('press min-h-9 rounded-full px-3.5 text-xs font-extrabold', kind === v ? 'raised' : 'text-ink/65 hover:text-ink')}>{l}</button>)}</div>
         <SegmentedTabs label="Sort" size="sm" value={sort} onChange={value => set('sort', value === 'trending' ? null : value)} items={SORTS.map(s => ({ ...s, icon: s.value === 'trending' ? <TrendingUp size={12}/> : undefined }))}/></div>
       {query.isPending ? <Loading label="Reading live object coins…"/> : <>
-        {query.isError && <div className="mt-6"><ErrorState message="Live coins couldn’t load right now. Lab specimens are still shown below." retry={() => void query.refetch()}/></div>}
+        {query.isError && <div className="mt-6"><ErrorState message="Live coins couldn’t load right now. ObjectPad originals are still shown below." retry={() => void query.refetch()}/></div>}
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {(kind === 'all' || kind === 'live') && !deferred && buildingItems.map(coin => <BuildingCard key={coin.code} coin={coin}/>)}
           {items.map((item, i) => <ObjectCard key={item.record.objectId} object={item.record} curve={item.curve} ethUsd={ethUsd} spin={i < 8}/>)}
-          {previews.map((coin, i) => <SpecimenCard key={coin.ticker} coin={coin} ethUsd={ethUsd} index={i}/>)}
+          {previews.map((coin, i) => <SpecimenCard key={coin.id} coin={coin} ethUsd={ethUsd} index={i}/>)}
           {!deferred && <LaunchTile/>}
         </div>
         {deferred && !items.length && !previews.length && <div className="py-16 text-center"><p className="text-xl font-bold">No matching coins.</p><p className="mt-2 text-sm text-muted">Try a different name, ticker or tag.</p></div>}

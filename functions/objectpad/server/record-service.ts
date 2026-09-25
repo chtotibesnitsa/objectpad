@@ -43,7 +43,15 @@ async function naming(c: ObjectCommitment): Promise<{ objectName: string; object
  * from a pre-computed hash (so retries are idempotent) and reconciled from the decoded receipt before publication.
  */
 export class RecordService {
-  constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly captures: CaptureService, private readonly sponsor: SponsorService) {}
+  constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly captures: CaptureService, private readonly sponsor: SponsorService) {
+    store.run('CREATE TABLE IF NOT EXISTS op_launch_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, stage TEXT NOT NULL, detail TEXT NOT NULL)');
+  }
+  /** Launch diagnostics that survive restarts: the last 30 send attempts (no keys, owners or ids). */
+  private note(stage: string, detail: string, extra: { balanceWei?: bigint; needWei?: bigint } = {}): void {
+    noteLaunch(stage, detail, extra);
+    try { this.store.run('INSERT INTO op_launch_events(at,stage,detail) VALUES (?,?,?)', Date.now(), stage, (lastLaunchEvent?.detail ?? '').slice(0, 240)); this.store.run('DELETE FROM op_launch_events WHERE id <= (SELECT MAX(id) - 30 FROM op_launch_events)'); } catch { /* diagnostics never block a launch */ }
+  }
+  launchEvents(): { at: number; stage: string; detail: string }[] { return this.store.all<{ at: number; stage: string; detail: string }>('SELECT at,stage,detail FROM op_launch_events ORDER BY id DESC LIMIT 12'); }
   private client() { return serverClient(this.runtime.env); }
   load(id: string, owner?: string): { row: RecordRow; payload: RecordPayload } { const row = this.store.one<RecordRow>('SELECT * FROM op_records WHERE id=?', id); if (!row) throw new ApiError('NOT_FOUND', 404); if (owner) requireOwner(owner, row.owner); return { row, payload: JSON.parse(row.payload) as RecordPayload }; }
   /** The creator-fee wallet: the account's Privy wallet (embedded or linked), resolved server-side. No signature needed. */
@@ -115,32 +123,39 @@ export class RecordService {
     // The object's name, tag and ID are appended to the launch calldata as UTF-8, so the launch transaction itself carries them.
     const suffix = objectSuffixText(objectTag, objectName, c.objectId, c.objectSpecs);
     const input = { name: c.publicName, symbol: payload.symbol, logo: `${this.runtime.apiOrigin}/api/artifacts/${payload.iconHash ?? c.thumbnailHash}`, description, website: payload.canonicalUrl, twitter: c.xUrl, telegram: c.telegram ?? '', creator: sponsor, recipient: DEAD_ADDRESS, feeRecipient: c.creatorWallet as Address, creatorTaxBps: 150, quoteIn: MIN_INITIAL_BUY_WEI, minTokensOut: 0n, salt: hashHex(await sha256(`objectpad:launch:${id}`)) };
-    const simulation = await client.simulateContract({ address: PONS_ROUTER, abi: ROUTER_ABI, functionName: 'launchAndBuy', args: launchArguments(input, terms.expectedEconomics), account: sponsor, value: terms.launchFee + MIN_INITIAL_BUY_WEI }).catch((error: unknown) => { const detail = error instanceof Error ? error.message : ''; noteLaunch('simulate', detail); if (/insufficient funds/i.test(detail)) throw new ApiError('SPONSOR_EMPTY', 503); throw new ApiError('LAUNCH_SIMULATION_FAILED', 409); });
+    const simulation = await client.simulateContract({ address: PONS_ROUTER, abi: ROUTER_ABI, functionName: 'launchAndBuy', args: launchArguments(input, terms.expectedEconomics), account: sponsor, value: terms.launchFee + MIN_INITIAL_BUY_WEI }).catch((error: unknown) => { const detail = error instanceof Error ? error.message : ''; this.note('simulate', detail); if (/insufficient funds/i.test(detail)) throw new ApiError('SPONSOR_EMPTY', 503); throw new ApiError('LAUNCH_SIMULATION_FAILED', 409); });
     const minTokensOut = simulation.result[2] * 9700n / 10000n; if (minTokensOut <= 0n) throw new ApiError('SIMULATION_EMPTY_OUTPUT', 409);
     const built = buildLaunchTx({ ...input, minTokensOut }, terms); const tx = { ...built, data: concatHex([built.data, stringToHex(suffix)]) };
-    const [estimate, block, balance] = await Promise.all([client.estimateGas({ account: sponsor, ...tx }).catch((error: unknown) => { noteLaunch('estimate', error instanceof Error ? error.message : ''); throw new ApiError('LAUNCH_SIMULATION_FAILED', 409); }), client.getBlock(), client.getBalance({ address: sponsor })]);
+    const [estimate, block, balance] = await Promise.all([client.estimateGas({ account: sponsor, ...tx }).catch((error: unknown) => { this.note('estimate', error instanceof Error ? error.message : ''); throw new ApiError('LAUNCH_SIMULATION_FAILED', 409); }), client.getBlock(), client.getBalance({ address: sponsor })]);
     const baseFee = block.baseFeePerGas ?? await client.getGasPrice();
     const plan = FEE_PLANS.map(([g, f]) => ({ gas: estimate * g / 100n, maxFeePerGas: baseFee * f / 100n })).find(p => p.gas * p.maxFeePerGas + tx.value <= balance);
-    if (!plan) { const need = estimate * baseFee * 103n / 100n + tx.value; noteLaunch('funds', 'treasury below launch cost', { balanceWei: balance, needWei: need }); this.sponsor.invalidate(); throw new ApiError('SPONSOR_EMPTY', 503); }
+    if (!plan) { const need = estimate * baseFee * 103n / 100n + tx.value; this.note('funds', 'treasury below launch cost', { balanceWei: balance, needWei: need }); this.sponsor.invalidate(); throw new ApiError('SPONSOR_EMPTY', 503); }
     const gas = plan.gas;
     const wallet = this.sponsor.wallet(); const account = wallet.account;
-    const request = await wallet.prepareTransactionRequest({ account, chain: robinhoodChain, to: tx.to, data: tx.data, value: tx.value, gas, maxFeePerGas: plan.maxFeePerGas, maxPriorityFeePerGas: 0n });
-    const serialized = await wallet.signTransaction(request); const hash = keccak256(serialized);
     payload.sponsor = sponsor.toLowerCase(); payload.launchDescription = description; payload.launchDataSuffix = suffix; payload.feeVault = c.creatorWallet; payload.launchMode = 'sponsored';
-    this.store.atomic(() => { this.store.run('INSERT INTO op_transactions(id,record_id,kind,state,tx_hash,request,updated_at) VALUES (?,?,?,?,?,?,?)', crypto.randomUUID(), id, 'launch', 'submitted', hash, JSON.stringify({ to: tx.to, data: tx.data, value: tx.value.toString(), gas: gas.toString(), launchFeeWei: terms.launchFee.toString(), initialBuyWei: MIN_INITIAL_BUY_WEI.toString() }), Date.now()); this.store.run('UPDATE op_records SET payload=? WHERE id=?', JSON.stringify(payload), id); });
-    try { await client.sendRawTransaction({ serializedTransaction: serialized }); }
-    catch (error) {
-      const known = await client.getTransaction({ hash }).then(() => true, () => false);
-      if (!known) {
+    const requestJson = JSON.stringify({ to: tx.to, data: tx.data, value: tx.value.toString(), gas: gas.toString(), launchFeeWei: terms.launchFee.toString(), initialBuyWei: MIN_INITIAL_BUY_WEI.toString() });
+    // The treasury also sends showcase launches, so the nonce is managed explicitly and a collision is retried, not fatal.
+    let nonce = await this.sponsor.nextNonce(); let maxFeePerGas = plan.maxFeePerGas; let hash: Hex | null = null;
+    for (let attempt = 0; attempt < 4 && !hash; attempt++) {
+      const request = await wallet.prepareTransactionRequest({ account, chain: robinhoodChain, to: tx.to, data: tx.data, value: tx.value, gas, nonce, maxFeePerGas, maxPriorityFeePerGas: 0n });
+      const serialized = await wallet.signTransaction(request); const candidate = keccak256(serialized);
+      this.store.atomic(() => { this.store.run("DELETE FROM op_transactions WHERE record_id=? AND kind='launch'", id); this.store.run('INSERT INTO op_transactions(id,record_id,kind,state,tx_hash,request,updated_at) VALUES (?,?,?,?,?,?,?)', crypto.randomUUID(), id, 'launch', 'submitted', candidate, requestJson, Date.now()); this.store.run('UPDATE op_records SET payload=? WHERE id=?', JSON.stringify(payload), id); });
+      try { await client.sendRawTransaction({ serializedTransaction: serialized }); hash = candidate; break; }
+      catch (error) {
+        if (await client.getTransaction({ hash: candidate }).then(() => true, () => false)) { hash = candidate; break; }
         const detail = error instanceof Error ? ((error as { details?: string }).details || error.message) : '';
-        this.store.run("DELETE FROM op_transactions WHERE record_id=? AND kind='launch' AND tx_hash=?", id, hash); console.warn('objectpad.launch.broadcast_failed', detail.slice(0, 160)); noteLaunch('broadcast', detail, { balanceWei: balance, needWei: gas * plan.maxFeePerGas + tx.value }); this.sponsor.invalidate();
+        this.store.run("DELETE FROM op_transactions WHERE record_id=? AND kind='launch' AND tx_hash=?", id, candidate); console.warn('objectpad.launch.broadcast_failed', detail.slice(0, 160)); this.note('broadcast', `nonce ${nonce} · ${detail}`, { balanceWei: balance, needWei: gas * maxFeePerGas + tx.value }); this.sponsor.invalidate();
         // Short on funds means the coin stays sealed and goes out by itself once the treasury is topped up.
         if (/insufficient funds|exceeds balance|balance too low/i.test(detail)) throw new ApiError('SPONSOR_EMPTY', 503);
+        if (/nonce|already known|known transaction|replacement|underpriced/i.test(detail)) { nonce = Math.max(await this.sponsor.nextNonce(true), nonce + 1); continue; }
+        if (/fee cap|max fee|base fee|basefee|fee too low/i.test(detail)) { const fresh = (await client.getBlock()).baseFeePerGas ?? await client.getGasPrice(); const bumped = fresh * 2n; if (gas * bumped + tx.value <= balance) { maxFeePerGas = bumped; continue; } throw new ApiError('SPONSOR_EMPTY', 503); }
         throw new ApiError('LAUNCH_BROADCAST_FAILED', 503);
       }
     }
+    if (!hash) throw new ApiError('LAUNCH_BROADCAST_FAILED', 503);
+    this.sponsor.markNonce(nonce);
     this.store.bump(`launch:${owner}`, 86_400_000); this.store.bumpBudget('launches');
-    noteLaunch('sent', `launch broadcast · gas ${gas} · maxFee ${plan.maxFeePerGas}`, { balanceWei: balance, needWei: gas * plan.maxFeePerGas + tx.value });
+    this.note('sent', `launch broadcast · nonce ${nonce} · gas ${gas} · maxFee ${maxFeePerGas}`, { balanceWei: balance, needWei: gas * maxFeePerGas + tx.value });
     this.sponsor.invalidate(); this.store.metric('launch_submitted'); return { state: 'submitted', hash };
   }
   hasPending(): boolean { return Boolean(this.store.one("SELECT id FROM op_transactions WHERE tx_hash IS NOT NULL AND state IN ('submitted','confirming','unknown') LIMIT 1")); }

@@ -54,6 +54,22 @@ export class SponsorService {
     this.cache = { at: Date.now(), status }; return status;
   }
   invalidate(): void { this.cache = null; }
+  /**
+   * Next nonce for a treasury transaction. RPC 'pending' counts can lag right after a broadcast (load-balanced nodes), which
+   * made back-to-back launches collide on the same nonce. The last nonce we broadcast is remembered for two minutes.
+   */
+  async nextNonce(fresh = false): Promise<number> {
+    const client = serverClient(this.runtime.env); const address = this.address;
+    const [pending, latest] = await Promise.all([client.getTransactionCount({ address, blockTag: 'pending' }), client.getTransactionCount({ address, blockTag: 'latest' })]);
+    const chain = Math.max(pending, latest); if (fresh) return chain;
+    const last = this.store.one<{ value: number }>("SELECT value FROM op_scheduler WHERE name='sponsor_nonce'")?.value; const at = this.store.one<{ value: number }>("SELECT value FROM op_scheduler WHERE name='sponsor_nonce_at'")?.value ?? 0;
+    return last !== undefined && Date.now() - at < 120_000 ? Math.max(chain, Number(last) + 1) : chain;
+  }
+  /** Records a nonce that was accepted by the network. */
+  markNonce(nonce: number): void {
+    this.store.run("INSERT INTO op_scheduler(name,value) VALUES ('sponsor_nonce',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value", nonce);
+    this.store.run("INSERT INTO op_scheduler(name,value) VALUES ('sponsor_nonce_at',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value", Date.now());
+  }
   /** Operator-only: move the sponsor balance (minus a gas reserve) to another wallet. */
   async sweep(to: string): Promise<Hex> {
     if (!validAddress(to)) throw new ApiError('WALLET_INVALID');

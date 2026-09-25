@@ -15,7 +15,7 @@ export function useReadiness() {
 export interface CurveTrade { id: string; side: 'buy' | 'sell'; eth: number; tokens: number; price: number; trader: string; hash: string; block: number; at: number; }
 /** Up to ~3 days of decoded curve trades for one coin, served by the ObjectPad API from chain logs. */
 export function useCurveTrades(curve: string | undefined) {
-  return useQuery({ queryKey: ['objectpad', 'curve-trades', curve], enabled: Boolean(curve), queryFn: ({ signal }) => api<{ trades: CurveTrade[]; fromBlock: number; toBlock: number }>(`/curves/${curve}/trades`, { signal, timeout: 40_000 }), refetchInterval: 20_000, retry: 1 });
+  return useQuery({ queryKey: ['objectpad', 'curve-trades', curve], enabled: Boolean(curve), queryFn: ({ signal }) => api<{ trades: CurveTrade[]; fromBlock: number; toBlock: number }>(`/curves/${curve}/trades`, { signal, timeout: 40_000 }), refetchInterval: 8_000, retry: 1 });
 }
 
 /** A showcase coin ObjectPad launches from its treasury. `live` rows carry the real token and curve from the receipt. */

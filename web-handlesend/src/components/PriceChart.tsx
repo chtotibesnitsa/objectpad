@@ -1,88 +1,98 @@
-import { memo, useMemo, useState } from 'react';
-import { tinyUsd } from '@/lib/format';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { CandlestickSeries, ColorType, createChart, CrosshairMode, HistogramSeries, LineSeries, LineStyle, type IChartApi, type ISeriesApi, type MouseEventParams, type Time, type UTCTimestamp } from 'lightweight-charts';
+import { Maximize2 } from 'lucide-react';
+import { tinyUsd, usd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /** One decoded curve trade. `price` is ETH per token. */
 export interface ChartTrade { id: string; side: 'buy' | 'sell'; price: number; eth: number; at: number; }
-interface Candle { open: number; high: number; low: number; close: number; volume: number; buys: number; start: number; end: number; }
+interface Candle { time: UTCTimestamp; open: number; high: number; low: number; close: number; volume: number; buys: number; }
 
-const priceText = (eth: number, ethUsd: number | null): string => ethUsd ? tinyUsd(eth * ethUsd) : eth >= 0.0001 ? `${eth.toPrecision(3)} ETH` : `${eth.toExponential(2)} ETH`;
-const W = 1000; const H = 460; const PAD_R = 86; const TOP = 14; const PRICE_H = 310; const VOL_TOP = 342; const VOL_H = 88; const AXIS_Y = H - 6;
-const UP = '#0E9F6E'; const DOWN = '#E5484D';
-const RANGES: { label: string; hours: number; count: number }[] = [{ label: '1H', hours: 1, count: 40 }, { label: '6H', hours: 6, count: 60 }, { label: '1D', hours: 24, count: 72 }, { label: 'ALL', hours: 0, count: 90 }];
+const UP = '#0E9F6E'; const DOWN = '#E5484D'; const SUPPLY = 1_000_000_000;
+const INTERVALS: { label: string; seconds: number }[] = [{ label: '1m', seconds: 60 }, { label: '5m', seconds: 300 }, { label: '15m', seconds: 900 }, { label: '1h', seconds: 3600 }, { label: '4h', seconds: 14_400 }, { label: '1D', seconds: 86_400 }];
 
-/** Buckets trades into OHLC candles by time. Buckets without trades carry the previous close forward as a flat doji. */
-function candles(trades: ChartTrade[], count: number): Candle[] {
-  const first = trades[0].at; const last = trades[trades.length - 1].at; const span = Math.max(1, last - first) / count; const out: Candle[] = []; let k = 0; let prev = trades[0].price;
-  for (let i = 0; i < count; i++) {
-    const start = first + i * span; const end = i === count - 1 ? last + 1 : start + span; const open = prev; let high = open; let low = open; let close = open; let volume = 0; let buys = 0;
-    while (k < trades.length && trades[k].at < end) { const t = trades[k]; high = Math.max(high, t.price); low = Math.min(low, t.price); close = t.price; volume += t.eth; if (t.side === 'buy') buys += t.eth; k++; }
-    out.push({ open, high, low, close, volume, buys, start, end }); prev = close;
+/** Buckets trades into OHLC candles; each candle opens at the previous close, like every trading terminal. */
+function bucket(trades: ChartTrade[], seconds: number, scale: number): Candle[] {
+  const out: Candle[] = []; let prev: number | null = null;
+  for (const t of trades) {
+    const value = t.price * scale; const time = (Math.floor(t.at / 1000 / seconds) * seconds) as UTCTimestamp; const last = out[out.length - 1];
+    if (last && last.time === time) { last.high = Math.max(last.high, value); last.low = Math.min(last.low, value); last.close = value; last.volume += t.eth; if (t.side === 'buy') last.buys += t.eth; }
+    else { const open = prev ?? value; out.push({ time, open, high: Math.max(open, value), low: Math.min(open, value), close: value, volume: t.eth, buys: t.side === 'buy' ? t.eth : 0 }); }
+    prev = value;
   }
   return out;
 }
-const ma = (list: Candle[], n: number): (number | null)[] => list.map((_, i) => i < n - 1 ? null : list.slice(i - n + 1, i + 1).reduce((s, c) => s + c.close, 0) / n);
-const timeLabel = (ms: number, spanHours: number): string => new Date(ms).toLocaleString(undefined, spanHours > 30 ? { month: 'short', day: 'numeric' } : { hour: '2-digit', minute: '2-digit' });
+const sma = (list: Candle[], n: number) => list.flatMap((c, i) => i < n - 1 ? [] : [{ time: c.time, value: list.slice(i - n + 1, i + 1).reduce((s, x) => s + x.close, 0) / n }]);
+/** Picks the timeframe that gives a readable number of candles for this coin's history. */
+function autoInterval(trades: ChartTrade[]): number { if (trades.length < 2) return 0; const span = (trades[trades.length - 1].at - trades[0].at) / 1000; const i = INTERVALS.findIndex(x => span / x.seconds <= 150); return i < 0 ? INTERVALS.length - 1 : i; }
 
 /**
- * Trading-terminal candlestick chart drawn only from decoded curve trades: OHLC candles, MA7/MA25, a volume pane, a
- * time axis, a live last-price tag and a crosshair with price and time readouts. An empty history is shown as empty.
+ * TradingView-grade candlestick chart built only from real, decoded curve trades: drag to pan, scroll or pinch to zoom,
+ * crosshair with OHLC readout, timeframes, price or market-cap view, MA7/MA25 and a volume pane. Updates live in place.
  */
-export const PriceChart = memo(function PriceChart({ trades, ethUsd, className }: { trades: ChartTrade[]; ethUsd: number | null; className?: string }) {
-  const [hover, setHover] = useState<{ i: number; y: number } | null>(null); const [range, setRange] = useState<number>(3);
-  const series = useMemo(() => trades.filter(t => t.price > 0).sort((a, b) => a.at - b.at), [trades]);
-  const model = useMemo(() => {
-    const r = RANGES[range]; const cut = r.hours ? series[series.length - 1]?.at - r.hours * 3_600_000 : -Infinity;
-    const scoped = series.filter(t => t.at >= cut); const use = scoped.length >= 2 ? scoped : series;
-    if (use.length < 2) return null;
-    const list = candles(use, Math.min(r.count, Math.max(8, use.length)));
-    const hi = Math.max(...list.map(c => c.high)); const lo = Math.min(...list.map(c => c.low)); const pad = (hi - lo || hi * 0.05) * 0.1; const top = hi + pad; const bottom = Math.max(0, lo - pad);
-    const y = (p: number) => TOP + (1 - (p - bottom) / (top - bottom || 1)) * PRICE_H; const price = (py: number) => bottom + (1 - (py - TOP) / PRICE_H) * (top - bottom);
-    const maxVol = Math.max(...list.map(c => c.volume), 1e-12); const step = (W - PAD_R) / list.length; const ticks = Array.from({ length: 6 }, (_, i) => bottom + ((top - bottom) * i) / 5);
-    const line = (vals: (number | null)[]) => vals.map((v, i) => v === null ? '' : `${vals[i - 1] == null ? 'M' : 'L'}${(i * step + step / 2).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-    const spanHours = (list[list.length - 1].end - list[0].start) / 3_600_000;
-    return { list, y, price, step, maxVol, ticks, ma7: line(ma(list, 7)), ma25: line(ma(list, 25)), spanHours, change: ((list[list.length - 1].close - list[0].open) / list[0].open) * 100, volume: list.reduce((s, c) => s + c.volume, 0) };
-  }, [series, range]);
-  if (!model) return <div className={cn('sunk flex flex-col items-center justify-center rounded-2xl text-center', className)}><p className="text-base font-extrabold">Not enough trades to chart yet.</p><p className="mt-1 max-w-xs text-sm font-semibold text-ink/65">Candles appear after two confirmed trades. Nothing is estimated.</p></div>;
-  const active = model.list[hover?.i ?? model.list.length - 1]; const up = active.close >= active.open; const last = model.list[model.list.length - 1]; const lastUp = last.close >= last.open;
-  const cols = Array.from({ length: 6 }, (_, i) => Math.round((i / 5) * (model.list.length - 1)));
+export const PriceChart = memo(function PriceChart({ trades, ethUsd, className, live = true }: { trades: ChartTrade[]; ethUsd: number | null; className?: string; live?: boolean }) {
+  const host = useRef<HTMLDivElement>(null); const chart = useRef<IChartApi | null>(null);
+  const series = useRef<{ candles: ISeriesApi<'Candlestick'>; volume: ISeriesApi<'Histogram'>; ma7: ISeriesApi<'Line'>; ma25: ISeriesApi<'Line'> } | null>(null);
+  const sorted = useMemo(() => trades.filter(t => t.price > 0).sort((a, b) => a.at - b.at), [trades]);
+  const [interval, setInterval] = useState<number | null>(null); const [mode, setMode] = useState<'mcap' | 'price'>('mcap');
+  const [hover, setHover] = useState<Candle | null>(null); const fitted = useRef<string>('');
+  const active = interval ?? autoInterval(sorted);
+  // Plotted values are market cap (price × supply) in USD or ETH: large, readable numbers. Price view divides back down.
+  const unit = ethUsd ?? 1; const scale = SUPPLY * unit;
+  const candles = useMemo(() => bucket(sorted, INTERVALS[active].seconds, scale), [sorted, active, scale]);
+  const fmtRef = useRef<(v: number) => string>(() => '');
+  fmtRef.current = (v: number) => { if (mode === 'price') { const p = v / SUPPLY; return ethUsd ? tinyUsd(p) : `${p.toExponential(3)} Ξ`; } return ethUsd ? usd(v, v >= 1000 ? 1 : 2) : `${v.toPrecision(4)} Ξ`; };
+
+  useEffect(() => {
+    if (!host.current) return;
+    const c = createChart(host.current, {
+      autoSize: true, layout: { background: { type: ColorType.Solid, color: '#FFFFFF' }, textColor: 'rgba(12,13,16,.62)', fontFamily: 'Geist Mono, ui-monospace, monospace', fontSize: 11, attributionLogo: false },
+      grid: { vertLines: { color: 'rgba(12,13,16,.05)' }, horzLines: { color: 'rgba(12,13,16,.05)' } },
+      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: 'rgba(12,13,16,.45)', style: LineStyle.Dashed, labelBackgroundColor: '#1B1D22' }, horzLine: { color: 'rgba(12,13,16,.45)', style: LineStyle.Dashed, labelBackgroundColor: '#1B1D22' } },
+      rightPriceScale: { borderColor: 'rgba(12,13,16,.1)', scaleMargins: { top: 0.12, bottom: 0.26 } },
+      timeScale: { borderColor: 'rgba(12,13,16,.1)', timeVisible: true, secondsVisible: false, rightOffset: 6, barSpacing: 10, minBarSpacing: 2 },
+      localization: { priceFormatter: (v: number) => fmtRef.current(v) },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false }, handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
+    });
+    const format = { type: 'custom' as const, formatter: (v: number) => fmtRef.current(v), minMove: 1e-9 };
+    const candlesSeries = c.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderVisible: false, wickUpColor: UP, wickDownColor: DOWN, priceFormat: format, priceLineStyle: LineStyle.Dashed });
+    const volume = c.addSeries(HistogramSeries, { priceScaleId: '', priceFormat: { type: 'custom', formatter: (v: number) => ethUsd ? usd(v) : `${v.toFixed(4)} Ξ`, minMove: 1e-9 }, lastValueVisible: false, priceLineVisible: false });
+    volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    const ma7 = c.addSeries(LineSeries, { color: '#E0A100', lineWidth: 2, priceFormat: format, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+    const ma25 = c.addSeries(LineSeries, { color: '#5B6CFF', lineWidth: 2, priceFormat: format, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+    chart.current = c; series.current = { candles: candlesSeries, volume, ma7, ma25 };
+    const onMove = (param: MouseEventParams<Time>) => { const d = param.seriesData.get(candlesSeries) as { time: UTCTimestamp; open: number; high: number; low: number; close: number } | undefined; const v = param.seriesData.get(volume) as { value: number } | undefined; setHover(d && 'open' in d ? { ...d, volume: v?.value ?? 0, buys: 0 } : null); };
+    c.subscribeCrosshairMove(onMove);
+    return () => { c.unsubscribeCrosshairMove(onMove); c.remove(); chart.current = null; series.current = null; };
+  }, [ethUsd]);
+
+  useEffect(() => {
+    const s = series.current; const c = chart.current; if (!s || !c) return;
+    s.candles.setData(candles.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+    s.volume.setData(candles.map(k => ({ time: k.time, value: k.volume * unit, color: k.close >= k.open ? 'rgba(14,159,110,.35)' : 'rgba(229,72,77,.35)' })));
+    s.ma7.setData(sma(candles, 7)); s.ma25.setData(sma(candles, 25));
+    const key = `${active}|${mode}|${Boolean(candles.length)}`; if (fitted.current !== key && candles.length) { fitted.current = key; c.timeScale().fitContent(); if (candles.length > 120) c.timeScale().setVisibleLogicalRange({ from: candles.length - 120, to: candles.length + 6 }); }
+    c.priceScale('right').applyOptions({ autoScale: true });
+  }, [candles, unit, active, mode]);
+
+  const last = candles[candles.length - 1]; const shown = hover ?? last; const up = shown ? shown.close >= shown.open : true;
+  const change = candles.length && candles[0].open ? ((last.close - candles[0].open) / candles[0].open) * 100 : 0;
   return <div className={cn('relative flex flex-col', className)}>
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[12.5px] font-bold text-ink/65 tnum">
-        <span>O <b className={up ? 'text-up' : 'text-down'}>{priceText(active.open, ethUsd)}</b></span><span>H <b className={up ? 'text-up' : 'text-down'}>{priceText(active.high, ethUsd)}</b></span><span>L <b className={up ? 'text-up' : 'text-down'}>{priceText(active.low, ethUsd)}</b></span><span>C <b className={up ? 'text-up' : 'text-down'}>{priceText(active.close, ethUsd)}</b></span>
-        <span className={cn('rounded-md px-1.5 py-0.5', up ? 'bg-up/12 text-up' : 'bg-down/12 text-down')}>{up ? '+' : ''}{((active.close - active.open) / active.open * 100).toFixed(2)}%</span>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex min-h-8 flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[12px] font-bold text-ink/60 tnum">
+        {shown ? <>{(['open', 'high', 'low', 'close'] as const).map(k => <span key={k}>{k[0].toUpperCase()} <b className={up ? 'text-up' : 'text-down'}>{fmtRef.current(shown[k])}</b></span>)}<span className={cn('rounded-md px-1.5 py-0.5', up ? 'bg-up/12 text-up' : 'bg-down/12 text-down')}>{up ? '+' : ''}{shown.open ? (((shown.close - shown.open) / shown.open) * 100).toFixed(2) : '0.00'}%</span></> : <span>Waiting for the first trade</span>}
         <span className="flex items-center gap-1.5"><i className="h-0.5 w-4 rounded bg-[#E0A100]"/>MA7</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-4 rounded bg-[#5B6CFF]"/>MA25</span>
       </div>
-      <div className="sunk flex rounded-xl p-0.5 font-mono text-[12px] font-extrabold">{RANGES.map((r, i) => <button key={r.label} onClick={() => setRange(i)} className={cn('min-h-9 rounded-[10px] px-3 transition-all', range === i ? 'raised text-ink' : 'text-ink/60 hover:text-ink')}>{r.label}</button>)}</div>
+      <div className="flex items-center gap-1.5">
+        <div className="sunk flex rounded-xl p-0.5 font-mono text-[11.5px] font-extrabold">{(['mcap', 'price'] as const).map(m => <button key={m} type="button" onClick={() => setMode(m)} aria-pressed={mode === m} className={cn('min-h-8 rounded-[10px] px-2.5 transition-all', mode === m ? 'raised text-ink' : 'text-ink/55 hover:text-ink')}>{m === 'mcap' ? 'MCap' : 'Price'}</button>)}</div>
+        <div className="sunk flex rounded-xl p-0.5 font-mono text-[11.5px] font-extrabold">{INTERVALS.map((r, i) => <button key={r.label} type="button" onClick={() => setInterval(i)} aria-pressed={active === i} className={cn('min-h-8 rounded-[10px] px-2 transition-all sm:px-2.5', active === i ? 'raised text-ink' : 'text-ink/55 hover:text-ink')}>{r.label}</button>)}</div>
+        <button type="button" onClick={() => { chart.current?.timeScale().fitContent(); chart.current?.priceScale('right').applyOptions({ autoScale: true }); }} className="sunk flex size-9 items-center justify-center rounded-xl text-ink/65 hover:text-ink" aria-label="Fit chart" title="Fit chart"><Maximize2 size={14}/></button>
+      </div>
     </div>
     <div className="relative mt-3 min-h-0 flex-1 overflow-hidden rounded-2xl bg-white shadow-[inset_0_0_0_1px_rgba(12,13,16,.08)]">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full cursor-crosshair" role="img" aria-label={`Candlestick chart, ${series.length} trades, ${model.change >= 0 ? 'up' : 'down'} ${Math.abs(model.change).toFixed(1)}%`} onMouseLeave={() => setHover(null)} onPointerMove={event => { const rect = event.currentTarget.getBoundingClientRect(); const x = ((event.clientX - rect.left) / rect.width) * W; const y = ((event.clientY - rect.top) / rect.height) * H; if (x > W - PAD_R) return setHover(null); setHover({ i: Math.max(0, Math.min(model.list.length - 1, Math.floor(x / model.step))), y }); }}>
-        {model.ticks.map(t => <line key={t} x1="0" x2={W - PAD_R} y1={model.y(t)} y2={model.y(t)} stroke="#0C0D10" strokeOpacity=".06" vectorEffect="non-scaling-stroke"/>)}
-        {cols.map(i => <line key={i} x1={i * model.step + model.step / 2} x2={i * model.step + model.step / 2} y1={TOP} y2={VOL_TOP + VOL_H} stroke="#0C0D10" strokeOpacity=".05" vectorEffect="non-scaling-stroke"/>)}
-        <line x1="0" x2={W} y1={VOL_TOP - 8} y2={VOL_TOP - 8} stroke="#0C0D10" strokeOpacity=".1" vectorEffect="non-scaling-stroke"/>
-        <line x1={W - PAD_R} x2={W - PAD_R} y1="0" y2={H} stroke="#0C0D10" strokeOpacity=".1" vectorEffect="non-scaling-stroke"/>
-        <rect x={W - PAD_R} y="0" width={PAD_R} height={H} fill="#F7F8FA"/>
-        {model.ticks.map(t => <text key={t} x={W - PAD_R + 8} y={model.y(t) + 4} fontSize="12.5" fontFamily="Geist Mono, monospace" fontWeight="700" fill="#0C0D10" fillOpacity=".62">{priceText(t, ethUsd)}</text>)}
-        {model.list.map((c, i) => { const x = i * model.step + model.step / 2; const rise = c.close >= c.open; const color = rise ? UP : DOWN; const bodyTop = model.y(Math.max(c.open, c.close)); const bodyH = Math.max(1.5, Math.abs(model.y(c.open) - model.y(c.close))); const vh = (c.volume / model.maxVol) * VOL_H; const bw = Math.max(2, model.step * 0.68);
-          return <g key={c.start} opacity={hover === null || hover.i === i ? 1 : 0.7}>
-            <line x1={x} x2={x} y1={model.y(c.high)} y2={model.y(c.low)} stroke={color} strokeWidth="1.3" vectorEffect="non-scaling-stroke"/>
-            <rect x={x - bw / 2} y={bodyTop} width={bw} height={bodyH} rx="0.8" fill={color}/>
-            {c.volume > 0 && <rect x={x - bw / 2} y={VOL_TOP + VOL_H - vh} width={bw} height={vh} fill={color} fillOpacity=".38"/>}
-          </g>; })}
-        <path d={model.ma25} fill="none" stroke="#5B6CFF" strokeWidth="1.6" vectorEffect="non-scaling-stroke"/>
-        <path d={model.ma7} fill="none" stroke="#E0A100" strokeWidth="1.6" vectorEffect="non-scaling-stroke"/>
-        <line x1="0" x2={W - PAD_R} y1={model.y(last.close)} y2={model.y(last.close)} stroke={lastUp ? UP : DOWN} strokeOpacity=".75" strokeDasharray="3 3" vectorEffect="non-scaling-stroke"/>
-        <rect x={W - PAD_R + 1} y={model.y(last.close) - 11} width={PAD_R - 2} height="22" rx="4" fill={lastUp ? UP : DOWN}/>
-        <text x={W - PAD_R + 8} y={model.y(last.close) + 4.5} fontSize="12.5" fontFamily="Geist Mono, monospace" fontWeight="800" fill="#fff">{priceText(last.close, ethUsd)}</text>
-        <text x={W - PAD_R + 8} y={VOL_TOP + 12} fontSize="11.5" fontFamily="Geist Mono, monospace" fontWeight="700" fill="#0C0D10" fillOpacity=".55">VOL</text>
-        {cols.map(i => <text key={`t${i}`} x={Math.min(W - PAD_R - 40, Math.max(4, i * model.step + model.step / 2 - 20))} y={AXIS_Y} fontSize="11.5" fontFamily="Geist Mono, monospace" fontWeight="700" fill="#0C0D10" fillOpacity=".55">{timeLabel(model.list[i].start, model.spanHours)}</text>)}
-        {hover && <g pointerEvents="none">
-          <line x1={hover.i * model.step + model.step / 2} x2={hover.i * model.step + model.step / 2} y1={TOP} y2={VOL_TOP + VOL_H} stroke="#0C0D10" strokeOpacity=".45" strokeDasharray="4 4" vectorEffect="non-scaling-stroke"/>
-          {hover.y < TOP + PRICE_H && <><line x1="0" x2={W - PAD_R} y1={hover.y} y2={hover.y} stroke="#0C0D10" strokeOpacity=".45" strokeDasharray="4 4" vectorEffect="non-scaling-stroke"/><rect x={W - PAD_R + 1} y={hover.y - 11} width={PAD_R - 2} height="22" rx="4" fill="#1B1D22"/><text x={W - PAD_R + 8} y={hover.y + 4.5} fontSize="12.5" fontFamily="Geist Mono, monospace" fontWeight="800" fill="#fff">{priceText(model.price(hover.y), ethUsd)}</text></>}
-        </g>}
-      </svg>
-      {hover && <span className="pointer-events-none absolute bottom-1 rounded-md bg-graphite px-2 py-0.5 font-mono text-[11.5px] font-bold text-white" style={{ left: `calc(${((hover.i * model.step + model.step / 2) / W) * 100}% - 44px)` }}>{new Date(active.end).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+      <div ref={host} className="absolute inset-0 cursor-crosshair touch-pan-y" aria-label={`Interactive candlestick chart, ${sorted.length} trades`}/>
+      {!candles.length && <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center"><p className="text-base font-extrabold">No trades yet.</p><p className="mt-1 max-w-xs text-sm font-semibold text-ink/65">The first buy draws the first candle, live.</p></div>}
     </div>
-    <div className="mt-2 flex flex-wrap justify-between gap-2 font-mono text-[12px] font-bold text-ink/60"><span>{series.length.toLocaleString()} trades · {model.list.length} candles</span><span>Range {model.change >= 0 ? '+' : ''}{model.change.toFixed(2)}% · vol {model.volume.toFixed(2)} ETH</span></div>
+    <div className="mt-2 flex flex-wrap justify-between gap-2 font-mono text-[11.5px] font-bold text-ink/55"><span className="flex items-center gap-1.5">{live && <span className="pulse-dot size-1.5 rounded-full bg-up"/>}{sorted.length.toLocaleString()} on-chain trades · {candles.length} candles · drag, scroll, pinch</span><span className={change >= 0 ? 'text-up' : 'text-down'}>{change >= 0 ? '+' : ''}{change.toFixed(2)}% since launch</span></div>
   </div>;
 });

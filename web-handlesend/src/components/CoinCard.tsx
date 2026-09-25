@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
-import type { PreviewCoin } from '@/lib/preview';
+import type { ObjectCoin } from '@/shared/domain';
+import { exhibitForTicker } from '@/lib/coins';
 import { eth, pct, usd } from '@/lib/format';
 import { SpinSprite } from './SpinSprite';
 import { GlassIcon } from './GlassIcon';
@@ -13,22 +14,23 @@ export function sparkPath(prices: number[], height = 28): string {
   return prices.map((p, i) => `${i ? 'L' : 'M'}${((i / Math.max(1, prices.length - 1)) * 100).toFixed(1)},${(height - ((p - min) / (max - min || 1)) * (height - 4)).toFixed(1)}`).join(' ');
 }
 
-/** Coin card: a real 360° scan spinning on a lab stage, ticker, market cap, 24h change and a sparkline. */
-export const SpecimenCard = memo(function SpecimenCard({ coin, ethUsd, index = 0 }: { coin: PreviewCoin; ethUsd: number | null; index?: number }) {
-  const spark = useMemo(() => sparkPath(coin.trades.filter((_, i) => i % 3 === 0).map(t => t.price)), [coin]);
-  const up = coin.change24h >= 0;
-  return <Link to={`/coin/${coin.ticker.toLowerCase()}`} className="raised lift group block overflow-hidden rounded-[26px]">
+/** Coin card for an ObjectPad original: its real 360° scan spinning on a lab stage, with live on-chain market cap, change and sparkline. */
+export const SpecimenCard = memo(function SpecimenCard({ coin, ethUsd, index = 0 }: { coin: ObjectCoin; ethUsd: number | null; index?: number }) {
+  const spark = useMemo(() => coin.spark.length >= 2 ? sparkPath(coin.spark) : 'M0,26 L100,26', [coin.spark]);
+  const up = coin.change24h >= 0; const exhibit = exhibitForTicker(coin.symbol); const live = coin.state === 'live';
+  return <Link to={coin.path} className="raised lift group block overflow-hidden rounded-[26px]">
     <div className="scan-stage crop relative m-1.5 overflow-hidden rounded-[21px]"><i/><i/><i/><i/>
       <div className="grid-paper absolute inset-0 opacity-60" aria-hidden="true"/>
-      <SpinSprite src={coin.exhibit.spin} delay={index * 0.8} className="relative mx-auto w-[80%]"/>
-      <span className="chip-dark absolute left-3 top-3">${coin.ticker}</span>
-      <span className={cn('absolute right-3 top-3 rounded-full px-2 py-0.5 font-mono text-[11px] font-extrabold', up ? 'bg-up/12 text-up' : 'bg-down/12 text-down')}>{up ? '▲' : '▼'} {pct(coin.change24h)}</span>
-      <span className="chip absolute bottom-3 left-3 hidden !text-[11px] sm:inline-flex">{coin.tag}</span>
+      {exhibit ? <SpinSprite src={exhibit.spin} delay={index * 0.8} className="relative mx-auto w-[80%]"/> : <img src={coin.logo} alt="" className="relative mx-auto aspect-square w-[70%] object-contain p-4"/>}
+      <span className="chip-dark absolute left-3 top-3">${coin.symbol}</span>
+      {live ? <span className={cn('absolute right-3 top-3 rounded-full px-2 py-0.5 font-mono text-[11px] font-extrabold', up ? 'bg-up/12 text-up' : 'bg-down/12 text-down')}>{up ? '▲' : '▼'} {pct(coin.change24h)}</span> : <span className="chip absolute right-3 top-3 !text-[11px]">Launching</span>}
+      {coin.tag && <span className="chip absolute bottom-3 left-3 hidden !text-[11px] sm:inline-flex">{coin.tag}</span>}
+      {live && <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 font-mono text-[11px] font-extrabold text-up"><span className="pulse-dot size-1.5 rounded-full bg-up"/>LIVE</span>}
     </div>
     <div className="px-3 pb-3.5 pt-2 sm:px-4 sm:pb-4">
       <div className="flex items-start justify-between gap-2"><h3 className="truncate text-[15px] font-extrabold leading-tight sm:text-[15.5px]">{coin.name}</h3><ArrowUpRight size={16} className="shrink-0 text-ink/65 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-ink"/></div>
-      <div className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-0.5"><div><p className="stat-label whitespace-nowrap !text-[11px]">Mcap</p><p className="mt-0.5 text-[16px] font-extrabold tnum">{ethUsd ? usd(coin.marketCapEth * ethUsd, 0) : eth(coin.marketCapEth, 2)}</p></div><span className="whitespace-nowrap font-mono text-[11px] font-bold text-ink/60">{coin.holderCount} holders</span></div>
-      <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-2 h-9 w-full"><defs><linearGradient id={`sp-${coin.ticker}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={up ? '#12A150' : '#E5484D'} stopOpacity=".22"/><stop offset="100%" stopColor={up ? '#12A150' : '#E5484D'} stopOpacity="0"/></linearGradient></defs><path d={`${spark} L100,30 L0,30 Z`} fill={`url(#sp-${coin.ticker})`}/><path d={spark} fill="none" stroke={up ? '#12A150' : '#E5484D'} strokeWidth="1.8" vectorEffect="non-scaling-stroke"/></svg>
+      <div className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-0.5"><div><p className="stat-label whitespace-nowrap !text-[11px]">Mcap</p><p className="mt-0.5 text-[16px] font-extrabold tnum">{!live ? '—' : ethUsd ? usd(coin.marketCapEth * ethUsd, 0) : eth(coin.marketCapEth, 2)}</p></div><span className="whitespace-nowrap font-mono text-[11px] font-bold text-ink/60">{coin.trades} trades · {coin.holders} holders</span></div>
+      <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-2 h-9 w-full"><defs><linearGradient id={`sp-${coin.symbol}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={up ? '#12A150' : '#E5484D'} stopOpacity=".22"/><stop offset="100%" stopColor={up ? '#12A150' : '#E5484D'} stopOpacity="0"/></linearGradient></defs><path d={`${spark} L100,30 L0,30 Z`} fill={`url(#sp-${coin.symbol})`}/><path d={spark} fill="none" stroke={up ? '#12A150' : '#E5484D'} strokeWidth="1.8" vectorEffect="non-scaling-stroke"/></svg>
       <div className="sunk mt-2 h-1.5 overflow-hidden rounded-full"><div className="h-full rounded-full bg-ink" style={{ width: `${coin.progress * 100}%` }}/></div>
       <p className="mt-1.5 font-mono text-[11px] font-bold uppercase text-ink/60">{(coin.progress * 100).toFixed(1)}% to graduation</p>
     </div>

@@ -14,6 +14,7 @@ import { HouseService } from './house';
 import { BurnService } from './burn';
 import { UniquenessService } from './uniqueness';
 import { MarketService } from './market';
+import { TradeIndexer } from './indexer';
 import { normalizeIcon, normalizeImage } from './media';
 import { visionJson } from './ai';
 
@@ -110,13 +111,13 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
     this.runtime = { env, origin: canonicalOrigin(env), apiOrigin: publicBase(env.OBJECTPAD_API_ORIGIN), privyAppId: (env.OBJECTPAD_PRIVY_APP_ID || env.VITE_PRIVY_APP_ID || '').trim(), toolkitUrl: clean(env.EXPO_PUBLIC_TOOLKIT_URL) || 'https://toolkit.rork.com', toolkitKey: (env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY ?? '').trim(), privateBucket: this.store.bucket('private'), artifactBucket: this.store.bucket('artifacts') };
     this.captures = new CaptureService(this.store, this.runtime); this.sponsor = new SponsorService(this.store, this.runtime); this.records = new RecordService(this.store, this.runtime, this.captures, this.sponsor);
-    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor);
+    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
   }
   private exclusive<T>(action: () => Promise<T>): Promise<T> { const run = this.queue.then(action, action); this.queue = run.then(() => {}, () => {}); return run; }
@@ -135,7 +136,10 @@ export class ObjectPad extends DurableObject<Env> {
       if (method === 'GET' && path === '/market') return json(await this.market.snapshot());
       if (method === 'GET' && path === '/house') { if (this.house.pending()) await this.schedule(1_000); return json({ coins: this.house.list() }); }
       const logo = path.match(/^\/logos\/(0x[a-f0-9]{40})$/); if (method === 'GET' && logo) return await this.market.logo(logo[1]);
-      const curveTrades = path.match(/^\/curves\/(0x[a-fA-F0-9]{40})\/trades$/); if (method === 'GET' && curveTrades) return json(await this.market.curveTrades(curveTrades[1]));
+      // Every ObjectPad coin with exact, indexed on-chain stats. Creator coins rank above ObjectPad originals.
+      if (method === 'GET' && path === '/coins') { if (this.house.pending()) await this.schedule(1_000); const items = await this.indexer.coins(new Map(trending(this.store).map(t => [t.objectId, t.score]))); return json({ items, recent: this.indexer.recent(40), updatedAt: Date.now() }); }
+      const curveTrades = path.match(/^\/curves\/(0x[a-fA-F0-9]{40})\/(trades|holders)$/);
+      if (method === 'GET' && curveTrades) { if (this.indexer.known(curveTrades[1])) return json(curveTrades[2] === 'trades' ? await this.indexer.trades(curveTrades[1]) : await this.indexer.holders(curveTrades[1])); if (curveTrades[2] === 'trades') return json(await this.market.curveTrades(curveTrades[1])); throw new ApiError('NOT_FOUND', 404); }
       const upload = path.match(/^\/uploads\/([a-f0-9-]{36})$/); if (method === 'PUT' && upload) return await this.upload(request, upload[1]);
       const reconstruct = path.match(/^\/sessions\/([a-f0-9-]{36})\/reconstruct$/); if (method === 'POST' && reconstruct) return await this.reconstruct(request, reconstruct[1]);
       const regenerate = path.match(/^\/sessions\/([a-f0-9-]{36})\/regenerate$/); if (method === 'POST' && regenerate) return await this.regenerate(request, regenerate[1]);
@@ -146,7 +150,7 @@ export class ObjectPad extends DurableObject<Env> {
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
     await this.exclusive(async () => {
-      try { this.launchSoon = false; await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
+      try { this.launchSoon = false; await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const idx = this.indexer.sync(true); try { this.ctx.waitUntil(idx); } catch { /* next request syncs */ } const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
       finally { if (this.launchSoon) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
     });
   }
@@ -368,7 +372,20 @@ export class ObjectPad extends DurableObject<Env> {
   }
   /** Launches validated captures automatically (up to three attempts each); the creator can always retry manually. */
   private launchSoon = false;
+  /**
+   * One-time repair after the treasury nonce fix: launches that used up their automatic retries on a broadcast error get a
+   * fresh set of attempts, so sealed coins go live without the creator having to come back.
+   */
+  private rearmBroadcastFailures(): void {
+    if (this.store.one("SELECT value FROM op_scheduler WHERE name='rearm_broadcast_v2'")) return;
+    for (const row of this.store.all<{ id: string }>("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved')")) {
+      const { session } = this.captures.load(row.id);
+      if (session.failureCode === 'LAUNCH_BROADCAST_FAILED' || session.failureCode === 'LAUNCH_SIMULATION_FAILED') { session.autoLaunchAttempts = 0; session.autoLaunch = true; delete session.failureCode; this.captures.save(session); }
+    }
+    this.store.run("INSERT INTO op_scheduler(name,value) VALUES ('rearm_broadcast_v2',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value", Date.now());
+  }
   private async autoLaunch(): Promise<void> {
+    this.rearmBroadcastFailures();
     const rows = this.store.all<{ id: string }>("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') ORDER BY created_at ASC LIMIT 5"); if (!rows.length) return;
     // An empty sponsor wallet or spent daily budget pauses automatic launches without using up retry attempts.
     const funded = await this.sponsor.status().then(s => s.launchesAffordable >= 1 && s.usedToday < s.dailyLimit).catch(() => false);
@@ -429,8 +446,10 @@ export class ObjectPad extends DurableObject<Env> {
     if (method === 'GET' && path === '/pipeline') {
       const recent = this.store.all<{ state: string; payload: string; created_at: number }>('SELECT state,payload,created_at FROM op_capture_sessions ORDER BY created_at DESC LIMIT 12').map(row => { const s = JSON.parse(row.payload) as { failureCode?: string; job?: { state: string; progress: number }; views?: unknown[]; failureRetries?: number }; return { state: row.state, failureCode: s.failureCode ?? null, job: s.job ?? null, views: s.views?.length ?? 0, retries: s.failureRetries ?? 0, ageSec: Math.round((Date.now() - row.created_at) / 1000) }; });
       const jobs = this.store.all<{ state: string; updated_at: number }>('SELECT state,updated_at FROM op_reconstruction_jobs ORDER BY updated_at DESC LIMIT 12');
-      const metrics = this.store.all<{ name: string; value: number }>("SELECT name,value FROM op_metrics WHERE name LIKE 'reconstruction%' OR name LIKE 'glb%' OR name LIKE 'provider%' OR name LIKE 'model%' OR name LIKE 'screening%' OR name LIKE 'frame%' OR name LIKE 'pipeline%' ORDER BY name");
-      return json({ recent, jobs, metrics });
+      const metrics = this.store.all<{ name: string; value: number }>("SELECT name,value FROM op_metrics WHERE name LIKE 'reconstruction%' OR name LIKE 'glb%' OR name LIKE 'provider%' OR name LIKE 'model%' OR name LIKE 'screening%' OR name LIKE 'frame%' OR name LIKE 'pipeline%' OR name LIKE 'autolaunch%' OR name LIKE 'launch%' OR name LIKE 'record%' OR name LIKE 'tx_%' OR name LIKE 'house%' ORDER BY name");
+      // Anonymous launch funnel for built models: no ids, owners or photos.
+      const launches = this.store.all<{ id: string; state: string; payload: string; created_at: number }>("SELECT id,state,payload,created_at FROM op_capture_sessions WHERE state IN ('model_review','approved') ORDER BY created_at DESC LIMIT 12").map(row => { const s = JSON.parse(row.payload) as SavedSession; const record = this.store.one<{ id: string; state: string }>('SELECT id,state FROM op_records WHERE session_id=?', row.id); const tx = record ? this.store.one<{ state: string; tx_hash: string | null }>("SELECT state,tx_hash FROM op_transactions WHERE record_id=? AND kind='launch'", record.id) : null; return { state: row.state, autoLaunch: s.autoLaunch ?? null, attempts: s.autoLaunchAttempts ?? 0, queued: Boolean(s.launchQueuedAt), failureCode: s.failureCode ?? null, hasDraft: Boolean(s.launchDraft), hasIcon: Boolean(s.icon), moderation: s.moderation ?? null, record: record?.state ?? null, tx: tx ? { state: tx.state, hash: tx.tx_hash } : null, ageMin: Math.round((Date.now() - row.created_at) / 60_000) }; });
+      return json({ recent, jobs, metrics, launches, lastLaunch: lastLaunchEvent, launchEvents: this.records.launchEvents() });
     }
     // Account-free creators: one guest token per browser, rate-limited per network.
     if (method === 'POST' && path === '/guests') { this.assertOrigin(request); this.store.rate(`guests:${await this.visitor(request)}`, 30, 86_400_000); const token = `g_${randomToken()}`; const id = crypto.randomUUID(); this.store.run('INSERT INTO op_guests(id,token_hash,created_at) VALUES (?,?,?)', id, await sha256(token), Date.now()); this.store.metric('guest_created'); return json({ token }); }
