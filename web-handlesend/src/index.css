@@ -291,3 +291,8 @@
 .mark-pop { animation: mark-pop .9s cubic-bezier(.2,1.4,.4,1) both; }
 @keyframes mark-pop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.4); } 25% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 70% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(.9); } }
 @media (prefers-reduced-motion: reduce) { .mark-pop { animation-duration: .01s; } }
+
+/* $ObjectPad CA pill: COPIED pop-up floats up above the pill. */
+.ca-copied { animation: ca-copied 1.6s cubic-bezier(.2,1.2,.4,1) both; }
+@keyframes ca-copied { 0% { opacity: 0; transform: translate(-50%, 0) scale(.7); } 15% { opacity: 1; transform: translate(-50%, -125%) scale(1.05); } 30% { transform: translate(-50%, -115%) scale(1); } 80% { opacity: 1; transform: translate(-50%, -115%); } 100% { opacity: 0; transform: translate(-50%, -140%); } }
+@media (prefers-reduced-motion: reduce) { .ca-copied { animation-duration: .01s; } }

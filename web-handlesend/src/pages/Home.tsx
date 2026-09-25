@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { ArrowRight, ArrowUpRight, Check, Copy, LoaderCircle, MousePointer2, RefreshCw, Smartphone, X } from 'lucide-react';
 import { ScanHero } from '@/components/ScanHero';
+import { CaPill } from '@/components/CaPill';
 import { MarketBoard } from '@/components/MarketBoard';
 import { Reveal, CountUp } from '@/components/Reveal';
 import { Donut } from '@/components/Charts';
@@ -73,10 +74,11 @@ function Hero() {
   return <section className="page pb-8 pt-8 sm:pt-12">
     <div className="grid items-center gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:gap-12 2xl:gap-16">
       <div className="relative z-10">
-        <p className="enter lab">ObjectPad Labs · the physical-object launchpad</p>
+        <p className="enter lab">ObjectPad · launching soon · the physical-object launchpad</p>
         <h1 className="enter display mt-5 text-[clamp(40px,10.5vw,64px)] leading-[0.92] lg:text-[clamp(52px,4.1vw,76px)]" style={delay(60)}><span className="block whitespace-nowrap">Tokenize the</span><span className="block whitespace-nowrap">physical world.</span></h1>
         <p className="enter mt-6 max-w-xl text-[22px] font-extrabold leading-[1.35] tracking-[-0.015em] sm:text-[26px]" style={delay(120)}>Scan your <RotatingWord/> with your phone. We launch its coin. <span className="whitespace-nowrap">You pay $0.</span></p>
         <div className="enter mt-7 flex flex-col gap-3 sm:flex-row sm:items-center" style={delay(180)}><HeroCta/><Link to="/explore" className="btn-ghost press min-h-[56px] px-6 text-[15px]">See the coins<ArrowUpRight size={16}/></Link></div>
+        <div className="enter mt-4 max-w-[560px]" style={delay(210)}><CaPill/></div>
         <div className="enter mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[14.5px] font-extrabold text-ink/70" style={delay(240)}>{['$0 launch', 'No account', 'Full 3D scan', '1 object = 1 coin'].map(t => <span key={t} className="flex items-center gap-1.5"><Check size={16} strokeWidth={3} className="text-ink"/>{t}</span>)}</div>
       </div>
       <div className="enter" style={delay(100)}><ScanHero/></div>
@@ -112,7 +114,7 @@ function FreeLaunch() {
               <Link to="/treasury" className="btn press hidden min-h-12 px-5 text-sm sm:inline-flex">Fund it<ArrowUpRight size={15}/></Link>
             </div>
             <div className="sunk mt-4 h-2.5 overflow-hidden rounded-full"><div className="bar-grow h-full rounded-full bg-ink" style={{ width: `${Math.max(2, gauge * 100)}%` }}/></div>
-            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px] font-extrabold uppercase text-ink/65 sm:flex sm:flex-wrap sm:justify-between"><span>Covers {t.affordable} launches</span><span className="text-right sm:text-left">{t.costUsd} each</span><span>{t.usedToday}/{t.dailyLimit || '—'} used today</span>{t.address && <span className="text-right sm:text-left">{shortAddress(t.address, 6, 4)}</span>}</div>
+            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px] font-extrabold uppercase text-ink/65 sm:flex sm:flex-wrap sm:justify-between"><span>Covers {t.affordable} launches</span><span className="text-right sm:text-left">{t.costUsd} each</span><span>{t.perPerson} free / person / day</span>{t.address && <span className="text-right sm:text-left">{shortAddress(t.address, 6, 4)}</span>}</div>
             <Link to="/treasury" className="btn press mt-4 min-h-12 w-full px-5 text-sm sm:hidden">Fund the treasury<ArrowUpRight size={15}/></Link>
           </div>
         </div>

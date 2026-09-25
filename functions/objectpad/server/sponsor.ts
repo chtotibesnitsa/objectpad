@@ -9,6 +9,8 @@ import { Store } from './store';
 
 /** Upper bound for one launchAndBuy (measured ≈3.81M gas on 2026-09-23) plus headroom. */
 export const LAUNCH_GAS_BUDGET = 4_800_000n;
+/** Free launches per person per 24h, enforced per account/guest and per network. */
+export const PER_PERSON_DAILY = 5;
 
 /**
  * The ObjectPad launch treasury (sponsor): a platform wallet that sends every Pons V2 launch and pays the launch fee plus the
@@ -18,9 +20,20 @@ export const LAUNCH_GAS_BUDGET = 4_800_000n;
 export class SponsorService {
   private cache: { at: number; status: SponsorStatus } | null = null;
   constructor(private readonly store: Store, private readonly runtime: Runtime) {}
+  /** Operator key from the environment, tolerant of pasted quotes, spaces or a missing 0x prefix. */
+  private configured(): Hex | null {
+    const raw = (this.runtime.env.OBJECTPAD_SPONSOR_PRIVATE_KEY ?? '').replace(/[\s"'`]/g, '');
+    if (!raw) return null;
+    const hex = raw.startsWith('0x') || raw.startsWith('0X') ? raw.slice(2) : raw;
+    if (/^[0-9a-fA-F]{64}$/.test(hex)) return `0x${hex.toLowerCase()}` as Hex;
+    console.warn('objectpad.sponsor.env_key_invalid', raw.length);
+    return null;
+  }
+  /** Where the sponsor key comes from, for operator diagnostics. Never exposes the key. */
+  keySource(): 'env' | 'env_invalid' | 'stored' { if (this.configured()) return 'env'; return this.runtime.env.OBJECTPAD_SPONSOR_PRIVATE_KEY ? 'env_invalid' : 'stored'; }
   private key(): Hex {
-    const configured = this.runtime.env.OBJECTPAD_SPONSOR_PRIVATE_KEY?.trim();
-    if (configured && /^0x[0-9a-fA-F]{64}$/.test(configured)) return configured as Hex;
+    const configured = this.configured();
+    if (configured) return configured;
     const saved = this.store.one<{ value: string }>("SELECT value FROM op_secrets WHERE name='sponsor_key'");
     if (saved) return saved.value as Hex;
     this.store.run("INSERT OR IGNORE INTO op_secrets(name,value,created_at) VALUES ('sponsor_key',?,?)", generatePrivateKey(), Date.now());
@@ -28,7 +41,8 @@ export class SponsorService {
   }
   get address(): Address { return privateKeyToAccount(this.key()).address; }
   wallet() { return createWalletClient({ account: privateKeyToAccount(this.key()), chain: robinhoodChain, transport: http(rpcUrl(this.runtime.env), { timeout: 20_000 }) }); }
-  dailyLimit(): number { const value = Number(this.runtime.env.OBJECTPAD_DAILY_LAUNCHES); return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 25; }
+  /** Platform-wide daily safety cap. Each person is separately capped at PER_PERSON_DAILY. */
+  dailyLimit(): number { const value = Number(this.runtime.env.OBJECTPAD_DAILY_LAUNCHES); return Number.isFinite(value) && value > 0 ? Math.floor(value) : 200; }
   usedToday(): number { return Number(this.store.one<{ count: number }>('SELECT count FROM op_rate_limits WHERE key=?', `launches:${Math.floor(Date.now() / 86_400_000)}`)?.count ?? 0); }
   /** Live sponsor balance and the real cost of one launch (fee + minimum buy + gas budget at the current gas price). */
   async status(fresh = false): Promise<SponsorStatus> {
@@ -36,7 +50,7 @@ export class SponsorService {
     const client = serverClient(this.runtime.env); const address = this.address;
     const [balance, fee, gasPrice] = await Promise.all([client.getBalance({ address }), client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'launchFee' }), client.getGasPrice()]);
     const cost = fee + MIN_INITIAL_BUY_WEI + LAUNCH_GAS_BUDGET * gasPrice;
-    const status: SponsorStatus = { address, balanceWei: balance.toString(), launchCostWei: cost.toString(), launchesAffordable: cost > 0n ? Number(balance / cost) : 0, dailyLimit: this.dailyLimit(), usedToday: this.usedToday() };
+    const status: SponsorStatus = { address, balanceWei: balance.toString(), launchCostWei: cost.toString(), launchesAffordable: cost > 0n ? Number(balance / cost) : 0, dailyLimit: this.dailyLimit(), usedToday: this.usedToday(), perPersonDaily: PER_PERSON_DAILY, keySource: this.keySource() };
     this.cache = { at: Date.now(), status }; return status;
   }
   invalidate(): void { this.cache = null; }

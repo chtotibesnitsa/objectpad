@@ -71,7 +71,7 @@ export interface ObjectRecord extends ObjectCommitment {
 }
 export interface Readiness { mode: 'operator_blocked' | 'capture_ready' | 'launch_ready'; blocker: string; checks: { id: string; label: string; ready: boolean }[]; chainId: number; productionAccepted: boolean; contracts?: { registry: string | null; vaultFactory: string | null; forge: string | null; burnEngine: string | null; token: string | null }; feeRecipient?: 'object_fee_vault' | 'creator_wallet'; sponsor?: SponsorStatus | null; }
 /** Public view of the launch sponsor wallet. Balances are read from chain; nothing is estimated as funded. */
-export interface SponsorStatus { address: string; balanceWei: string; launchCostWei: string; launchesAffordable: number; dailyLimit: number; usedToday: number; }
+export interface SponsorStatus { address: string; balanceWei: string; launchCostWei: string; launchesAffordable: number; dailyLimit: number; usedToday: number; /** Free launches each person gets per 24h. */ perPersonDaily?: number; keySource?: 'env' | 'env_invalid' | 'stored'; }
 /** Live Pons V2 network market snapshot (all curves on Robinhood Chain, not only ObjectPad coins). */
 export interface MarketCoin { token: string; curve: string; symbol: string; name: string; priceEth: number; changePct: number; volumeEth: number; trades: number; buys: number; sells: number; objectId?: string; /** ObjectPad-served proxy of the coin's own on-chain Pons logo. */ logo?: string; }
 export interface MarketTrade { id: string; token: string; symbol: string; side: 'buy' | 'sell'; eth: number; tokens: number; trader: string; hash: string; block: number; at: number; objectId?: string; logo?: string; }

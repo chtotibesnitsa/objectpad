@@ -304,7 +304,7 @@ export class ObjectPad extends DurableObject<Env> {
           const building = ['screening', 'reconstructing', 'validating'].includes(session.state);
           if (!building && !['model_review', 'approved'].includes(session.state)) throw new ApiError('MODEL_NOT_READY', 409);
           if ((request.headers.get('content-type') ?? '').startsWith('application/json')) { const data = await body(request); if (Object.keys(data).length && !this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) { session.launchDraft = parseLaunchDraft(data); this.captures.save(session); } }
-          if (owner.startsWith('guest:')) this.store.rate(`guest-launch:${await this.visitor(request)}`, 6, 86_400_000);
+          if (owner.startsWith('guest:')) this.store.rate(`guest-launch:${await this.visitor(request)}`, 5, 86_400_000);
           session.autoLaunch = true; this.captures.save(session);
           if (building) { this.store.metric('launch_queued_building'); return json({ state: 'queued', reason: 'MODEL_BUILDING', session: await this.sessionView(id) }); }
           try { const result = await this.launchSession(id, owner); return json({ ...result, session: await this.sessionView(id) }); }
