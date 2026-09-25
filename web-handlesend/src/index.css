@@ -304,3 +304,18 @@
 .burn-toast { animation: burn-toast 6s cubic-bezier(.2,1.1,.3,1) both; }
 @keyframes burn-toast { 0% { opacity: 0; transform: translateY(24px) scale(.96); } 8% { opacity: 1; transform: none; } 88% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(12px); } }
 @media (prefers-reduced-motion: reduce) { .incoming-sweep, .burn-toast { animation-duration: .01s; } }
+
+/* ---------- Touch devices (phones, iPads, Android tablets, any width) ---------- */
+/* No backdrop blur, no filter animations and no endless decorative loops: they are what drops phones below 60 fps. */
+html.touch-lite .glass, html.touch-lite .glass-nav, html.touch-lite .pill, html.touch-lite .pill-smoke, html.touch-lite .chip, html.touch-lite .glass-strong, html.touch-lite input, html.touch-lite textarea, html.touch-lite select, html.touch-lite .mobile-tabbar { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+html.touch-lite .glass { background: linear-gradient(180deg, #FBFBFC, #F3F4F6); }
+html.touch-lite .glass-nav { background: #FAFAFB; }
+html.touch-lite .aurora, html.touch-lite .backdrop::after { display: none; }
+html.touch-lite .glass-icon { filter: none; }
+html.touch-lite .reveal { filter: none; transform: translateY(12px); transition-duration: .45s; }
+html.touch-lite .enter { animation-name: enter-lite; animation-duration: .5s; }
+html.touch-lite .word-in { animation-name: enter-lite; }
+html.touch-lite .btn::after, html.touch-lite .cta-hero::after, html.touch-lite .cta-hero::before, html.touch-lite .shine::after { animation: none; display: none; }
+html.touch-lite .foil, html.touch-lite .float-y, html.touch-lite .bob, html.touch-lite .orbit-dash, html.touch-lite .spin-slow, html.touch-lite .lock-idle, html.touch-lite .orbit-spin, html.touch-lite .orbit-counter, html.touch-lite .orbit-spin-rev, html.touch-lite .orbit-counter-rev { animation: none; }
+html.touch-lite .marquee-run { will-change: transform; }
+@keyframes enter-lite { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

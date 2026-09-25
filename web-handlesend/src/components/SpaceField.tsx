@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef } from 'react';
 import { usePreferences } from '@/hooks/use-preferences';
+import { IS_TOUCH } from '@/lib/perf';
 
 const HEX = '0123456789abcdef';
 const hex = (n: number): string => Array.from({ length: n }, () => HEX[Math.floor(Math.random() * 16)]).join('');
@@ -23,7 +24,7 @@ export const SpaceField = memo(function SpaceField() {
   const canvas = useRef<HTMLCanvasElement>(null); const { reducedMotion } = usePreferences();
   useEffect(() => {
     const el = canvas.current; const ctx = el?.getContext('2d'); if (!el || !ctx) return;
-    if (window.innerWidth < 1100) return;
+    if (window.innerWidth < 1100 || IS_TOUCH) return;
     let w = 0; let h = 0; let gutter = 0; let left = 0; let right = 0; let raf = 0; let alive = true;
     const mouse = { x: -999, y: -999 }; let scroll = window.scrollY; let scrollV = 0;
     let stars: Star[] = []; let cons: Constellation[] = []; let planets: Planet[] = []; const streaks: Streak[] = []; let floaters: Floater[] = []; const sparks: Spark[] = [];

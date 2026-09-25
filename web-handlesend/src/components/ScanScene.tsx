@@ -5,12 +5,7 @@ import { ContactShadows, OrbitControls, RoundedBox, useGLTF, useTexture } from '
 import { AdditiveBlending, Box3, CanvasTexture, Color, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Plane, PointLight, SRGBColorSpace, Vector3, type Material } from 'three';
 import { VIEWS } from '@/shared/domain';
 
-/** Shared clock so the HTML overlay and the WebGL stage stay on the same beat. */
-export interface ScanClock { phase: number; startedAt: number; }
-/** Duration of each hero step: object, phone scan, 3D rebuild, one-of-one check, coin live. */
-export const PHASE_MS = [3400, 5200, 4600, 3800, 5200] as const;
-/** Fraction of each shot segment at which the phone fires its flash (the HTML overlay uses the same moment). */
-export const SHOT_AT = 0.62;
+import { PHASE_MS, SHOT_AT, type ScanClock } from './scanClock';
 
 const clamp = (v: number): number => Math.min(1, Math.max(0, v));
 const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);

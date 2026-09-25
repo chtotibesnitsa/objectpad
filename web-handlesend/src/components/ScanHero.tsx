@@ -6,7 +6,7 @@ import { demoHash, demoTag, MEMES, type MemeExhibit } from '@/lib/memes';
 import { cn } from '@/lib/utils';
 import { VIEWS } from '@/shared/domain';
 import { CountUp } from './Reveal';
-import { PHASE_MS, SHOT_AT, type ScanClock } from './ScanScene';
+import { PHASE_MS, SHOT_AT, type ScanClock } from './scanClock';
 
 const ScanScene = lazy(() => import('./ScanScene'));
 /** Five steps, captions kept to the same length so every card reads as one even line. */

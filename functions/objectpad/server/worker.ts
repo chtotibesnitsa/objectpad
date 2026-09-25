@@ -21,7 +21,10 @@ export const OBJECTPAD_INSTANCE = 'objectpad-production-v1';
 export const DEFAULT_ORIGIN = 'https://objectpad.fun';
 /** ObjectPad's own production domains. Always allowed, whatever the env says. */
 const OWN_ORIGINS = new Set<string>(['https://objectpad.fun', 'https://www.objectpad.fun', 'https://objectpad.com', 'https://www.objectpad.com', 'https://objectpad.rork.app']);
-const DEFAULT_API_ORIGIN = 'https://objectpad-backend.rork.app';
+/** Public host for every URL a person can see or share (models, thumbnails, coin logos, metadata, QR links). Served by the site's /api proxy. */
+export const PUBLIC_ORIGIN = 'https://www.objectpad.fun';
+/** A public URL base from env, never a Rork host. */
+const publicBase = (value: string | undefined): string => { const v = (value ?? '').trim().replace(/\/$/, ''); return /^https:\/\/[a-z0-9.-]+$/i.test(v) && !/rork\.(app|live|com)$/i.test(v) ? v : PUBLIC_ORIGIN; };
 const PROJECT_ID = 'pdud1tb5ce6u6kv0hgpfl';
 const KEY_PROMPT = 'You verify an "Object Key" check-in. Image 1 is the original scan of a physical object. Image 2 is a new photo taken now. Decide whether image 2 shows the very same physical object (same shape, colours, materials and distinguishing marks; lighting and angle may differ). A photo of a screen, a printout, a different item of the same kind, or a digitally altered copy is NOT a match. Return JSON only: {"same": boolean, "confidence": number from 0 to 1, "reason": short phrase}.';
 
@@ -44,7 +47,20 @@ export function trending(store: Store, now = Date.now()): { objectId: string; sc
   const visible = new Set(store.all<{ id: string }>("SELECT id FROM op_records WHERE state='confirmed' AND moderation_state='clear'").map(r => r.id));
   return [...scores.entries()].filter(([id]) => visible.has(id)).map(([objectId, v]) => ({ objectId, ...v, score: Math.round(v.score * 1000) / 1000 })).sort((a, b) => b.score - a.score).slice(0, 50);
 }
-const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
+/**
+ * The real visitor IP. Requests from objectpad.fun arrive through the site's /api proxy, so the connecting IP is the
+ * proxy's; the proxy passes the visitor's address in X-Forwarded-For. Otherwise use the direct connection.
+ */
+function clientIp(request: Request): string {
+  const direct = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  const proxied = ['x-vercel-id', 'x-vercel-forwarded-for', 'x-vercel-ip-country', 'x-vercel-deployment-url'].some(name => request.headers.has(name));
+  if (!proxied) return direct;
+  const forwarded = (request.headers.get('x-vercel-forwarded-for') ?? request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim();
+  return /^[0-9a-f:.]{3,45}$/i.test(forwarded) ? forwarded : direct;
+}
+/** Older records stored the raw backend host in URLs; every JSON answer rewrites it to ObjectPad's public domain. */
+const LEGACY_PUBLIC_HOST = /https:\/\/objectpad-backend\.rork\.app/g;
+const json = (value: unknown, status = 200) => new Response(JSON.stringify(value).replace(LEGACY_PUBLIC_HOST, PUBLIC_ORIGIN), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
 async function body(request: Request): Promise<Record<string, unknown>> { if (!request.headers.get('content-type')?.startsWith('application/json')) throw new ApiError('JSON_REQUIRED', 415); try { const parsed = JSON.parse(new TextDecoder().decode(await boundedBody(request, 32_000))); if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error(); return parsed; } catch (error) { if (error instanceof ApiError) throw error; throw new ApiError('INVALID_JSON'); } }
 const string = (input: unknown, max = 200): string => { if (typeof input !== 'string' || input.length > max) throw new ApiError('INVALID_INPUT'); return input; };
 
@@ -95,7 +111,7 @@ export class ObjectPad extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
-    this.runtime = { env, origin: canonicalOrigin(env), apiOrigin: clean(env.OBJECTPAD_API_ORIGIN) || clean(env.EXPO_PUBLIC_RORK_FUNCTIONS_URL) || DEFAULT_API_ORIGIN, privyAppId: (env.OBJECTPAD_PRIVY_APP_ID || env.VITE_PRIVY_APP_ID || '').trim(), toolkitUrl: clean(env.EXPO_PUBLIC_TOOLKIT_URL) || 'https://toolkit.rork.com', toolkitKey: (env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY ?? '').trim(), privateBucket: this.store.bucket('private'), artifactBucket: this.store.bucket('artifacts') };
+    this.runtime = { env, origin: canonicalOrigin(env), apiOrigin: publicBase(env.OBJECTPAD_API_ORIGIN), privyAppId: (env.OBJECTPAD_PRIVY_APP_ID || env.VITE_PRIVY_APP_ID || '').trim(), toolkitUrl: clean(env.EXPO_PUBLIC_TOOLKIT_URL) || 'https://toolkit.rork.com', toolkitKey: (env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY ?? '').trim(), privateBucket: this.store.bucket('private'), artifactBucket: this.store.bucket('artifacts') };
     this.captures = new CaptureService(this.store, this.runtime); this.sponsor = new SponsorService(this.store, this.runtime); this.records = new RecordService(this.store, this.runtime, this.captures, this.sponsor);
     this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
@@ -140,7 +156,7 @@ export class ObjectPad extends DurableObject<Env> {
   }
   private async guestOwner(token: string): Promise<string | null> { if (!/^g_[a-f0-9]{64}$/.test(token)) return null; const row = this.store.one<{ id: string }>('SELECT id FROM op_guests WHERE token_hash=?', await sha256(token)); return row ? `guest:${row.id}` : null; }
   /** Daily, hashed network identity used to rate-limit account-free actions. Never stored in clear. */
-  private async visitor(request: Request): Promise<string> { return sha256(`objectpad:visitor:${Math.floor(Date.now() / 86_400_000)}:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`); }
+  private async visitor(request: Request): Promise<string> { return sha256(`objectpad:visitor:${Math.floor(Date.now() / 86_400_000)}:${clientIp(request)}`); }
   /**
    * Control of one capture session: its owner (account or guest token) or the phone paired to it by QR (device secret).
    * Returns the session owner so downstream services keep their ownership checks.
@@ -167,7 +183,8 @@ export class ObjectPad extends DurableObject<Env> {
   }
   private async user(request: Request): Promise<string> { if (!this.runtime.privyAppId) throw new ApiError('AUTH_NOT_CONFIGURED', 503); const bearer = request.headers.get('Authorization'); if (!bearer?.startsWith('Bearer ')) throw new ApiError('UNAUTHORIZED', 401); return verifyAccessToken(bearer.slice(7), this.runtime.privyAppId); }
   private assertOrigin(request: Request): void { if (!originAllowed(this.env, request.headers.get('Origin'))) throw new ApiError('ORIGIN_REJECTED', 403); }
-  private handoffOrigin(request: Request): string { const origin = request.headers.get('Origin'); return origin && originAllowed(this.env, origin) ? origin : this.runtime.origin; }
+  /** QR links always open on ObjectPad's own domain (the site the scan started on, or www.objectpad.fun). */
+  private handoffOrigin(request: Request): string { const origin = request.headers.get('Origin'); return origin && OWN_ORIGINS.has(origin) && origin !== 'https://objectpad.rork.app' ? origin : PUBLIC_ORIGIN; }
   /** Creates the public profile on first use: a generated alias, no forms. Rights are accepted when a scan starts. */
   private async ensureProfile(owner: string, rights = false): Promise<{ publicId: string; alias: string; wallet: string | null; rightsAccepted: boolean }> {
     const existing = this.store.one<{ public_id: string; alias: string; wallet: string | null; rights: number }>('SELECT public_id,alias,wallet,rights FROM op_profiles WHERE owner=?', owner);
@@ -347,7 +364,7 @@ export class ObjectPad extends DurableObject<Env> {
     }
     const tokenMatch = path.match(/^\/tokens\/(0x[a-fA-F0-9]{40})$/); if (method === 'GET' && tokenMatch) { const launch = this.store.one<{ record_id: string }>('SELECT record_id FROM op_launches WHERE token=?', tokenMatch[1].toLowerCase()); if (!launch) throw new ApiError('NOT_FOUND', 404); return json(this.records.publicRecord(launch.record_id)); }
     const signalMatch = path.match(/^\/objects\/([a-f0-9]{64})\/signal$/);
-    if (method === 'POST' && signalMatch) { const data = await body(request); const kind = data.kind === 'interact' ? 'interact' : data.kind === 'view' ? 'view' : null; if (!kind) throw new ApiError('SIGNAL_INVALID'); this.records.publicRecord(signalMatch[1]); const day = Math.floor(Date.now() / 86_400_000); const actor = await sha256(`objectpad:signal:${day}:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}:${(request.headers.get('User-Agent') ?? '').slice(0, 200)}`); this.store.rate(`signal:${actor}`, 120, 3_600_000); this.store.run('INSERT OR IGNORE INTO op_signals(object_id,kind,actor,day,created_at) VALUES (?,?,?,?,?)', signalMatch[1], kind, actor, day, Date.now()); return json({ accepted: true }); }
+    if (method === 'POST' && signalMatch) { const data = await body(request); const kind = data.kind === 'interact' ? 'interact' : data.kind === 'view' ? 'view' : null; if (!kind) throw new ApiError('SIGNAL_INVALID'); this.records.publicRecord(signalMatch[1]); const day = Math.floor(Date.now() / 86_400_000); const actor = await sha256(`objectpad:signal:${day}:${clientIp(request)}:${(request.headers.get('User-Agent') ?? '').slice(0, 200)}`); this.store.rate(`signal:${actor}`, 120, 3_600_000); this.store.run('INSERT OR IGNORE INTO op_signals(object_id,kind,actor,day,created_at) VALUES (?,?,?,?,?)', signalMatch[1], kind, actor, day, Date.now()); return json({ accepted: true }); }
     if (method === 'GET' && path === '/messages') return json({ items: this.store.all("SELECT m.id,p.public_id AS creatorId,p.alias,m.text,m.created_at AS createdAt FROM op_messages m JOIN op_profiles p ON p.owner=m.owner WHERE m.hidden=0 ORDER BY m.created_at DESC LIMIT 60").reverse() });
     if (method === 'GET' && path === '/trending') return json({ items: trending(this.store), window: '72h', weights: { view: 1, interact: 3, save: 5 }, decayHours: 24 });
     const creatorMatch = path.match(/^\/creators\/([a-f0-9]{64})$/); if (method === 'GET' && creatorMatch) { const profile = this.store.one<{ owner: string; alias: string; public_id: string }>('SELECT owner,alias,public_id FROM op_profiles WHERE public_id=?', creatorMatch[1]); if (!profile) throw new ApiError('NOT_FOUND', 404); return json({ publicId: profile.public_id, alias: profile.alias, objects: this.store.all<{ id: string }>("SELECT id FROM op_records WHERE owner=? AND state='confirmed' AND moderation_state='clear'", profile.owner).map(row => this.records.publicRecord(row.id)) }); }

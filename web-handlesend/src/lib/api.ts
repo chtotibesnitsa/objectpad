@@ -2,7 +2,10 @@ import type { Readiness } from '@/shared/domain';
 
 const DEFAULT_API = 'https://objectpad-backend.rork.app';
 const configured = ((import.meta.env.VITE_OBJECTPAD_API_URL as string | undefined) || (import.meta.env.EXPO_PUBLIC_RORK_FUNCTIONS_URL as string | undefined) || DEFAULT_API).trim().replace(/\/$/, '');
-/** ObjectPad's own backend. Never another application's API. */
+/**
+ * ObjectPad's own backend, used for background requests only (long 3D jobs and uploads can't go through the site's
+ * 120s proxy). Every link a person sees or shares is built on objectpad.fun by the backend.
+ */
 export const API_ORIGIN = /^https:\/\//.test(configured) ? configured : DEFAULT_API;
 export const API_BASE = `${API_ORIGIN}/api`;
 

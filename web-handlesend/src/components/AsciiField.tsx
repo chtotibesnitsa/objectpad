@@ -45,7 +45,7 @@ export const AsciiField = memo(function AsciiField({ className, cell = 16, densi
       draw();
     };
     const observer = new ResizeObserver(resize); observer.observe(element); resize();
-    if (!reducedMotion && visible) timer = window.setInterval(tick, IS_TOUCH ? 220 : 110);
+    if (!reducedMotion && visible && !IS_TOUCH) timer = window.setInterval(tick, 110);
     return () => { observer.disconnect(); window.clearInterval(timer); };
   }, [cell, density, chart, tone, rgb, reducedMotion, visible]);
   return <canvas ref={canvas} className={cn('pointer-events-none', className)} aria-hidden="true"/>;
@@ -96,7 +96,7 @@ export const AsciiObject = memo(function AsciiObject({ src, className, cols = 56
         let out = ''; for (let r = 0; r < rows; r++) { for (let q = 0; q < cols; q++) { const k = r * cols + q; const v = grid[k] ? Math.min(ASCII.length - 1, Math.floor(grid[k] * 0.9 + (depth[k] + 1) * 2.2)) : -1; out += v < 0 ? ' ' : ASCII[v]; } out += '\n'; }
         el.textContent = out;
       }
-      if (!reducedMotion) frame = window.setTimeout(() => requestAnimationFrame(draw), IS_TOUCH ? 140 : 70) as unknown as number;
+      if (!reducedMotion && !(IS_TOUCH && el?.textContent)) frame = window.setTimeout(() => requestAnimationFrame(draw), 70) as unknown as number;
     };
     requestAnimationFrame(draw);
     return () => { alive = false; window.clearTimeout(frame); };

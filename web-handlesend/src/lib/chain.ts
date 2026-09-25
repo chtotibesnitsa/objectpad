@@ -6,9 +6,10 @@ import { validAddress } from '@/shared/security';
 /** Read-only chain client for the browser. Every value shown in the UI comes from here or the ObjectPad API. */
 export const chain = createPublicClient({ chain: robinhoodChain, transport: http(undefined, { batch: true, retryCount: 1, timeout: 12_000 }) });
 
-const env = (key: string): Address | null => { const value = (import.meta.env[key] as string | undefined)?.trim(); return validAddress(value) ? value as Address : null; };
+/** Static env reads only: a dynamic import.meta.env[key] would inline every public variable into the bundle. */
+const env = (raw: string | undefined): Address | null => { const value = raw?.trim(); return validAddress(value) ? value as Address : null; };
 /** Contract addresses are configured at build time. Missing addresses keep the matching feature operator-blocked. */
-export const ECONOMY: EconomyConfig = { forge: env('VITE_OBJECTPAD_FORGE_ADDRESS'), burnEngine: env('VITE_OBJECTPAD_BURN_ENGINE_ADDRESS'), objectpadToken: env('VITE_OBJECTPAD_TOKEN_ADDRESS'), vaultFactory: env('VITE_OBJECTPAD_VAULT_FACTORY_ADDRESS'), registry: env('VITE_OBJECTPAD_REGISTRY_ADDRESS') };
+export const ECONOMY: EconomyConfig = { forge: env(import.meta.env.VITE_OBJECTPAD_FORGE_ADDRESS as string | undefined), burnEngine: env(import.meta.env.VITE_OBJECTPAD_BURN_ENGINE_ADDRESS as string | undefined), objectpadToken: env(import.meta.env.VITE_OBJECTPAD_TOKEN_ADDRESS as string | undefined), vaultFactory: env(import.meta.env.VITE_OBJECTPAD_VAULT_FACTORY_ADDRESS as string | undefined), registry: env(import.meta.env.VITE_OBJECTPAD_REGISTRY_ADDRESS as string | undefined) };
 
 const CURVE_STATE_ABI = parseAbi(['function quoteReserve() view returns (uint256)', 'function tokenReserve() view returns (uint256)', 'function phantomQuote() view returns (uint256)', 'function graduationThreshold() view returns (uint256)', 'function graduated() view returns (bool)', 'function creatorTaxBps() view returns (uint256)']);
 export interface CurveState { quoteReserve: bigint; tokenReserve: bigint; phantomQuote: bigint; graduationThreshold: bigint; graduated: boolean; creatorTaxBps: number; priceEth: number; marketCapEth: number; realReserveEth: number; progress: number; }
