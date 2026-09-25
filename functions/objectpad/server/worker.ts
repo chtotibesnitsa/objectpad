@@ -8,6 +8,7 @@ import { Store } from './store';
 import { CaptureService, coinUrlFor } from './capture-service';
 import { RecordService } from './record-service';
 import { probeToolkit, toolkitProbeStatus } from './toolkit';
+import { lastProviderEvent } from './meshy';
 import { SponsorService } from './sponsor';
 import { HouseService } from './house';
 import { BurnService } from './burn';
@@ -340,7 +341,7 @@ export class ObjectPad extends DurableObject<Env> {
     // $OBJECTPAD buyback & burn feed (public, real transactions only).
     if (method === 'GET' && path === '/burns') { if (this.burns.due()) await this.schedule(1_000); return json({ ...this.burns.summary(), items: this.burns.list() }); }
     // Live engine check from inside the backend: does the AI gateway and the 3D engine accept our key right now? Cached 2 min.
-    if (method === 'GET' && path === '/engine') return json(await this.engineCheck());
+    if (method === 'GET' && path === '/engine') return json({ ...await this.engineCheck(), lastProvider: lastProviderEvent });
     // Public pipeline heartbeat: anonymous recent capture states and failure codes (no ids, photos or owners). Live proof + diagnostics.
     if (method === 'GET' && path === '/pipeline') {
       const recent = this.store.all<{ state: string; payload: string; created_at: number }>('SELECT state,payload,created_at FROM op_capture_sessions ORDER BY created_at DESC LIMIT 12').map(row => { const s = JSON.parse(row.payload) as { failureCode?: string; job?: { state: string; progress: number }; views?: unknown[]; failureRetries?: number }; return { state: row.state, failureCode: s.failureCode ?? null, job: s.job ?? null, views: s.views?.length ?? 0, retries: s.failureRetries ?? 0, ageSec: Math.round((Date.now() - row.created_at) / 1000) }; });

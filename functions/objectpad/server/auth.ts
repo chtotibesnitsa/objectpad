@@ -10,7 +10,7 @@ async function keys(appId: string, refresh = false): Promise<Jwk[]> {
   if (!/^[a-zA-Z0-9_-]{6,100}$/.test(appId)) throw new ApiError('AUTH_NOT_CONFIGURED', 503);
   attempts.set(appId, Date.now());
   const load = (async () => {
-  const response = await fetch(`https://auth.privy.io/api/v1/apps/${appId}/jwks.json`, { signal: AbortSignal.timeout(8000), redirect: 'error' });
+  const response = await fetch(`https://auth.privy.io/api/v1/apps/${appId}/jwks.json`, { signal: AbortSignal.timeout(8000), redirect: 'manual' });
   if (!response.ok) throw new ApiError('AUTH_UNAVAILABLE', 503);
   const data = await response.json() as { keys?: Jwk[] }; if (!data.keys?.length) throw new ApiError('AUTH_UNAVAILABLE', 503);
   caches.set(appId, { at: Date.now(), keys: data.keys.filter(k => k.kty === 'EC' && k.crv === 'P-256' && (!k.alg || k.alg === 'ES256')) }); return caches.get(appId)!.keys;

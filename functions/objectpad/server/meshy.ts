@@ -11,21 +11,34 @@ export interface ReconstructionProvider {
 }
 const ARTIFACT_HOSTS = ['assets.meshy.ai', 'assets.meshy.ai.cn'];
 export const MESHY_MODEL = 'meshy-7';
+/** Last 3D engine answer (status + short provider message, never credentials), surfaced on /api/engine for diagnosis. */
+export let lastProviderEvent: { at: number; method: string; status: number; kind: string; detail: string } | null = null;
+const note = (method: string, status: number, kind: string, detail: string): void => { lastProviderEvent = { at: Date.now(), method, status, kind, detail: detail.replace(/Bearer\s+\S+/gi, 'Bearer ***').slice(0, 300) }; };
 /**
  * Meshy Multi-Image to 3D (POST /openapi/v1/multi-image-to-3d, GET /openapi/v1/multi-image-to-3d/:id) reached through
  * the Rork Toolkit proxy, which injects the provider credential server-side. Request fields were verified against the
  * live validator (ai_model, geometry_resolution, topology, symmetry_mode, texture_resolution).
  */
 export class MeshyProvider implements ReconstructionProvider {
-  constructor(private readonly toolkitUrl: string, private readonly toolkitKey: string, private readonly options: { model?: string; geometry?: 'standard' | '2k' | '4k' } = {}, private readonly fetcher: typeof fetch = fetch) {}
+  constructor(private readonly toolkitUrl: string, private readonly toolkitKey: string, private readonly options: { model?: string; geometry?: 'standard' | '2k' | '4k' } = {}, private readonly fetchImpl?: typeof fetch) {}
+  // Workers throw "Illegal invocation" when the global fetch is called as a method of another object (this.fetcher(...)),
+  // so it is always invoked as a plain function.
+  private fetcher(input: RequestInfo | URL, init?: RequestInit): Promise<Response> { const impl = this.fetchImpl; return impl ? impl(input, init) : fetch(input, init); }
   get model(): string { return this.options.model ?? MESHY_MODEL; }
   private async request(path: string, method = 'GET', body?: unknown): Promise<unknown> {
     if (!this.toolkitKey) throw new ApiError('RECONSTRUCTION_NOT_CONFIGURED', 503);
     let response: Response;
-    try { response = await this.fetcher(`${this.toolkitUrl}/v2/meshy/openapi/v1/multi-image-to-3d${path}`, { method, headers: { Authorization: `Bearer ${this.toolkitKey}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(method === 'POST' ? 55_000 : 20_000), redirect: 'error' }); }
-    catch { throw new ApiError(method === 'POST' ? 'PROVIDER_REQUEST_TIMEOUT' : 'PROVIDER_REQUEST_FAILED', 502); }
+    // Cloudflare Workers reject redirect:'error' before anything is sent, so redirects are refused by hand ("manual" + 3xx check).
+    try { response = await this.fetcher(`${this.toolkitUrl}/v2/meshy/openapi/v1/multi-image-to-3d${path}`, { method, headers: { Authorization: `Bearer ${this.toolkitKey}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(method === 'POST' ? 55_000 : 20_000), redirect: 'manual' }); }
+    catch (error) {
+      const name = error instanceof Error ? error.name : ''; console.warn('objectpad.meshy.transport', method, name, error instanceof Error ? error.message.slice(0, 160) : ''); note(method, 0, `transport:${name}`, error instanceof Error ? error.message : String(error));
+      // Only a timeout/abort can mean the request reached Meshy. Any other local error never left the worker, so a retry is safe.
+      if (method === 'POST' && (name === 'TimeoutError' || name === 'AbortError')) throw new ApiError('PROVIDER_REQUEST_TIMEOUT', 502);
+      throw new ApiError(method === 'POST' ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_REQUEST_FAILED', 502);
+    }
+    if (response.status >= 300 && response.status < 400) { console.warn('objectpad.meshy.redirect', method, response.status); note(method, response.status, 'redirect', response.headers.get('location') ?? ''); throw new ApiError(method === 'POST' ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_REQUEST_FAILED', 502); }
     if (!response.ok) {
-      const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200); console.warn('objectpad.meshy.http', method, response.status, detail);
+      const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200); console.warn('objectpad.meshy.http', method, response.status, detail); if (method === 'POST' || response.status !== 400) note(method, response.status, 'http', detail);
       // Any HTTP answer to a create request means no task was started, so it is always safe to try again.
       if (response.status === 402) throw new ApiError('PROVIDER_CREDITS', 503); if (response.status === 429) throw new ApiError('PROVIDER_RATE_LIMIT', 503); if (response.status === 413) throw new ApiError('PROVIDER_PAYLOAD_TOO_LARGE', 422); if (response.status === 401 || response.status === 403) throw new ApiError('PROVIDER_AUTH', 503); if (response.status === 400 || response.status === 422) throw new ApiError('PROVIDER_REJECTED_INPUT', 422);
       throw new ApiError(method === 'POST' ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_REQUEST_FAILED', 502);
@@ -36,7 +49,8 @@ export class MeshyProvider implements ReconstructionProvider {
     if (images.length !== 4) throw new ApiError('FOUR_CANONICAL_VIEWS_REQUIRED');
     const image_urls = images.map(raw => { const image = compactForProvider(raw); let binary = ''; for (let offset = 0; offset < image.length; offset += 8192) binary += String.fromCharCode(...image.subarray(offset, offset + 8192)); return `data:image/jpeg;base64,${btoa(binary)}`; });
     const result = await this.request('', 'POST', { image_urls, ai_model: this.model, geometry_resolution: this.options.geometry ?? 'standard', should_texture: true, enable_pbr: false, texture_resolution: '2k', should_remesh: true, topology: 'triangle', target_polycount: 30000, symmetry_mode: 'auto' }) as { result?: string };
-    if (!result.result || !/^[a-zA-Z0-9_-]{8,100}$/.test(result.result)) throw new ApiError('PROVIDER_AMBIGUOUS_CREATE', 502);
+    if (!result.result || !/^[a-zA-Z0-9_-]{8,100}$/.test(result.result)) { note('POST', 200, 'ambiguous', JSON.stringify(result).slice(0, 200)); throw new ApiError('PROVIDER_AMBIGUOUS_CREATE', 502); }
+    note('POST', 200, 'created', result.result.slice(0, 13));
     return result.result;
   }
   async getTask(id: string): Promise<ReconstructionTask> { if (!/^[a-zA-Z0-9_-]{8,100}$/.test(id)) throw new ApiError('PROVIDER_ID'); const task = await this.request(`/${id}`) as ReconstructionTask; if (task.id !== id || !['PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'CANCELED'].includes(task.status)) throw new ApiError('PROVIDER_INVALID_RESULT', 502); return task; }
@@ -47,7 +61,13 @@ export class MeshyProvider implements ReconstructionProvider {
   private async download(raw: string, limit: number): Promise<Uint8Array> {
     let url: URL; try { url = new URL(raw); } catch { throw new ApiError('PROVIDER_ARTIFACT_HOST', 502); }
     if (url.protocol !== 'https:' || url.username || url.password || url.port || !ARTIFACT_HOSTS.includes(url.hostname)) throw new ApiError('PROVIDER_ARTIFACT_HOST', 502);
-    const response = await this.fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(45_000) });
+    // Follow at most 3 redirects by hand, and only onto Meshy's own asset hosts.
+    let response = await this.fetcher(url, { redirect: 'manual', signal: AbortSignal.timeout(45_000) });
+    for (let hop = 0; hop < 3 && response.status >= 300 && response.status < 400; hop++) {
+      let target: URL; try { target = new URL(response.headers.get('location') ?? '', url); } catch { throw new ApiError('PROVIDER_ARTIFACT_HOST', 502); }
+      if (target.protocol !== 'https:' || !ARTIFACT_HOSTS.includes(target.hostname)) throw new ApiError('PROVIDER_ARTIFACT_HOST', 502);
+      url = target; response = await this.fetcher(url, { redirect: 'manual', signal: AbortSignal.timeout(45_000) });
+    }
     if (!response.ok) throw new ApiError('PROVIDER_ARTIFACT_EXPIRED', 502);
     return boundedBody(response, limit);
   }
