@@ -123,7 +123,7 @@ fun HomeScreen(app: AppUiState, onScan: () -> Unit, onClaim: () -> Unit, onCoin:
                 Image(painterResource(R.drawable.duck_mark), null, Modifier.size(56.dp))
                 Body("ObjectPad is not affiliated with, endorsed by or officially connected with Robinhood Markets, Inc. A scan record does not prove ownership, authenticity or value. Coins carry no redemption right.", Modifier.padding(top = 8.dp), size = 11, align = TextAlign.Center)
                 Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip("objectpad.fun", onClick = { context.openUrl(ObjectPadApi.SITE) }); Chip("@ObjectPad on X", onClick = { context.openUrl("https://x.com/ObjectPad") })
+                    Chip("objectpad.fun", onClick = { context.openUrl(ObjectPadApi.SITE) }); Chip("@ObjectPadFun on X", onClick = { context.openUrl("https://x.com/ObjectPadFun") })
                 }
             }
         }

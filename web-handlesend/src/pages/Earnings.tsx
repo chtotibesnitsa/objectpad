@@ -1,58 +1,119 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { encodeFunctionData, type Address } from 'viem';
-import { ArrowUpRight, Coins, KeyRound, ScanLine, Wallet, Zap } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import type { Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { ArrowUpRight, Check, Coins, Copy, Flame, KeyRound, LinkIcon, LoaderCircle, Rocket, ScanLine, Users, Wallet } from 'lucide-react';
 import { ErrorState, Loading, OperatorNotice } from '@/components/Feedback';
+import { GlassIcon } from '@/components/GlassIcon';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { useCurve } from '@/lib/objects';
 import { useMarket } from '@/lib/market';
-import { chain, formatEth, prepareTx, waitForReceipt } from '@/lib/chain';
-import { eth, shortAddress, tinyUsd, usd } from '@/lib/format';
-import { ESCROW_ABI, PONS_FEE_ESCROW } from '@/shared/economy';
+import { useCoins } from '@/lib/coins';
+import { devWallet, type DevWallet } from '@/lib/devWallet';
+import { ACCOUNT_KEY, claimWithDevWallet, claimWithSession, linkDevWallet, linkSessionWallet, useAccount, type AccountWallet } from '@/lib/account';
+import { copyText, eth, shortAddress, usd } from '@/lib/format';
 import { explorerTx } from '@/shared/pons';
-import type { ObjectRecord, Profile } from '@/shared/domain';
+import { cn } from '@/lib/utils';
 
-function CoinRow({ record, ethUsd }: { record: ObjectRecord; ethUsd: number | null }) {
-  const curve = useCurve(record.curveAddress as Address); const state = curve.data;
-  return <Link to={`/objects/${record.objectId}`} className="flex items-center gap-4 rounded-2xl p-3 transition-colors hover:bg-white/70">
-    <img src={record.model.thumbnailUrl} alt="" className="size-14 rounded-xl bg-white object-contain"/>
-    <div className="min-w-0 flex-1"><p className="truncate font-bold">{record.verifiedName}</p><p className="font-mono text-xs text-muted">${record.symbol}{record.checkin ? ' · Object Key ✓' : ''}</p></div>
-    <div className="text-right"><p className="text-sm font-bold tnum">{state ? (ethUsd ? usd(state.marketCapEth * ethUsd) : eth(state.marketCapEth, 2)) : '—'}</p><p className="font-mono text-[11.5px] text-muted">{state ? (ethUsd ? tinyUsd(state.priceEth * ethUsd) : '') : curve.isError ? 'Unavailable' : '…'}</p></div>
-    <ArrowUpRight size={16} className="shrink-0 text-muted"/>
-  </Link>;
+const DEV_KEY = 'objectpad.devwallet.v1';
+const ethLabel = (v: number): string => v === 0 ? '0' : v < 0.000001 ? '<0.000001' : v.toFixed(6);
+
+/** The 1.5% creator tax, split in three equal parts. */
+function FeeSplit() {
+  const parts = [{ icon: Coins, label: 'Creator', pct: '0.5%', note: 'Claim to your wallet' }, { icon: Flame, label: 'Buyback & burn', pct: '0.5%', note: 'Buys $OBJECTPAD, burns it' }, { icon: Users, label: 'Holders', pct: '0.5%', note: 'Community forge pool' }];
+  return <div className="raised rounded-[26px] p-5">
+    <div className="flex items-center justify-between"><p className="lab">Fee distribution · 1.5% of every trade</p></div>
+    <div className="mt-3 flex h-2.5 overflow-hidden rounded-full"><span className="w-1/3 bg-ink"/><span className="w-1/3 bg-down"/><span className="w-1/3 bg-up"/></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-3">{parts.map((p, i) => <div key={p.label} className="sunk rounded-2xl p-3.5"><div className="flex items-center gap-2"><span className={cn('size-2 rounded-full', i === 0 ? 'bg-ink' : i === 1 ? 'bg-down' : 'bg-up')}/><p className="text-[13px] font-extrabold">{p.label}</p><span className="ml-auto font-mono text-[13px] font-extrabold">{p.pct}</span></div><p className="mt-1 text-[12px] font-semibold text-ink/60">{p.note}</p></div>)}</div>
+  </div>;
 }
 
-/** Creator dashboard: the claimable creator-fee balance in the Pons fee escrow plus every coin this creator launched. */
+/** One creator-fee wallet with its live claimable balance and the right claim path for how it is held. */
+function WalletCard({ wallet, ethUsd }: { wallet: AccountWallet; ethUsd: number | null }) {
+  const session = useSession(); const qc = useQueryClient(); const local = devWallet(); const [copied, setCopied] = useState<boolean>(false);
+  const isLocal = local?.address.toLowerCase() === wallet.address; const isSession = session.wallet?.toLowerCase() === wallet.address;
+  const claim = useMutation({ mutationFn: async (): Promise<Hex> => { const token = await session.token(); if (isSession && session.wallet) return claimWithSession(token, session.wallet, session.send); if (isLocal && local) return claimWithDevWallet(token, local); throw new Error('This wallet’s key isn’t on this device. Import it below or sign in with it.'); }, onSuccess: () => void qc.invalidateQueries({ queryKey: ACCOUNT_KEY }) });
+  const canClaim = (isLocal || isSession) && BigInt(wallet.claimableWei) > 0n;
+  return <div className="raised rounded-[24px] p-4 sm:p-5">
+    <div className="flex items-center gap-3"><GlassIcon name="wallet" size={44}/><div className="min-w-0 flex-1"><p className="text-[14px] font-extrabold">{wallet.kind === 'account' ? 'Account wallet' : isSession ? 'Connected wallet' : 'Dev wallet'}{isLocal && <span className="ml-2 font-mono text-[11px] font-bold text-up">ON THIS DEVICE</span>}</p><a href={`https://robinhoodchain.blockscout.com/address/${wallet.address}`} target="_blank" rel="noreferrer" className="block truncate font-mono text-[12px] text-ink/60 hover:underline">{shortAddress(wallet.address, 8, 6)}</a></div>
+      <button onClick={() => void copyText(wallet.address).then(ok => ok && setCopied(true))} className="flex size-10 items-center justify-center rounded-full hover:bg-ink/5" aria-label="Copy address">{copied ? <Check size={15}/> : <Copy size={15}/>}</button></div>
+    <div className="mt-4 flex items-end justify-between gap-3"><div><p className="stat-label !text-[11px]">Claimable now</p><p className="display mt-1 text-[32px] leading-none tnum">{ethLabel(wallet.claimableEth)}<span className="ml-1.5 text-base text-ink/55">ETH</span></p>{ethUsd && wallet.claimableEth > 0 && <p className="mt-1 font-mono text-[12px] text-ink/60">≈ {usd(wallet.claimableEth * ethUsd)}</p>}</div>
+      <button onClick={() => claim.mutate()} disabled={!canClaim || claim.isPending} className="btn press min-h-12 shrink-0 px-5 text-[14px] disabled:opacity-40">{claim.isPending ? <><LoaderCircle size={16} className="animate-spin"/>Claiming…</> : 'Claim creator fees'}</button></div>
+    {!isLocal && !isSession && BigInt(wallet.claimableWei) > 0n && <p className="mt-3 text-[12px] font-semibold text-ink/60">To claim, open ObjectPad on the device that launched this coin, or import its dev-wallet key below.</p>}
+    {claim.isError && <p role="alert" className="mt-3 text-xs font-bold text-down">{claim.error.message.split('\n')[0]}</p>}
+    {claim.data && <a href={explorerTx(claim.data)} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-1 font-mono text-[12px] font-bold text-up">Claimed · view transaction<ArrowUpRight size={12}/></a>}
+  </div>;
+}
+
+/** Link this browser's dev wallet, the connected wallet, or import a dev-wallet key from another device. */
+function LinkWallets({ publicId, linked }: { publicId: string; linked: string[] }) {
+  const session = useSession(); const qc = useQueryClient(); const [key, setKey] = useState<string>(''); const local = devWallet();
+  const link = useMutation({ mutationFn: async (kind: 'local' | 'session' | 'import') => {
+    const token = await session.token();
+    if (kind === 'session') { if (!session.wallet) throw new Error('Connect a wallet first.'); return linkSessionWallet(token, session.wallet, publicId, session.sign); }
+    let wallet: DevWallet | null = local;
+    if (kind === 'import') { const pk = key.trim() as `0x${string}`; if (!/^0x[a-fA-F0-9]{64}$/.test(pk)) throw new Error('Paste a 0x… private key (66 characters).'); wallet = { address: privateKeyToAccount(pk).address, privateKey: pk, createdAt: Date.now() }; try { localStorage.setItem(DEV_KEY, JSON.stringify(wallet)); } catch { /* private mode */ } }
+    if (!wallet) throw new Error('No dev wallet on this device.'); return linkDevWallet(token, wallet, publicId);
+  }, onSuccess: () => { setKey(''); void qc.invalidateQueries({ queryKey: ACCOUNT_KEY }); } });
+  const localLinked = local && linked.includes(local.address.toLowerCase()); const sessionLinked = session.wallet && linked.includes(session.wallet.toLowerCase());
+  return <div className="raised rounded-[24px] p-5">
+    <p className="font-extrabold">Add a wallet</p><p className="mt-1 text-[13px] font-semibold text-ink/60">Launched without an account? Link the dev wallet that receives your coin’s fees. You sign once to prove it’s yours. The key never leaves your device.</p>
+    <div className="mt-4 flex flex-wrap gap-2">
+      {local && !localLinked && <button onClick={() => link.mutate('local')} disabled={link.isPending} className="btn press min-h-11 px-4 text-[13px]"><LinkIcon size={14}/>Link dev wallet {shortAddress(local.address, 4, 4)}</button>}
+      {session.wallet && !sessionLinked && <button onClick={() => link.mutate('session')} disabled={link.isPending} className="btn-ghost press min-h-11 px-4 text-[13px]"><Wallet size={14}/>Link connected wallet</button>}
+    </div>
+    <div className="mt-4 flex gap-2"><input value={key} onChange={e => setKey(e.target.value)} type="password" autoComplete="off" spellCheck={false} placeholder="Import dev-wallet private key (0x…)" aria-label="Dev wallet private key" className="min-w-0 flex-1 font-mono text-[12px]"/><button onClick={() => link.mutate('import')} disabled={!key || link.isPending} className="btn-ghost press min-h-11 shrink-0 px-4 text-[13px] disabled:opacity-40"><KeyRound size={14}/>Import</button></div>
+    {link.isError && <p role="alert" className="mt-3 text-xs font-bold text-down">{link.error.message.split('\n')[0]}</p>}
+    {link.isSuccess && <p className="mt-3 text-xs font-bold text-up">Wallet linked. Its coins and fees now show on your account.</p>}
+  </div>;
+}
+
+/** Operator-only: creator fees from ObjectPad's own house coins, held by the launch treasury. */
+function HouseFees({ ethUsd }: { ethUsd: number | null }) {
+  const session = useSession(); const qc = useQueryClient();
+  const fees = useQuery({ queryKey: ['objectpad', 'house-fees'], queryFn: async () => api<{ wallet: string; claimableEth: number }>('/ops/house/fees', { token: await session.token() }), refetchInterval: 30_000 });
+  const claim = useMutation({ mutationFn: async () => api<{ hash: Hex }>('/ops/house/claim', { token: await session.token(), method: 'POST', body: {}, timeout: 60_000 }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['objectpad', 'house-fees'] }) });
+  if (!fees.data) return null;
+  return <div className="steel rounded-[24px] p-5">
+    <p className="lab">Operator · ObjectPad originals</p>
+    <div className="mt-3 flex flex-wrap items-end justify-between gap-3"><div><p className="stat-label !text-[11px]">House-coin fees to claim</p><p className="display mt-1 text-[32px] leading-none tnum">{ethLabel(fees.data.claimableEth)}<span className="ml-1.5 text-base text-ink/55">ETH</span></p>{ethUsd && <p className="mt-1 font-mono text-[12px] text-ink/60">≈ {usd(fees.data.claimableEth * ethUsd)} · to treasury {shortAddress(fees.data.wallet)}</p>}</div>
+      <button onClick={() => claim.mutate()} disabled={claim.isPending || fees.data.claimableEth === 0} className="btn press min-h-12 px-5 text-[14px] disabled:opacity-40">{claim.isPending ? 'Claiming…' : 'Claim house fees'}</button></div>
+    {claim.isError && <p role="alert" className="mt-3 text-xs font-bold text-down">{claim.error.message}</p>}
+    {claim.data && <a href={explorerTx(claim.data.hash)} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-1 font-mono text-[12px] font-bold text-up">Claimed · view transaction<ArrowUpRight size={12}/></a>}
+  </div>;
+}
+
+/** Creator dashboard: sign in, see every coin you launched, live claimable fees per wallet, claim in one tap. */
 export default function Earnings() {
-  const auth = useSession(); const qc = useQueryClient(); const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null;
-  const profile = useQuery({ queryKey: ['objectpad', 'profile'], enabled: auth.authenticated, queryFn: async () => api<Profile | null>('/profile', { token: await auth.token() }) });
-  const mine = useQuery({ queryKey: ['objectpad', 'creator', profile.data?.publicId], enabled: Boolean(profile.data?.publicId), queryFn: () => api<{ objects: ObjectRecord[] }>(`/creators/${profile.data!.publicId}`), retry: false });
-  const wallet = (profile.data?.wallet ?? null) as Address | null;
-  const balance = useQuery({ queryKey: ['objectpad', 'escrow', wallet], enabled: Boolean(wallet), queryFn: () => chain.readContract({ address: PONS_FEE_ESCROW, abi: ESCROW_ABI, functionName: 'balanceOf', args: [wallet!] }), refetchInterval: 30_000, retry: 1 });
-  const canClaim = Boolean(wallet && auth.wallet?.toLowerCase() === wallet.toLowerCase());
-  const claim = useMutation({ mutationFn: async () => { if (!auth.wallet) throw new Error('Sign in first.'); const hash = await auth.send(await prepareTx(auth.wallet, { to: PONS_FEE_ESCROW, data: encodeFunctionData({ abi: ESCROW_ABI, functionName: 'claim' }) })); await waitForReceipt(hash); return hash; }, onSuccess: () => void qc.invalidateQueries({ queryKey: ['objectpad', 'escrow', wallet] }) });
-  const objects = mine.data?.objects ?? [];
+  const session = useSession(); const account = useAccount(); const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null; const coins = useCoins();
+  const me = account.data; const [didCopied, setDidCopied] = useState<boolean>(false);
   return <div className="page py-8 sm:py-12">
-    <p className="spec">Creator earnings</p><h1 className="display mt-3 text-5xl sm:text-7xl">Your objects,<br/>paying out.</h1>
-    <p className="mt-4 max-w-xl text-base leading-7 text-muted">Every trade on a coin you launched pays a 1.5% creator fee. It collects in an on-chain fee escrow under your wallet, and you claim it whenever you like.</p>
-    {!auth.configured ? <div className="mt-8"><OperatorNotice/></div> : !auth.authenticated ? <Button className="mt-8" size="lg" onClick={() => auth.login()}><Wallet/>Sign in to see earnings</Button> : profile.isPending ? <Loading/> : profile.isError ? <div className="mt-8"><ErrorState message={profile.error.message} retry={() => void profile.refetch()}/></div> : <div className="mt-8 grid gap-5 lg:grid-cols-[1fr_1.2fr]">
-      <section className="relative overflow-hidden rounded-[32px] bg-ink/[0.04] p-6 sm:p-8">
-        <div className="relative"><div className="flex items-center justify-between"><span className="eyebrow font-bold">Claimable now</span><Coins size={18}/></div>
-          <p className="display mt-5 text-5xl tnum">{!wallet ? '—' : balance.data !== undefined ? formatEth(balance.data) : balance.isError ? '—' : '…'}<span className="ml-2 text-xl text-ink/60">ETH</span></p>
-          {ethUsd && balance.data !== undefined && <p className="mt-1 font-mono text-sm text-ink/60">≈ {usd(Number(formatEth(balance.data, 8).replace(/[<,]/g, '')) * ethUsd)}</p>}
-          <p className="mt-4 text-xs leading-5 text-ink/65">{wallet ? <>Creator wallet <a className="font-mono underline-offset-2 hover:underline" href={`https://robinhoodchain.blockscout.com/address/${wallet}`} target="_blank" rel="noreferrer">{shortAddress(wallet)}</a></> : 'Your creator wallet is set up when you launch your first coin, or in Settings.'}</p>
-          {canClaim ? <Button size="lg" className="press mt-6 w-full" disabled={claim.isPending || !balance.data} onClick={() => claim.mutate()}>{claim.isPending ? 'Claiming…' : 'Claim to my wallet'}</Button> : wallet ? <p className="mt-6 rounded-2xl bg-white p-4 text-xs leading-5">Claiming sends a transaction from your creator wallet. Sign in with the account that owns it to claim.</p> : <Button asChild className="mt-6 w-full bg-ink text-white"><Link to="/settings">Set up creator wallet</Link></Button>}
-          {claim.isError && <p role="alert" className="mt-3 text-xs font-bold text-down">{claim.error.message.split('\n')[0]}</p>}
-          {claim.data && <a href={explorerTx(claim.data)} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-1 font-mono text-[11px] font-bold text-up">Claimed · view receipt<ArrowUpRight size={12}/></a>}
+    <div className="flex items-end gap-4"><GlassIcon name="coins" size={84} float className="hidden sm:block"/><div><p className="lab">Creator earnings</p><h1 className="display mt-3 text-[44px] sm:text-[64px]">Your coins,<br/>paying out.</h1></div></div>
+    <p className="mt-4 max-w-xl text-[16px] font-bold text-ink/65">Every trade on a coin you launched pays a 1.5% fee. Your share builds up on-chain under your wallet, and you can claim it anytime.</p>
+    <div className="mt-6"><FeeSplit/></div>
+    {!session.configured ? <div className="mt-8"><OperatorNotice/></div>
+      : !session.authenticated ? <div className="raised mt-6 flex flex-col items-start gap-4 rounded-[26px] p-6 sm:flex-row sm:items-center"><GlassIcon name="wallet" size={56}/><div className="flex-1"><p className="text-[18px] font-extrabold">Sign in to claim your fees</p><p className="mt-1 text-[13px] font-semibold text-ink/60">Use X, email or MetaMask. Coins you launched on this device join your account automatically.</p></div><button onClick={() => session.login()} className="btn press min-h-12 px-6 text-[14px]">Sign in / Sign up</button></div>
+      : account.isPending ? <Loading label="Loading your coins and fees…"/>
+      : account.isError ? <div className="mt-8"><ErrorState message={account.error.message} retry={() => void account.refetch()}/></div>
+      : me && <>
+        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <div className="sunk rounded-[22px] p-4"><p className="stat-label !text-[11px]">Total to claim</p><p className="display mt-1 text-[30px] tnum">{ethLabel(me.totalClaimableEth)} <span className="text-base text-ink/55">ETH</span></p>{ethUsd && <p className="font-mono text-[12px] text-ink/60">≈ {usd(me.totalClaimableEth * ethUsd)}</p>}</div>
+          <div className="sunk rounded-[22px] p-4"><p className="stat-label !text-[11px]">Coins launched</p><p className="display mt-1 text-[30px] tnum">{me.launches.length}</p></div>
+          <div className="sunk rounded-[22px] p-4"><p className="stat-label !text-[11px]">Signed in as</p><p className="mt-1 truncate text-[17px] font-extrabold">{me.alias}</p><button onClick={() => void copyText(me.did).then(ok => ok && setDidCopied(true))} className="mt-1 flex items-center gap-1 font-mono text-[11px] font-bold text-ink/55">{didCopied ? <Check size={11}/> : <Copy size={11}/>}Copy account ID</button></div>
         </div>
-      </section>
-      <section className="rounded-[32px] p-4 glass sm:p-5">
-        <div className="flex items-center justify-between px-2"><h2 className="font-bold">Your coins</h2><span className="font-mono text-[11.5px] uppercase text-muted">{objects.length} launched</span></div>
-        {mine.isPending && profile.data ? <Loading/> : mine.isError ? <div className="mt-4"><ErrorState message="Your coins could not be loaded." retry={() => void mine.refetch()}/></div> : objects.length ? <div className="mt-2">{objects.map(record => <CoinRow key={record.objectId} record={record} ethUsd={ethUsd}/>)}</div> : <div className="flex flex-col items-center px-4 py-12 text-center"><ScanLine size={32} className="text-volt"/><p className="mt-4 text-lg font-bold">No coins yet.</p><p className="mt-1 max-w-xs text-sm text-muted">Scan an object and it launches for free. Its fees show up here.</p><Button asChild variant="lime" className="press mt-5"><Link to="/capture">Scan an object</Link></Button></div>}
-      </section>
-    </div>}
-    <div className="mt-8 grid gap-4 sm:grid-cols-3">{[{ icon: Zap, title: 'Free to launch', text: 'The ObjectPad treasury pays the launch. You never need ETH to start earning.' }, { icon: Coins, title: 'Set at launch', text: 'Your wallet is set as the creator-fee recipient at launch. ObjectPad can’t redirect it later.' }, { icon: KeyRound, title: 'Prove you still have it', text: 'Check in with a new photo on your coin page to show the real object is still with you.' }].map(item => <div key={item.title} className="rounded-[24px] p-5 glass"><item.icon size={17} className="text-volt"/><p className="mt-3 font-bold">{item.title}</p><p className="mt-1 text-sm leading-6 text-muted">{item.text}</p></div>)}</div>
+        {me.operator && <div className="mt-5"><HouseFees ethUsd={ethUsd}/></div>}
+        <section id="wallets" className="mt-8 scroll-mt-28"><h2 className="text-[20px] font-extrabold">Fee wallets</h2>
+          <div className="mt-3 grid gap-4 lg:grid-cols-2">{me.wallets.map(w => <WalletCard key={w.address} wallet={w} ethUsd={ethUsd}/>)}<LinkWallets publicId={me.publicId} linked={me.wallets.map(w => w.address)}/></div>
+        </section>
+        <section id="launches" className="mt-8 scroll-mt-28"><div className="flex items-center justify-between"><h2 className="text-[20px] font-extrabold">My launches</h2><span className="font-mono text-[12px] font-bold uppercase text-ink/55">{me.launches.length} coins</span></div>
+          {me.launches.length ? <div className="raised mt-3 divide-y divide-ink/[0.06] rounded-[24px] p-2">{me.launches.map(l => { const live = coins.data?.items.find(c => c.id === l.objectId); return <Link key={l.objectId} to={l.path} className="flex items-center gap-3 rounded-2xl p-2.5 hover:bg-white/70">
+            <img src={l.thumbnail} alt="" className="size-14 rounded-xl bg-white object-contain"/>
+            <div className="min-w-0 flex-1"><p className="truncate font-extrabold">{l.name}</p><p className="font-mono text-[12px] text-ink/60">${l.symbol}{l.launchedAt ? ` · ${new Date(l.launchedAt).toLocaleDateString()}` : ''}{live ? ` · ${live.trades} trades · ${live.holders} holders` : ''}</p></div>
+            <div className="text-right"><p className="text-[14px] font-extrabold tnum">{live ? (ethUsd ? usd(live.marketCapEth * ethUsd, 0) : eth(live.marketCapEth, 2)) : '—'}</p>{live && <p className={cn('font-mono text-[12px] font-bold', live.change24h >= 0 ? 'text-up' : 'text-down')}>{live.change24h >= 0 ? '▲' : '▼'} {Math.abs(live.change24h).toFixed(1)}%</p>}</div>
+            <ArrowUpRight size={16} className="shrink-0 text-ink/50"/></Link>; })}</div>
+            : <div className="raised mt-3 flex flex-col items-center rounded-[24px] px-4 py-12 text-center"><ScanLine size={32}/><p className="mt-4 text-lg font-extrabold">No coins on this account yet.</p><p className="mt-1 max-w-sm text-sm font-semibold text-ink/60">Launched as a guest? Open this page on that device, or import its dev-wallet key above.</p><Link to="/launch" className="btn press mt-5 min-h-11 px-5 text-[13px]"><Rocket size={14}/>Scan & launch free</Link></div>}
+        </section>
+      </>}
   </div>;
 }

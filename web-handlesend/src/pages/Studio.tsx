@@ -265,6 +265,9 @@ function LaunchProgress({ session, call, onSession }: { session: View; call: <T>
   const confirmed = launch.recordState === 'confirmed'; const review = launch.recordState === 'reorg_review' || launch.state === 'reorg_review'; const queued = !launch.hash && Boolean(session.failureCode);
   const stage = confirmed ? 3 : launch.hash ? 2 : 1; const coinPath = session.coinUrl ? new URL(session.coinUrl).pathname : null;
   useEffect(() => { if (confirmed) play('launch'); }, [confirmed, play]);
+  // Right after a coin goes live, offer sign-in once so the creator's dev wallet and fees are tied to an account.
+  const creator = useCreator(); const { signedIn, configured, ready: authReady, login } = creator;
+  useEffect(() => { if (!confirmed || signedIn || !configured || !authReady) return; const key = `objectpad.signin-prompt.${session.id}`; try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch { /* ignore */ } const t = setTimeout(() => login(['twitter', 'wallet', 'email']), 1800); return () => clearTimeout(t); }, [confirmed, signedIn, configured, authReady, login, session.id]);
   const share = `I just tokenized a real ${session.suggestion?.object ?? 'object'}: $${session.launchDraft?.symbol ?? ''} on @ObjectPad. Scanned in 3D, named on-chain, one of one.`;
   return <div className="space-y-4">
     <div className="raised rounded-[30px] p-6 sm:p-7">

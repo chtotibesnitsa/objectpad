@@ -4,6 +4,7 @@ import { Activity, BookOpen, Compass, Flame, Home, LogOut, ScanLine, Vault, Volu
 import { Brand } from './Brand';
 import { LiveTicker, ObjectPadCa } from './LiveTicker';
 import { BurnToasts } from './BurnToasts';
+import { AccountButton } from './AccountButton';
 import { CryptoBackdrop, AsciiObject } from './AsciiField';
 import { GlassIcon, type GlassName } from './GlassIcon';
 import { useSession } from '@/lib/session';
@@ -85,7 +86,7 @@ function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
       </div>)}</nav>
       <div className="relative border-t border-ink/[0.08] p-4">
         {session.configured && (session.authenticated ? <div className="flex items-center gap-3"><span className="size-2 rounded-full bg-up"/><span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold">{session.wallet ? shortAddress(session.wallet, 6, 4) : 'Signed in'}</span><button onClick={() => { session.logout(); onClose(); }} className="press btn-ghost min-h-10 px-3 text-xs" tabIndex={open ? 0 : -1}><LogOut size={14}/>Sign out</button></div>
-          : <p className="text-xs font-medium text-ink/65">No account needed to launch. You can sign in after your coin is live.</p>)}
+          : <button onClick={() => { session.login(); onClose(); }} className="btn press min-h-11 w-full text-[13px]" tabIndex={open ? 0 : -1}>Sign in / Sign up · X, email or wallet</button>)}
         <button onClick={toggleSound} className="mt-3 flex min-h-9 items-center gap-2 font-mono text-[11px] font-semibold text-ink/65" aria-pressed={sound} tabIndex={open ? 0 : -1}>{sound ? <Volume2 size={14}/> : <VolumeX size={14}/>}Sound {sound ? 'on' : 'off'}</button>
       </div>
     </aside>
@@ -115,7 +116,7 @@ function BottomBar({ onMore }: { onMore: () => void }) {
 }
 
 export default function Layout() {
-  const [drawer, setDrawer] = useState<boolean>(false); const location = useLocation(); const session = useSession(); const { sound, toggleSound } = usePreferences();
+  const [drawer, setDrawer] = useState<boolean>(false); const location = useLocation(); const { sound, toggleSound } = usePreferences();
   const scanning = location.pathname.startsWith('/capture/claim');
   useEffect(() => { setDrawer(false); }, [location.pathname]);
   return <>
@@ -123,7 +124,7 @@ export default function Layout() {
     <CryptoBackdrop/>
     {!scanning && <div className="hidden lg:block"><LiveTicker/></div>}
     {!scanning && <header className="phone-bar sticky top-0 z-40 lg:hidden">
-      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><div className="flex items-center gap-2"><XLink className="size-9"/><TreasuryMini/></div></div>
+      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><div className="flex items-center gap-1.5"><XLink className="size-9"/><TreasuryMini/><AccountButton compact/></div></div>
       <div className="border-t border-ink/[0.06]"><LiveTicker/></div>
     </header>}
     {!scanning && <header className="sticky top-0 z-40 hidden lg:block">
@@ -136,7 +137,7 @@ export default function Layout() {
         <div className="flex shrink-0 items-center justify-end gap-2">
           <XLink className="size-[52px]"/>
           <TreasuryChip/>
-          {session.configured && session.ready && session.authenticated && <span className="raised hidden min-h-12 items-center gap-2 rounded-[16px] px-3.5 font-mono text-[12px] font-bold 2xl:flex"><span className="size-2 rounded-full bg-up"/>{session.wallet ? shortAddress(session.wallet, 5, 4) : 'Signed in'}</span>}
+          <AccountButton/>
           <Link to="/launch" className="btn press flex min-h-[52px] pl-1.5 pr-5 text-[14.5px]"><span className="orb size-10"><GlassIcon name="qr" size={30} className="!filter-none"/></span>Scan & launch</Link>
         </div>
       </div></div>
