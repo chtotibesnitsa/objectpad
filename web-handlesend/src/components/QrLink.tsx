@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy, Download, EyeOff, Link2, Smartphone } from 'lucide-react';
 import { copyText } from '@/lib/format';
+import { Link } from 'react-router-dom';
 import { OBJECTPAD_APK_URL } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 
@@ -26,23 +27,45 @@ export function AndroidAppButton({ className }: { className?: string }) {
   return <a href={OBJECTPAD_APK_URL} download className={cn('btn-ghost press min-h-11 px-4 text-sm', className)}><Download size={15}/>Get the Android app</a>;
 }
 
+const ORB_STYLE = { background: 'radial-gradient(circle at 35% 25%, #fff, #DCE0E6 70%)', boxShadow: 'inset 0 1px 0 #fff, inset 0 -2px 4px rgba(12,13,16,.12), 0 0 0 1px rgba(255,255,255,.4), 0 8px 16px -8px rgba(0,0,0,.6)' };
+
+/** Small "Update #1 · live" pill, always on one line. */
+export function LivePill({ badge }: { badge: string }) {
+  return <span className="inline-flex min-h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/25 bg-white/15 px-2.5 py-0.5 font-mono text-[10px] font-extrabold uppercase leading-none tracking-[0.1em] text-white backdrop-blur-md"><span className="pulse-dot size-1.5 shrink-0 rounded-full bg-up"/>{badge} · live</span>;
+}
+
+/** One italic line promising iOS, shown under every Android download. */
+export function IosSoonLine({ className }: { className?: string }) {
+  return <p className={cn('text-[11.5px] font-bold italic text-white/60', className)}><span className="not-italic font-extrabold text-white">iOS</span> is in App Store review · out soon.</p>;
+}
+
 /**
- * Featured Android download bar: a wide, short smoked liquid-glass strip that fills the full width available (e.g.
- * under the CA pill), so it reads as an equally important way in without towering over the page. Carries a small
- * live badge and a bold black-and-white download button. Renders nothing until the signed APK is published.
+ * Android download card. `wide` is one horizontal strip (headline on one line, button on the right) matching the CA
+ * pill's width; `stack` is the compact version for narrow QR columns. Hidden until the APK is published.
  */
-export function AndroidFeatureCard({ className, badge = 'Update #1' }: { className?: string; badge?: string }) {
+export function AndroidFeatureCard({ className, badge = 'Update #1', layout = 'stack' }: { className?: string; badge?: string; layout?: 'wide' | 'stack' }) {
   if (!OBJECTPAD_APK_URL) return null;
-  return <div className={cn('smoke relative flex w-full flex-col gap-4 overflow-hidden rounded-[26px] p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-5', className)}>
+  if (layout === 'wide') return <div className={cn('smoke relative w-full overflow-hidden rounded-[26px] p-3.5 sm:p-4', className)}>
     <div className="pointer-events-none absolute -right-10 -top-14 size-40 rounded-full bg-white/10 blur-3xl" aria-hidden="true"/>
-    <div className="relative flex items-center gap-3.5">
-      <span className="flex size-12 shrink-0 items-center justify-center rounded-full" style={{ background: 'radial-gradient(circle at 35% 25%, #fff, #DCE0E6 70%)', boxShadow: 'inset 0 1px 0 #fff, inset 0 -2px 4px rgba(12,13,16,.12), 0 0 0 1px rgba(255,255,255,.4), 0 8px 16px -8px rgba(0,0,0,.6)' }}><Smartphone size={22} strokeWidth={2.4} className="text-ink"/></span>
-      <div className="min-w-0">
-        <span className="inline-flex min-h-6 items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-2.5 py-0.5 font-mono text-[10px] font-extrabold uppercase tracking-[0.1em] text-white backdrop-blur-md"><span className="pulse-dot size-1.5 shrink-0 rounded-full bg-up"/>{badge} · live</span>
-        <h3 className="display mt-1.5 text-[19px] leading-[1.02] text-white sm:text-[21px]">ObjectPad for Android is live.</h3>
-        <p className="mt-0.5 text-[12.5px] font-bold text-white/60">Anybody can download and test it immediately · no Play Store, no waiting.</p>
+    <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full" style={ORB_STYLE}><Smartphone size={20} strokeWidth={2.4} className="text-ink"/></span>
+        <div className="min-w-0">
+          <LivePill badge={badge}/>
+          <h3 className="display mt-1.5 whitespace-nowrap text-[15px] leading-none text-white min-[400px]:text-[17px] sm:text-[18px]">ObjectPad for Android is live.</h3>
+          <p className="mt-1 whitespace-nowrap text-[12px] font-bold text-white/60">Scan & launch free. No Play Store.</p>
+        </div>
       </div>
+      <a href={OBJECTPAD_APK_URL} download className="btn press min-h-[48px] shrink-0 justify-center whitespace-nowrap px-5 text-[14px]"><Download size={16} strokeWidth={2.4}/>Download APK</a>
     </div>
-    <a href={OBJECTPAD_APK_URL} download className="btn press relative min-h-[52px] shrink-0 justify-center px-6 text-[14.5px] sm:ml-auto"><Download size={17} strokeWidth={2.4}/>Download the APK</a>
+    <div className="relative mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-2.5"><IosSoonLine/><Link to="/download" className="shrink-0 font-mono text-[11px] font-extrabold uppercase text-white/70 underline underline-offset-4 hover:text-white">How it works</Link></div>
+  </div>;
+  return <div className={cn('smoke relative flex w-full flex-col items-center overflow-hidden rounded-[26px] p-4 text-center', className)}>
+    <div className="pointer-events-none absolute -right-10 -top-14 size-40 rounded-full bg-white/10 blur-3xl" aria-hidden="true"/>
+    <div className="relative flex items-center gap-2.5"><span className="flex size-9 shrink-0 items-center justify-center rounded-full" style={ORB_STYLE}><Smartphone size={17} strokeWidth={2.4} className="text-ink"/></span><LivePill badge={badge}/></div>
+    <h3 className="display relative mt-2.5 whitespace-nowrap text-[15px] leading-none text-white">ObjectPad for Android is live.</h3>
+    <p className="relative mt-1 text-[12px] font-bold text-white/60">Scan & launch free. No Play Store.</p>
+    <a href={OBJECTPAD_APK_URL} download className="btn press relative mt-3 min-h-[48px] w-full justify-center whitespace-nowrap text-[14px]"><Download size={16} strokeWidth={2.4}/>Download APK</a>
+    <IosSoonLine className="relative mt-2"/>
   </div>;
 }
