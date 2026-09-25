@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { DraftInput, Env, LaunchDraft, ObjectContext, Runtime } from './types';
-import { objectSpecsText, normalizeObjectName, objectNameSeed, objectTagFrom, type Readiness, type SponsorStatus } from '../shared/domain';
+import { VIEWS, objectSpecsText, normalizeObjectName, objectNameSeed, objectTagFrom, type Readiness, type SponsorStatus } from '../shared/domain';
 import { ApiError, boundedBody, publicName, randomToken, requireOwner, safeTelegramUrl, safeXUrl, sha256, validAddress } from '../shared/security';
 import { MAX_IMAGE_BYTES, perceptualDistance } from '../shared/capture';
 import { verifyAccessToken } from './auth';
@@ -143,8 +143,8 @@ export class ObjectPad extends DurableObject<Env> {
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
     await this.exclusive(async () => {
-      try { await this.captures.poll(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
-      finally { if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
+      try { await this.captures.poll(); await this.autoReconstructSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
+      finally { if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
     });
   }
   private async schedule(delay: number): Promise<void> { try { await this.env.DO?.setAlarm(OBJECTPAD_CLASS, OBJECTPAD_INSTANCE, Date.now() + delay); } catch (error) { console.warn('objectpad.alarm.unavailable', error instanceof Error ? error.message.slice(0, 120) : ''); } }
@@ -204,20 +204,47 @@ export class ObjectPad extends DurableObject<Env> {
     this.assertOrigin(request);
     const started = await this.exclusive(async () => { const begun = await this.captures.beginUpload(ticketId, request); this.store.rate(`mutation:${begun.owner}`, 120, 60_000); return begun; });
     const normalized = await this.captures.normalizeUpload(request);
-    return json(await this.exclusive(() => this.captures.finishUpload(started, request.headers.get('X-Capture-Device'), normalized)));
+    const session = await this.exclusive(() => this.captures.finishUpload(started, request.headers.get('X-Capture-Device'), normalized));
+    // Sixth angle in: the AI check and 3D build start on the server right away, whether or not any screen is open.
+    if (session.state === 'review' && session.views.length >= VIEWS.length) {
+      const kick = this.autoReconstructOne(started.sessionId, started.owner);
+      try { this.ctx.waitUntil(kick); } catch { /* the alarm below picks it up */ }
+      await this.schedule(20_000);
+    }
+    return json(session);
+  }
+  /** Starts the AI check + 3D build for one finished capture. A start-up failure is recorded so the studio shows it instead of waiting forever. */
+  private async autoReconstructOne(id: string, owner: string): Promise<void> {
+    try { await this.runReconstruct(id, owner); }
+    catch (error) {
+      console.warn('objectpad.autoReconstruct', error instanceof Error ? error.message.slice(0, 160) : '');
+      await this.exclusive(async () => { const { session } = this.captures.load(id); if (session.state === 'review' && !session.failureCode && !this.store.one('SELECT id FROM op_reconstruction_jobs WHERE session_id=?', id)) { session.failureCode = error instanceof ApiError ? error.code : 'SERVICE_UNAVAILABLE'; this.captures.save(session); } }).catch(() => undefined);
+    }
+  }
+  /** Runs the backup starter outside the alarm's serialized section so its own locked steps don't wait on the alarm. */
+  private async autoReconstructSoon(): Promise<void> { const run = this.autoReconstruct().catch(() => undefined); try { this.ctx.waitUntil(run); } catch { /* best effort */ } }
+  /** Backup for the upload kick (alarm driven): any complete capture still waiting (and not failed) gets its build started. */
+  private async autoReconstruct(): Promise<void> {
+    const rows = this.store.all<{ id: string; owner: string; payload: string }>("SELECT id,owner,payload FROM op_capture_sessions WHERE state='review' AND NOT EXISTS (SELECT 1 FROM op_reconstruction_jobs j WHERE j.session_id=op_capture_sessions.id) LIMIT 5");
+    for (const row of rows) { const s = JSON.parse(row.payload) as { views?: unknown[]; failureCode?: string; expiresAt?: number }; if ((s.views?.length ?? 0) >= VIEWS.length && !s.failureCode && (s.expiresAt ?? 0) > Date.now()) await this.autoReconstructOne(row.id, row.owner); }
   }
   /** Coverage + duplicate checks → AI object fingerprint and archive comparison → paid Meshy submission. Idempotent. */
   private async reconstruct(request: Request, id: string): Promise<Response> {
     this.assertOrigin(request); const owner = await this.sessionAccess(request, id);
-    const started = await this.exclusive(async () => { this.store.rate(`mutation:${owner}`, 120, 60_000); return this.captures.beginReconstruct(id, owner); });
-    if (!started) return json(await this.sessionView(id));
+    await this.exclusive(async () => this.store.rate(`mutation:${owner}`, 120, 60_000));
+    await this.runReconstruct(id, owner);
+    return json(await this.sessionView(id));
+  }
+  /** Coverage → AI screening → Meshy submission. Idempotent: a capture already screening or building is left alone. */
+  private async runReconstruct(id: string, owner: string): Promise<void> {
+    const started = await this.exclusive(async () => this.captures.beginReconstruct(id, owner));
+    if (!started) return;
     let screening: Awaited<ReturnType<UniquenessService['screen']>>;
     try { screening = await this.uniqueness.screen(id, owner); } catch (error) { await this.exclusive(async () => this.captures.screeningFailed(id, error)); throw error; }
     const prepared = await this.exclusive(() => this.captures.prepareReconstruct(id, screening, value => this.uniqueness.save(id, value)));
     let result: { providerId?: string; error?: unknown }; try { result = { providerId: await this.captures.submitTask(prepared.images) }; } catch (error) { result = { error }; }
     await this.exclusive(async () => this.captures.finishReconstruct(id, prepared.jobId, result)); await this.schedule(15_000);
     if (result.error instanceof ApiError && result.error.status < 500 && result.error.code !== 'PROVIDER_REQUEST_FAILED') throw result.error;
-    return json(await this.sessionView(id));
   }
   /** Fresh Meshy rebuild from the same accepted photos. */
   private async regenerate(request: Request, id: string): Promise<Response> {

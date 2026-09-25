@@ -146,7 +146,7 @@ export default function MobileCapture() {
   const navigate = useNavigate(); const { play } = usePreferences();
   const [handoff] = useState(readHandoff); const id = handoff.id; const { call, download } = useSessionCaller(id);
   const [session, setSession] = useState<CaptureSession | null>(null); const [pairError, setPairError] = useState<string>(''); const [phase, setPhase] = useState<'pair' | 'intro' | 'camera' | 'review'>('pair');
-  const [shots, setShots] = useState<Shot[]>([]); const [cameraError, setCameraError] = useState<string>(''); const [flash, setFlash] = useState<number>(0); const [sensor, setSensor] = useState<'pending' | 'on' | 'off'>('pending');
+  const [shots, setShotsState] = useState<Shot[]>([]); const [cameraError, setCameraError] = useState<string>(''); const [flash, setFlash] = useState<number>(0); const [sensor, setSensor] = useState<'pending' | 'on' | 'off'>('pending');
   const [hud, setHud] = useState<Hud>({ light: 'ok', sharp: false, object: false, steady: false, angle: false, moved: true, hold: 0, delta: null, pitch: null });
   const [flying, setFlying] = useState<Flying | null>(null); const [popped, setPopped] = useState<ViewId | null>(null);
   const video = useRef<HTMLVideoElement>(null); const stream = useRef<MediaStream | null>(null); const pose = useRef<Pose | null>(null); const shotsRef = useRef<Shot[]>([]); const sessionRef = useRef<CaptureSession | null>(null);
@@ -156,7 +156,9 @@ export default function MobileCapture() {
   const [mark, setMark] = useState<{ key: number; ok: boolean } | null>(null);
   const showMark = useCallback((ok: boolean) => { const key = Date.now(); setMark({ key, ok }); setTimeout(() => setMark(m => m?.key === key ? null : m), 900); }, []);
   const lastShot = useRef<{ heading: number | null; pitch: number | null; thumb: Float32Array | null }>({ heading: null, pitch: null, thumb: null }); const shotThumb = useRef<Float32Array | null>(null);
-  useEffect(() => { shotsRef.current = shots; }, [shots]); useEffect(() => { sessionRef.current = session; }, [session]);
+  // The upload queue reads shotsRef, so it is updated in the same tick as the state; a render-late copy let the last photo sit unsent.
+  const setShots = useCallback((update: (cur: Shot[]) => Shot[]) => { const next = update(shotsRef.current); shotsRef.current = next; setShotsState(next); }, []);
+  useEffect(() => { sessionRef.current = session; }, [session]);
   const saveOrbit = () => { try { sessionStorage.setItem(`objectpad.orbit.${id}`, JSON.stringify(orbit.current)); } catch { /* ignore */ } };
 
   const adopt = useCallback((next: CaptureSession) => {
@@ -210,12 +212,14 @@ export default function MobileCapture() {
     try {
       for (;;) {
         const next = shotsRef.current.find(s => s.status === 'queued'); if (!next) break;
-        setShots(cur => cur.map(s => s === next ? { ...s, status: 'uploading' } : s));
+        setShots(cur => cur.map(s => s.view === next.view && s.blob === next.blob ? { ...s, status: 'uploading' } : s));
         try {
           const ticket = await call<{ url: string; token: string }>(`/sessions/${id}/tickets`, { method: 'POST', body: { view: next.view } });
           const updated = await call<CaptureSession>(ticket.url, { method: 'PUT', binary: next.blob, timeout: 60_000, headers: { 'X-Upload-Token': ticket.token } });
           setSession(updated); setShots(cur => cur.map(s => s.view === next.view && s.blob === next.blob ? { ...s, status: 'accepted' } : s)); play('orbit');
         } catch (error) {
+          // Already on the server (an earlier try landed but its reply was lost): count it as in, don't ask for a retake.
+          if (error instanceof RequestError && error.code === 'RETAKE_REQUIRED') { try { const fresh = await call<CaptureSession>(`/sessions/${id}`); if (fresh.views.some(v => v.view === next.view)) { setSession(fresh); setShots(cur => cur.map(s => s.view === next.view && s.blob === next.blob ? { ...s, status: 'accepted' } : s)); continue; } } catch { /* handled below */ } }
           const rejected = error instanceof RequestError && FRAME_REJECTIONS.has(error.code);
           const tries = (next.tries ?? 0) + 1; const giveUp = rejected || tries >= MAX_TRIES;
           setShots(cur => cur.map(s => s.view === next.view && s.blob === next.blob ? { ...s, tries, status: giveUp ? 'rejected' : 'queued', error: rejected && error instanceof Error ? error.message : 'Couldn’t upload that photo.' } : s));
@@ -224,7 +228,13 @@ export default function MobileCapture() {
         }
       }
     } finally { uploading.current = false; }
-  }, [call, id, play, showMark]);
+    // A photo queued in the last instant of the loop is picked up straight away.
+    if (shotsRef.current.some(s => s.status === 'queued')) setTimeout(() => void pumpRef.current(), 0);
+  }, [call, id, play, showMark, setShots]);
+  const pumpRef = useRef<() => Promise<void>>(pump); pumpRef.current = pump;
+  // Watchdog: any queued photo gets sent, even after the phone was locked or the tab slept mid-upload.
+  useEffect(() => { if (shots.some(s => s.status === 'queued') && !uploading.current) void pump(); }, [shots, pump]);
+  useEffect(() => { const t = setInterval(() => { if (!uploading.current && shotsRef.current.some(s => s.status === 'queued')) void pumpRef.current(); }, 3000); const wake = () => { if (document.visibilityState === 'visible') void pumpRef.current(); }; document.addEventListener('visibilitychange', wake); return () => { clearInterval(t); document.removeEventListener('visibilitychange', wake); }; }, []);
 
   const capture = useCallback(async (view: ViewId, signature: string) => {
     const el = video.current; if (!el || busy.current) return; busy.current = true;
@@ -245,7 +255,7 @@ export default function MobileCapture() {
       setFlash(f => f + 1); play('capture'); if (navigator.vibrate) navigator.vibrate(18);
       setTimeout(() => void pump(), 0);
     } finally { setTimeout(() => { busy.current = false; }, 900); }
-  }, [play, pump, showMark]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [play, pump, showMark, setShots]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sampling loop (~7×/s): real light, focus, object-in-frame and steadiness, plus the phone's angle. Auto-snaps after a steady hold.
   const lastSig = useRef<string>('');

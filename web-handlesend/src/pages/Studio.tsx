@@ -199,6 +199,21 @@ function CoinPanel({ session, call, onSession }: { session: View; call: <T>(path
   </form>;
 }
 
+/** A copyable link back to this exact scan, so a creator can leave while the 3D model builds and return to launch. */
+function SaveLink({ session }: { session: View }) {
+  const [copied, setCopied] = useState<boolean>(false);
+  const base = /(^|\.)objectpad\.(fun|com)$/i.test(window.location.hostname) ? window.location.origin : 'https://www.objectpad.fun';
+  const url = `${base}/launch/${session.id}`;
+  const copy = async () => { const ok = await copyText(url); if (ok) { setCopied(true); if (navigator.vibrate) navigator.vibrate(12); setTimeout(() => setCopied(false), 2000); } };
+  const share = async () => { try { if (navigator.share) { await navigator.share({ title: 'My ObjectPad scan', url }); return; } } catch { return; } void copy(); };
+  return <div className="raised rounded-[26px] p-4 sm:p-5">
+    <div className="flex items-center gap-3"><GlassIcon name="qr" size={40}/><div className="min-w-0"><p className="text-[16px] font-extrabold">Save your scan link</p><p className="text-[13px] font-bold text-ink/60">Come back any time to check progress and launch.</p></div></div>
+    <button onClick={() => void copy()} className="sunk press mt-3 flex min-h-12 w-full items-center gap-2 rounded-2xl px-3.5 text-left" aria-label="Copy scan link"><span className="min-w-0 flex-1 truncate font-mono text-[13px] font-bold text-ink/75">{url.replace(/^https:\/\//, '')}</span>{copied ? <Check size={16} className="text-up" strokeWidth={3}/> : <Copy size={16}/>}</button>
+    <div className="mt-2 grid grid-cols-2 gap-2"><button onClick={() => void copy()} className="btn press min-h-11 text-[13px]">{copied ? <><Check size={14}/>Copied</> : <><Copy size={14}/>Copy link</>}</button><button onClick={() => void share()} className="btn-ghost press min-h-11 text-[13px]"><ExternalLink size={14}/>Share / save</button></div>
+    <p className="mt-2 text-[11.5px] font-semibold text-ink/55">Open it on this device (or signed in) — your scan stays private to you until launch.</p>
+  </div>;
+}
+
 /** Shown only after a guest's coin is live: their on-site dev wallet (key kept in this browser) and a sign-in to keep it. */
 function DevWalletCard({ feeWallet }: { feeWallet: string | null }) {
   const creator = useCreator(); const wallet = devWallet(); const [reveal, setReveal] = useState<boolean>(false); const [copied, setCopied] = useState<string>('');
@@ -311,7 +326,7 @@ export default function Studio() {
       </div>
       <div className="space-y-4">
         {session.launch ? <LaunchProgress session={session}/>
-          : !TERMINAL.includes(session.state) && session.state !== 'failed' && (building || modelReady) ? <CoinPanel session={session} call={call} onSession={setSession}/>
+          : !TERMINAL.includes(session.state) && session.state !== 'failed' && (building || modelReady) ? <><CoinPanel session={session} call={call} onSession={setSession}/><SaveLink session={session}/></>
           : <div className="raised rounded-[30px] p-5 sm:p-6"><p className="lab">Next: 3D model → coin</p><p className="mt-3 text-[18px] font-extrabold">Launch unlocks once your 3D model is built.</p><ul className="mt-4 space-y-2">{([['mesh', 'One object, plain table, even daylight.'], ['qr', 'Keep it still. Move yourself around it.'], ['ai', 'AI names it and checks it’s one of one.'], ['shield', 'Six angles. The camera guides you.']] as [GlassName, string][]).map(([icon, text]) => <li key={text} className="sunk flex items-center gap-3 rounded-2xl p-2 pr-3"><GlassIcon name={icon} size={36}/><span className="text-[13.5px] font-bold text-ink/75">{text}</span></li>)}</ul></div>}
       </div>
     </div>
