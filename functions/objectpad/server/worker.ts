@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { DraftInput, Env, LaunchDraft, ObjectContext, Runtime } from './types';
-import { VIEWS, objectSpecsText, normalizeObjectName, objectNameSeed, objectTagFrom, type Readiness, type SponsorStatus } from '../shared/domain';
+import type { DraftInput, Env, LaunchDraft, ObjectContext, Runtime, SavedSession } from './types';
+import { VIEWS, objectSpecsText, type BuildingCoin, normalizeObjectName, objectNameSeed, objectTagFrom, type Readiness, type SponsorStatus } from '../shared/domain';
 import { ApiError, boundedBody, publicName, randomToken, requireOwner, safeTelegramUrl, safeXUrl, sha256, validAddress } from '../shared/security';
 import { MAX_IMAGE_BYTES, perceptualDistance } from '../shared/capture';
 import { verifyAccessToken } from './auth';
@@ -30,6 +30,8 @@ const PROJECT_ID = 'pdud1tb5ce6u6kv0hgpfl';
 const KEY_PROMPT = 'You verify an "Object Key" check-in. Image 1 is the original scan of a physical object. Image 2 is a new photo taken now. Decide whether image 2 shows the very same physical object (same shape, colours, materials and distinguishing marks; lighting and angle may differ). A photo of a screen, a printout, a different item of the same kind, or a digitally altered copy is NOT a match. Return JSON only: {"same": boolean, "confidence": number from 0 to 1, "reason": short phrase}.';
 
 const clean = (value: string | undefined): string => (value ?? '').trim().replace(/\/$/, '');
+/** 3D build failures caused by the engine (not the photos): always safe to rebuild from the same photos. */
+const SOFT_BUILD_FAILURES = ['PROVIDER_PAYLOAD_TOO_LARGE', 'PROVIDER_UNAVAILABLE', 'PROVIDER_REQUEST_TIMEOUT', 'PROVIDER_REQUEST_FAILED', 'PROVIDER_RATE_LIMIT', 'PROVIDER_FAILED', 'PROVIDER_TIMEOUT', 'PROVIDER_AMBIGUOUS_CREATE', 'VALIDATION_UNAVAILABLE', 'ARTIFACT_STORAGE_VERIFICATION'];
 export function canonicalOrigin(env: Env): string { const value = clean(env.OBJECTPAD_ORIGIN); return /^https:\/\/[a-z0-9.-]+$/i.test(value) && !/\.rork\.(app|live)$/i.test(value) ? value : DEFAULT_ORIGIN; }
 /** Origins allowed to mutate state: the canonical site, explicitly listed origins and this project's own Rork hosts. */
 export function originAllowed(env: Env, origin: string | null): boolean {
@@ -144,7 +146,7 @@ export class ObjectPad extends DurableObject<Env> {
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
     await this.exclusive(async () => {
-      try { await this.captures.poll(); await this.autoReconstructSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
+      try { await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
       finally { if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
     });
   }
@@ -247,6 +249,37 @@ export class ObjectPad extends DurableObject<Env> {
     await this.exclusive(async () => this.captures.finishReconstruct(id, prepared.jobId, result)); await this.schedule(15_000);
     if (result.error instanceof ApiError && result.error.status < 500 && result.error.code !== 'PROVIDER_REQUEST_FAILED') throw result.error;
   }
+  /**
+   * A coin the creator already sealed must still go live if its 3D build fails for a provider reason: the server rebuilds
+   * it from the same photos (up to three times) without anyone keeping a page open. Runs outside the alarm's queue.
+   */
+  private autoRebuildSoon(): void {
+    const rows = this.store.all<{ id: string; payload: string }>("SELECT id,payload FROM op_capture_sessions WHERE state='failed' AND json_extract(payload,'$.launchQueuedAt') IS NOT NULL LIMIT 3");
+    const due = rows.filter(row => { const s = JSON.parse(row.payload) as SavedSession; return (s.failureRetries ?? 0) < 3 && SOFT_BUILD_FAILURES.includes(s.failureCode ?? ''); });
+    if (!due.length) return;
+    const run = (async () => { for (const row of due) { try { await this.runRegenerate(row.id); this.store.metric('queued_rebuild_submitted'); } catch (error) { console.warn('objectpad.queuedRebuild', error instanceof Error ? error.message.slice(0, 120) : ''); } } await this.schedule(30_000); })();
+    try { this.ctx.waitUntil(run); } catch { /* next alarm retries */ }
+  }
+  /** One rebuild from the same accepted photos: reserve → paid submission outside the queue → record the task id. */
+  private async runRegenerate(id: string): Promise<void> {
+    const prepared = await this.exclusive(async () => this.captures.beginRegenerate(id));
+    let result: { providerId?: string; error?: unknown }; try { result = { providerId: await this.captures.submitTask(prepared.images) }; } catch (error) { result = { error }; }
+    await this.exclusive(async () => this.captures.finishReconstruct(id, prepared.jobId, result)); await this.schedule(12_000);
+  }
+  /** Public live progress for coins that are sealed and waiting on their 3D model (or on the launch transaction). */
+  private buildingCoins(code?: string): BuildingCoin[] {
+    const rows = this.store.all<{ state: string; payload: string; object_id: string | null }>(`SELECT state,payload,object_id FROM op_capture_sessions WHERE json_extract(payload,'$.launchQueuedAt') IS NOT NULL AND state NOT IN ('cancelled','expired','blocked') AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state IN ('confirmed','hidden','reorg_review'))${code ? ' AND object_id LIKE ?' : ''} ORDER BY created_at DESC LIMIT 12`, ...(code ? [`${code}%`] : []));
+    const out: BuildingCoin[] = [];
+    for (const row of rows) {
+      const s = JSON.parse(row.payload) as SavedSession; if (!row.object_id || !s.launchDraft || !s.launchQueuedAt) continue;
+      if (s.state === 'failed' && (s.failureRetries ?? 0) >= 3) continue;
+      const building = ['review', 'screening', 'reconstructing', 'validating', 'failed'].includes(s.state);
+      const progress = s.state === 'validating' ? 99 : building ? Math.max(0, Math.min(99, s.job?.progress ?? 0)) : 100;
+      const stage = ['review', 'screening'].includes(s.state) ? 'AI check' : s.state === 'validating' ? 'Checking the model' : s.state === 'failed' ? 'Rebuilding' : !building ? 'Launching on-chain' : progress < 45 ? 'Building the shape' : progress < 85 ? 'Painting the colours' : 'Final touches';
+      out.push({ code: row.object_id.slice(0, 12), name: s.launchDraft.publicName, symbol: s.launchDraft.symbol, state: building ? 'building' : 'launching', progress, stage, queuedAt: s.launchQueuedAt, ...(s.job?.startedAt ? { startedAt: s.job.startedAt } : {}) });
+    }
+    return out;
+  }
   /** Fresh Meshy rebuild from the same accepted photos. */
   private async regenerate(request: Request, id: string): Promise<Response> {
     this.assertOrigin(request); const owner = await this.sessionAccess(request, id);
@@ -335,9 +368,10 @@ export class ObjectPad extends DurableObject<Env> {
     if (method === 'GET' && shortMatch) {
       const record = this.store.all<{ id: string; state: string }>('SELECT id,state FROM op_records WHERE id LIKE ? LIMIT 2', `${shortMatch[1]}%`);
       if (record.length === 1 && record[0].state === 'confirmed') return json({ state: 'live', objectId: record[0].id, record: this.records.publicRecord(record[0].id) });
-      if (record.length === 1 || this.store.one('SELECT id FROM op_capture_sessions WHERE object_id LIKE ? LIMIT 1', `${shortMatch[1]}%`)) return json({ state: 'reserved' });
+      if (record.length === 1 || this.store.one('SELECT id FROM op_capture_sessions WHERE object_id LIKE ? LIMIT 1', `${shortMatch[1]}%`)) { await this.pollIfDue(); return json({ state: 'reserved', building: this.buildingCoins(shortMatch[1])[0] ?? null }); }
       throw new ApiError('NOT_FOUND', 404);
     }
+    if (method === 'GET' && path === '/building') { await this.pollIfDue(); return json({ items: this.buildingCoins() }); }
     // $OBJECTPAD buyback & burn feed (public, real transactions only).
     if (method === 'GET' && path === '/burns') { if (this.burns.due()) await this.schedule(1_000); return json({ ...this.burns.summary(), items: this.burns.list() }); }
     // Live engine check from inside the backend: does the AI gateway and the 3D engine accept our key right now? Cached 2 min.
@@ -375,7 +409,7 @@ export class ObjectPad extends DurableObject<Env> {
           if (!building && !['model_review', 'approved'].includes(session.state)) throw new ApiError('MODEL_NOT_READY', 409);
           if ((request.headers.get('content-type') ?? '').startsWith('application/json')) { const data = await body(request); if (Object.keys(data).length && !this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) { session.launchDraft = parseLaunchDraft(data); this.captures.save(session); } }
           if (owner.startsWith('guest:')) this.store.rate(`guest-launch:${await this.visitor(request)}`, 5, 86_400_000);
-          session.autoLaunch = true; this.captures.save(session);
+          session.autoLaunch = true; session.launchQueuedAt = session.launchQueuedAt ?? Date.now(); this.captures.save(session);
           if (building) { this.store.metric('launch_queued_building'); return json({ state: 'queued', reason: 'MODEL_BUILDING', session: await this.sessionView(id) }); }
           try { const result = await this.launchSession(id, owner); return json({ ...result, session: await this.sessionView(id) }); }
           catch (error) {

@@ -1,4 +1,5 @@
-import { memo, useDeferredValue, useMemo, useState } from 'react';
+import { lazy, memo, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Activity, ArrowUpRight, Box, Fingerprint, KeyRound, Search, TrendingUp } from 'lucide-react';
 import type { ObjectRecord } from '@/shared/domain';
@@ -6,7 +7,9 @@ import { shortHash } from '@/shared/security';
 import { ErrorState, Loading } from '@/components/Feedback';
 import { MarketBoard } from '@/components/MarketBoard';
 import { SegmentedTabs } from '@/components/Tabs';
-import { useArchive, type ListedObject, type SortKey } from '@/lib/objects';
+import { useArchive, useBuilding, type ListedObject, type SortKey } from '@/lib/objects';
+import { BuildingCard } from '@/components/BuildingCoin';
+import { useInView } from '@/hooks/use-in-view';
 import { useMarket } from '@/lib/market';
 import { previewCoins } from '@/lib/preview';
 import { SpecimenCard, LaunchTile } from '@/components/CoinCard';
@@ -15,9 +18,15 @@ import { eth, tinyUsd, usd } from '@/lib/format';
 import { type CurveState } from '@/lib/chain';
 import { cn } from '@/lib/utils';
 
-export const ObjectCard = memo(function ObjectCard({ object, curve, ethUsd = null }: { object: ObjectRecord; curve?: CurveState | null; ethUsd?: number | null }) {
+const ExhibitViewer = lazy(() => import('@/components/ExhibitViewer'));
+
+/** Live coin card: the real scanned 3D model spins over its photo while the card is on screen. */
+export const ObjectCard = memo(function ObjectCard({ object, curve, ethUsd = null, spin = true }: { object: ObjectRecord; curve?: CurveState | null; ethUsd?: number | null; spin?: boolean }) {
+  const stage = useRef<HTMLDivElement>(null); const seen = useInView(stage, '160px'); const [ready, setReady] = useState<boolean>(false);
+  const onReady = useMemo(() => () => setReady(true), []);
   return <Link to={`/objects/${object.objectId}`} className="raised lift group overflow-hidden rounded-[26px]">
-    <div className="relative m-1.5 overflow-hidden rounded-[19px] scan-stage"><img src={object.model.thumbnailUrl} alt={`3D scan of ${object.verifiedName}`} loading="lazy" className="aspect-square w-full object-contain p-5 transition-transform duration-500 group-hover:scale-105 motion-reduce:transform-none"/>
+    <div ref={stage} className="relative m-1.5 overflow-hidden rounded-[19px] scan-stage"><img src={object.model.thumbnailUrl} alt={`3D scan of ${object.verifiedName}`} loading="lazy" className={cn('aspect-square w-full object-contain p-5 transition-all duration-500 group-hover:scale-105 motion-reduce:transform-none', ready && 'scale-90 opacity-0')}/>
+      {spin && seen && <div className={cn('pointer-events-none absolute inset-0 transition-opacity duration-700', ready ? 'opacity-100' : 'opacity-0')}><Suspense fallback={null}><ExhibitViewer src={object.model.modelUrl} active fallback={null} onReady={onReady} speed={1.6}/></Suspense></div>}
       <span className="chip-dark absolute left-3 top-3">${object.symbol}</span>
       <span className="absolute right-3 top-3 flex gap-1">{object.checkin && <span className="flex size-7 items-center justify-center rounded-full bg-up text-white" title="Object Key check-in"><KeyRound size={13}/></span>}{curve?.graduated && <span className="chip-dark">Graduated</span>}</span>
       {object.objectTag && <span className="glass-strong absolute bottom-3 left-3 rounded-full px-2.5 py-1 font-mono text-[11.5px]">{object.objectTag}</span>}</div>
@@ -35,6 +44,10 @@ export default function Explore() {
   const [params, setParams] = useSearchParams(); const [kind, setKind] = useState<string>('all'); const [search, setSearch] = useState<string>(params.get('q') ?? ''); const deferred = useDeferredValue(search);
   const tab = params.get('tab') === 'market' ? 'market' : 'objects'; const sort = (params.get('sort') as SortKey | null) ?? 'trending';
   const query = useArchive({ q: deferred, sort }); const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null;
+  const building = useBuilding(); const qc = useQueryClient(); const buildingItems = useMemo(() => building.data?.items ?? [], [building.data]);
+  // A coin that leaves the building list just went live: refresh the grid so its real 3D model appears straight away.
+  const seenBuilding = useRef<Set<string>>(new Set());
+  useEffect(() => { const now = new Set(buildingItems.map(b => b.code)); if ([...seenBuilding.current].some(code => !now.has(code))) void qc.invalidateQueries({ queryKey: ['objectpad', 'archive'] }); seenBuilding.current = now; }, [buildingItems, qc]);
   const set = (key: string, value: string | null) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); };
   const items: ListedObject[] = query.data?.items ?? [];
   const previews = useMemo(() => { const q = deferred.trim().toLowerCase(); const list = previewCoins().filter(c => kind === 'all' || (kind === 'memes' ? /meme/i.test(c.exhibit.kind) : kind === 'toys' ? /toy|collectible|figurine/i.test(c.exhibit.kind) : kind === 'desk' ? !/meme|toy|collectible|figurine/i.test(c.exhibit.kind) : kind !== 'live')).filter(c => !q || `${c.name} ${c.ticker} ${c.tag} ${c.exhibit.catalog}`.toLowerCase().includes(q)); if (sort === 'marketcap' || sort === 'trending') return [...list].sort((a, b) => b.marketCapEth - a.marketCapEth); if (sort === 'newest') return [...list].sort((a, b) => b.launchedAt - a.launchedAt); return [...list].sort((a, b) => b.volumeEth - a.volumeEth); }, [deferred, sort, kind]);
@@ -48,7 +61,8 @@ export default function Explore() {
       {query.isPending ? <Loading label="Reading live object coins…"/> : <>
         {query.isError && <div className="mt-6"><ErrorState message="Live coins couldn’t load right now. Lab specimens are still shown below." retry={() => void query.refetch()}/></div>}
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-          {items.map(item => <ObjectCard key={item.record.objectId} object={item.record} curve={item.curve} ethUsd={ethUsd}/>)}
+          {(kind === 'all' || kind === 'live') && !deferred && buildingItems.map(coin => <BuildingCard key={coin.code} coin={coin}/>)}
+          {items.map((item, i) => <ObjectCard key={item.record.objectId} object={item.record} curve={item.curve} ethUsd={ethUsd} spin={i < 8}/>)}
           {previews.map((coin, i) => <SpecimenCard key={coin.ticker} coin={coin} ethUsd={ethUsd} index={i}/>)}
           {!deferred && <LaunchTile/>}
         </div>

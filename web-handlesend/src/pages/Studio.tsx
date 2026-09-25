@@ -5,10 +5,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { QRCodeSVG } from 'qrcode.react';
-import { AlertTriangle, ArrowRight, ArrowUpRight, Box, Camera, Check, Copy, Cuboid, ExternalLink, Fingerprint, Inbox, LoaderCircle, Lock, RefreshCw, Rocket, ScanLine, Smartphone, Sparkles, Wallet, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ArrowUpRight, Box, Camera, Check, Copy, Cuboid, ExternalLink, Fingerprint, Inbox, LoaderCircle, Lock, RefreshCw, Rocket, RotateCcw, ScanLine, Smartphone, Sparkles, Trash2, Wallet, X } from 'lucide-react';
 import { api, API_BASE, describeError, RequestError } from '@/lib/api';
 import { GlassIcon, type GlassName } from '@/components/GlassIcon';
-import { forgetScan, rememberScan } from '@/lib/handoff';
+import { forgetScan, openScan, rememberScan } from '@/lib/handoff';
+import { Dialog } from '@/components/ui/dialog';
+import { timeAgo } from '@/lib/format';
 import { deviceSecret, guestToken, isPhone, useCreator, useSessionCaller } from '@/lib/creator';
 import { useReadiness } from '@/lib/market';
 import { copyText, shortAddress } from '@/lib/format';
@@ -55,9 +57,13 @@ function Stepper({ session }: { session: View }) {
 
 /** Desktop QR that moves this exact session to a phone, with the six angles filling in live. */
 /** Each accepted angle, read back from the private store the moment it lands, so the desktop mirrors the phone. */
-function LivePhotos({ session, download }: { session: View; download: (url: string) => Promise<Blob> }) {
+function LivePhotos({ session, download, onRemove }: { session: View; download: (url: string) => Promise<Blob>; onRemove?: (view: string) => Promise<void> }) {
   const urls = useViewUrls(session, download); const byView = new Map(session.views.map(v => [v.view, v])); const incoming = new Set((session.incoming ?? []).filter(s => Date.now() - s.at < 90_000).map(s => s.view));
-  return <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">{VIEWS.map((view, i) => { const shot = byView.get(view.id); const url = shot ? urls[view.id] : undefined; const arriving = !shot && incoming.has(view.id); return <div key={shot ? `${view.id}-${shot.hash}` : `${view.id}-empty`} className={cn('relative aspect-[3/4] overflow-hidden rounded-2xl transition-all', shot ? 'raised card-pop' : arriving ? 'raised' : 'sunk')}>
+  const [confirm, setConfirm] = useState<string | null>(null); const [removing, setRemoving] = useState<string | null>(null);
+  const remove = async (view: string) => { setRemoving(view); try { await onRemove?.(view); if (navigator.vibrate) navigator.vibrate(10); } finally { setRemoving(null); setConfirm(null); } };
+  return <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">{VIEWS.map((view, i) => { const shot = byView.get(view.id); const url = shot ? urls[view.id] : undefined; const arriving = !shot && incoming.has(view.id); return <div key={shot ? `${view.id}-${shot.hash}` : `${view.id}-empty`} className={cn('group relative aspect-[3/4] overflow-hidden rounded-2xl transition-all', shot ? 'raised card-pop' : arriving ? 'raised' : 'sunk', removing === view.id && 'tile-out')}>
+    {shot && onRemove && confirm !== view.id && <button onClick={() => setConfirm(view.id)} className="press absolute right-1.5 top-1.5 z-10 flex size-8 items-center justify-center rounded-full bg-black/60 text-white opacity-100 backdrop-blur transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" aria-label={`Retake ${view.label}`}><RotateCcw size={13} strokeWidth={2.6}/></button>}
+    {shot && confirm === view.id && <div className="slide-in absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 bg-[#0F1115]/85 p-2 text-center text-white backdrop-blur-sm"><p className="text-[12px] font-extrabold leading-4">Retake {view.label.replace(' side', '').toLowerCase()}?</p><button onClick={() => void remove(view.id)} disabled={removing === view.id} className="press flex min-h-9 w-full items-center justify-center gap-1 rounded-full bg-white text-[12px] font-extrabold text-ink">{removing === view.id ? <LoaderCircle size={12} className="animate-spin"/> : <Trash2 size={12}/>}Remove</button><button onClick={() => setConfirm(null)} className="min-h-8 text-[11.5px] font-bold text-white/70">Keep</button></div>}
     {url ? <AsciiPhoto src={url}/> : arriving ? <div className="relative flex h-full flex-col items-center justify-center gap-1.5 bg-[#0F1115] text-white"><span className="incoming-sweep absolute inset-0"/><LoaderCircle size={18} className="relative animate-spin"/><span className="relative font-mono text-[11px] font-bold uppercase">receiving</span></div> : shot ? <div className="flex h-full items-center justify-center bg-[#0F1115] font-mono text-[13px] font-bold text-white/70">0101…</div> : <div className="flex h-full flex-col items-center justify-center gap-1 text-ink/40"><Camera size={18}/><span className="font-mono text-[12px] font-bold">{i + 1}/6</span></div>}
     <span className={cn('absolute inset-x-1.5 bottom-1.5 rounded-lg px-1.5 py-1 text-center text-[12px] font-extrabold', shot ? 'bg-white/90 text-ink backdrop-blur' : 'text-ink/65')}>{shot && <Check size={10} strokeWidth={3.5} className="mr-0.5 inline text-up"/>}{view.label.replace(' side', '')}</span>
   </div>; })}</div>;
@@ -67,11 +73,17 @@ function Handoff({ session, call, download }: { session: View; call: <T>(path: s
   const navigate = useNavigate(); const phone = useMemo(() => isPhone(), []); const now = useNow(true);
   const [link, setLink] = useState<{ url: string; expires: number } | null>(() => { try { const saved = JSON.parse(sessionStorage.getItem(`objectpad.handoff.${session.id}`) ?? 'null') as { url: string; expires: number } | null; return saved && saved.expires > Date.now() ? saved : null; } catch { return null; } });
   const rotate = useMutation({ mutationFn: () => call<{ handoffUrl: string; expiresAt: number }>(`/sessions/${session.id}/handoff`, { method: 'POST', body: {} }), onSuccess: data => { const next = { url: data.handoffUrl, expires: Math.min(data.expiresAt, Date.now() + 9.5 * 60_000) }; setLink(next); sessionStorage.setItem(`objectpad.handoff.${session.id}`, JSON.stringify(next)); } });
-  const live = Boolean(link && link.expires > now && !session.deviceConnected);
-  const { mutate, isIdle, isError } = rotate;
-  useEffect(() => { if (!session.deviceConnected && (!link || link.expires <= now) && isIdle && !isError) mutate(); }, [session.deviceConnected, link, now, isIdle, isError, mutate]);
+  // "Connect a new phone": shows a fresh QR even while a phone is paired. The new phone replaces the old one the moment it scans.
+  const [pairNew, setPairNew] = useState<boolean>(false); const pairedAt = useRef<number | undefined>(session.pairedAt);
+  useEffect(() => { if (session.pairedAt && session.pairedAt !== pairedAt.current) { pairedAt.current = session.pairedAt; setPairNew(false); } }, [session.pairedAt]);
+  const showQr = !session.deviceConnected || pairNew;
+  const live = Boolean(link && link.expires > now && showQr);
+  const { mutate, isIdle, isError, isPending } = rotate;
+  useEffect(() => { if (showQr && (!link || link.expires <= now) && !isPending && (isIdle || !isError)) mutate(); }, [showQr, link, now, isIdle, isError, isPending, mutate]);
+  const newPhone = () => { setPairNew(true); if (!link || link.expires <= Date.now() + 60_000) mutate(); };
+  const removePhoto = async (view: string) => { await call<View>(`/sessions/${session.id}/views/${view}`, { method: 'DELETE' }); };
   const openHere = async () => { const data = await call<{ handoffUrl: string }>(`/sessions/${session.id}/handoff`, { method: 'POST', body: {} }); navigate(`/capture/claim${new URL(data.handoffUrl).hash}`); };
-  const connected = Boolean(session.deviceConnected); const count = session.views.length;
+  const connected = Boolean(session.deviceConnected) && !pairNew; const count = session.views.length;
   return <div className="raised relative overflow-hidden rounded-[32px]">
     <div className="grid-paper pointer-events-none absolute inset-0 opacity-50" aria-hidden="true"/>
     <div className="relative grid gap-6 p-5 sm:p-7 md:grid-cols-[auto_1fr]">
@@ -81,17 +93,18 @@ function Handoff({ session, call, download }: { session: View; call: <T>(path: s
             : live && link ? <QRCodeSVG value={link.url} size={224} level="M" marginSize={0} fgColor="#0C0D10" title="Open this scan on your phone"/>
             : <div className="text-center">{rotate.isPending ? <LoaderCircle className="mx-auto animate-spin text-ink/60"/> : <><p className="text-sm font-bold text-ink/60">Code expired</p><button onClick={() => rotate.mutate()} className="btn press mt-3 min-h-11 px-4 text-sm"><RefreshCw size={14}/>New code</button></>}</div>}
         </div>
-        <div className="smoke mt-3 w-full rounded-[20px] px-4 py-3 text-center"><p className="flex items-center justify-center gap-2 text-[15px] font-extrabold text-white"><Smartphone size={16}/>{connected ? 'Scanning on your phone' : 'Scan with your phone'}</p><p className="mt-0.5 font-mono text-[12px] font-bold uppercase text-white/60">{connected ? 'paired · this scan only' : live && link ? `single use · ${clock(link.expires - now)}` : 'waiting for a code'}</p></div>
+        <div className="smoke mt-3 w-full rounded-[20px] px-4 py-3 text-center"><p className="flex items-center justify-center gap-2 text-[15px] font-extrabold text-white"><Smartphone size={16}/>{connected ? 'Scanning on your phone' : pairNew ? 'Scan with the new phone' : 'Scan with your phone'}</p><p className="mt-0.5 font-mono text-[12px] font-bold uppercase text-white/60">{connected ? 'paired · this scan only' : live && link ? `single use · ${clock(link.expires - now)}` : 'waiting for a code'}</p></div>
+        {pairNew && <button onClick={() => setPairNew(false)} className="mt-2 min-h-10 text-[13px] font-bold text-ink/60 hover:text-ink">Keep the current phone</button>}
       </div>
       <div className="flex min-w-0 flex-col">
-        <p className="lab">Step {connected ? 2 : 1} · {connected ? 'Photos coming in' : 'Connect your phone'}</p>
-        <h2 className="display mt-3 text-[34px] sm:text-[44px]">{connected ? (count ? `${count} of 6 angles in.` : 'Walk around it.') : 'Point your phone here.'}</h2>
-        <p className="mt-2 max-w-md text-[15px] font-bold text-ink/60">{connected ? 'Each photo shows up here the moment it lands. The 3D build starts by itself.' : 'Your camera opens this exact scan. No app. No sign-in.'}</p>
+        <p className="lab">Step {connected || count ? 2 : 1} · {connected ? 'Photos coming in' : pairNew ? 'Connect a new phone' : count ? 'Continue on a phone' : 'Connect your phone'}</p>
+        <h2 className="display mt-3 text-[34px] sm:text-[44px]">{connected ? (count ? `${count} of 6 angles in.` : 'Walk around it.') : count ? `${count} of 6 saved. Carry on.` : 'Point your phone here.'}</h2>
+        <p className="mt-2 max-w-md text-[15px] font-bold text-ink/60">{connected ? 'Each photo shows up here the moment it lands. Tap ↺ on any photo to have it retaken. The 3D build starts by itself.' : count ? 'Scan the code with any phone to finish the missing angles. Your saved photos come with it, and you can retake any of them.' : 'Your camera opens this exact scan. No app. No sign-in.'}</p>
         <div className="sunk mt-4 h-2 overflow-hidden rounded-full"><div className="h-full rounded-full bg-ink transition-[width] duration-700" style={{ width: `${Math.max(connected ? 6 : 0, (count / VIEWS.length) * 100)}%` }}/></div>
-        <div className="mt-4"><LivePhotos session={session} download={download}/></div>
+        <div className="mt-4"><LivePhotos session={session} download={download} onRemove={removePhoto}/></div>
         <div className="mt-auto flex flex-wrap gap-2 pt-5">
           {(phone || !connected) && <button onClick={() => void openHere()} className="btn-ghost press min-h-11 px-4 text-sm"><ScanLine size={15}/>{phone ? 'Scan on this phone' : 'Already on a phone? Open here'}</button>}
-          {connected && <button onClick={() => rotate.mutate()} className="btn-ghost press min-h-11 px-4 text-sm"><RefreshCw size={14}/>Use a different phone</button>}
+          {connected && <button onClick={newPhone} className="btn-ghost press min-h-11 px-4 text-sm"><Smartphone size={14}/>Connect a new phone</button>}
         </div>
         {rotate.isError && <p className="mt-3 text-sm font-semibold text-down">{rotate.error.message}</p>}
       </div>
@@ -188,7 +201,7 @@ function CoinPanel({ session, call, onSession }: { session: View; call: <T>(path
     <button type="submit" disabled={!canSubmit || launch.isPending || queued} className="btn press group mt-5 min-h-[62px] w-full !justify-between pl-1.5 pr-5 text-[15.5px]">
       <span className="flex items-center gap-3"><span className="orb size-[50px]">{launch.isPending ? <LoaderCircle size={20} className="animate-spin"/> : <GlassIcon name={ready || building ? 'rocket' : 'mesh'} size={38} className="!filter-none"/>}</span>{queued ? 'Launch queued — building your 3D model' : launch.isPending ? 'Sealing & launching…' : !canSubmit ? 'Unlocks when your 3D model is ready' : ready ? (funded ? 'Launch my coin free' : 'Seal & queue free launch') : 'Launch now — sends the instant it’s built'}</span>{canSubmit ? <ArrowRight size={18}/> : <Lock size={16}/>}
     </button>
-    {queued && <p className="mt-2.5 rounded-2xl bg-up/[0.09] px-3.5 py-2.5 text-[13px] font-bold text-up">Sealed. Your coin launches the second the 3D model finishes building — you can close this page.</p>}
+    {queued && <div className="slide-in mt-2.5 rounded-2xl bg-up/[0.09] px-3.5 py-2.5 text-[13px] font-bold text-up"><p>Sealed. Your coin launches the second the 3D model finishes building. You can close this page.</p>{session.coinUrl && <Link to={new URL(session.coinUrl).pathname} className="mt-1.5 inline-flex min-h-9 items-center gap-1 font-extrabold underline underline-offset-2">Watch it build on your coin page<ArrowUpRight size={13}/></Link>}</div>}
     <div className="mt-2.5 grid grid-cols-2 gap-2">
       <button type="button" onClick={form.handleSubmit(v => saveDraft.mutate(v))} disabled={saveDraft.isPending || (!dirty && Boolean(saved))} className="btn-ghost press min-h-11 text-[13px] disabled:opacity-50">{saveDraft.isPending ? 'Saving…' : saved && !dirty ? <><Check size={14}/>Details saved</> : 'Save details'}</button>
       {guest ? <span className="sunk flex min-h-11 items-center justify-center gap-1.5 rounded-full text-[12.5px] font-bold text-ink/60"><Inbox size={14}/>Saved in this browser</span>
@@ -271,6 +284,9 @@ export default function Studio() {
   const regenerate = useMutation({ mutationFn: () => call<View>(`/sessions/${id}/regenerate`, { method: 'POST', body: {}, timeout: 90_000 }), onSuccess: setSession });
   // Rescan keeps both devices linked: a fresh scan for the same owner; the paired phone follows automatically.
   const rescan = useMutation({ mutationFn: () => call<{ session: View }>(`/sessions/${id}/rescan`, { method: 'POST', body: {} }), onSuccess: data => { forgetScan(id); rememberScan(data.session.id); navigate(`/launch/${data.session.id}`); } });
+  // Start over: cancels this scan everywhere (the phone is told too) and opens a brand-new one with a fresh QR code.
+  const [confirmReset, setConfirmReset] = useState<boolean>(false);
+  const startOver = useMutation({ mutationFn: async () => { await call(`/sessions/${id}/cancel`, { method: 'POST', body: {} }).catch((e: unknown) => { if (!(e instanceof RequestError && [404, 409].includes(e.status))) throw e; }); forgetScan(id); qc.removeQueries({ queryKey: ['objectpad', 'scan-link'] }); return openScan(creator.token); }, onSuccess: scan => { setConfirmReset(false); play('retry'); if (isPhone() && scan.url) { navigate(`/capture/claim${new URL(scan.url).hash}`, { replace: true }); return; } navigate(`/launch/${scan.session.id}`, { replace: true }); } });
   const session = query.data; const state = session?.state; const announced = useRef<string>('');
   useEffect(() => { if (session?.successor) navigate(`/launch/${session.successor}`, { replace: true }); }, [session?.successor, navigate]);
   const engine = useEngineLog(session); const [revealed, setRevealed] = useState<boolean>(false);
@@ -300,9 +316,15 @@ export default function Studio() {
   const providerFailed = session.state === 'failed' || (session.state === 'blocked' && code === 'PROVIDER_SUBMISSION_UNCERTAIN');
   const retriesLeft = 8 - (session.failureRetries ?? 0);
   const rescanButton = (big = false) => <button onClick={() => rescan.mutate()} disabled={rescan.isPending} className={cn('btn-ghost press px-5', big ? 'min-h-[56px] text-[15px]' : 'min-h-11 text-sm')}>{rescan.isPending ? <LoaderCircle size={15} className="animate-spin"/> : <ScanLine size={15}/>}{rescan.isPending ? 'Starting new scan…' : 'Rescan'}</button>;
-  const title = session.launchDraft?.publicName ?? session.suggestion?.name ?? (capturing ? 'New scan' : 'Your object');
+  const title = session.launchDraft?.publicName ?? session.suggestion?.name ?? (capturing ? (session.views.length ? 'Your scan' : 'New scan') : 'Your object');
+  const canReset = !session.launch && !TERMINAL.includes(session.state) && !session.autoLaunch && !session.launchQueuedAt;
+  const resumed = capturing && session.views.length > 0 && Date.now() - session.createdAt > 5 * 60_000;
   return <div className="page py-5 sm:py-8">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div className="min-w-0"><p className="lab hidden sm:inline-flex">{session.guest ? 'Your scan · saved in this browser' : 'Saved to your inventory'} · {session.id.slice(0, 8)}</p><h1 className="display text-[32px] sm:mt-3 sm:text-[52px]">{title}</h1></div><div className="hidden flex-wrap gap-2 sm:flex"><span className="chip"><Lock size={11}/>Private until launch</span><span className="chip">$0 · treasury pays</span></div></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div className="min-w-0"><p className="lab hidden sm:inline-flex">{session.guest ? 'Your scan · saved in this browser' : 'Saved to your inventory'} · started {timeAgo(session.createdAt)}</p><h1 className="display text-[32px] sm:mt-3 sm:text-[52px]">{title}</h1></div><div className="flex flex-wrap items-center gap-2"><span className="chip hidden sm:inline-flex"><Lock size={11}/>Private until launch</span><span className="chip hidden sm:inline-flex">$0 · treasury pays</span>{canReset && <button onClick={() => setConfirmReset(true)} className="btn-ghost press min-h-10 px-4 text-[13px]"><RotateCcw size={14}/>Start over</button>}</div></div>
+    {resumed && <div className="slide-in raised mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[22px] px-4 py-3"><p className="flex items-center gap-2.5 text-[14px] font-extrabold"><GlassIcon name="mesh" size={30}/>Picked up your scan from {timeAgo(session.createdAt)} · {session.views.length} of 6 photos saved</p><div className="flex gap-2"><button onClick={() => setConfirmReset(true)} className="btn press min-h-10 px-4 text-[13px]"><ScanLine size={14}/>Scan something new</button></div></div>}
+    <Dialog open={confirmReset} onOpenChange={open => { if (!startOver.isPending) setConfirmReset(open); }} title="Start a new scan?" description={session.views.length ? `This cancels the current scan and deletes its ${session.views.length} photo${session.views.length === 1 ? '' : 's'}${building ? ' and the 3D build in progress' : ''}. Your phone is disconnected and you get a fresh QR code.` : 'This cancels the current scan and gives you a fresh QR code.'}>
+      <div className="grid gap-2"><button onClick={() => startOver.mutate()} disabled={startOver.isPending} className="btn press min-h-[52px] text-[15px]">{startOver.isPending ? <LoaderCircle size={16} className="animate-spin"/> : <RotateCcw size={16}/>}{startOver.isPending ? 'Starting fresh…' : 'Cancel this scan & start new'}</button><button onClick={() => setConfirmReset(false)} disabled={startOver.isPending} className="btn-ghost press min-h-12 text-sm">Keep this scan</button>{startOver.isError && <p role="alert" className="text-sm font-semibold text-down">{startOver.error.message}</p>}</div>
+    </Dialog>
     <div className="mt-5"><Stepper session={session}/></div>
     <div className="mt-5 grid gap-4 lg:grid-cols-[1.3fr_1fr]">
       <div className="space-y-4">

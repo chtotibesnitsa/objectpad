@@ -52,7 +52,7 @@ export class CaptureService {
     if (!rights || !/^[a-f0-9-]{36}$/.test(draftId)) throw new ApiError('RIGHTS_AND_DRAFT_REQUIRED');
     const existing = this.store.one<SessionRow>('SELECT * FROM op_capture_sessions WHERE id=?', draftId); if (existing) { requireOwner(owner, existing.owner); return { session: this.publicSession(draftId, owner) }; }
     const profile = this.store.one('SELECT owner FROM op_profiles WHERE owner=?', owner); if (!profile) throw new ApiError('PROFILE_REQUIRED', 409);
-    this.store.rate(`sessions:${owner}`, 10, 86_400_000);
+    this.store.rate(`sessions:${owner}`, 25, 86_400_000);
     const token = randomToken(); const now = Date.now(); const expiresAt = now + 2 * 60 * 60_000;
     const session: SavedSession = { id: draftId, owner, state: 'awaiting_mobile', createdAt: now, expiresAt, views: [], rights, moderation: 'pending', autoLaunch };
     this.store.run('INSERT INTO op_capture_sessions(id,owner,state,token_hash,claim_hash,handoff_expires,expires,created_at,payload,object_id) VALUES (?,?,?,?,?,?,?,?,?,?)', draftId, owner, session.state, await sha256(token), null, now + 10 * 60_000, expiresAt, now, JSON.stringify(session), await objectIdFor(draftId));
@@ -68,7 +68,7 @@ export class CaptureService {
     catch (error) { this.store.metric(Date.now() >= row.handoff_expires ? 'qr_expired' : 'qr_rejected'); throw error; }
     if (!/^[a-f0-9]{64}$/.test(token) || await sha256(token) !== row.token_hash) { this.store.metric('qr_rejected'); throw new ApiError('HANDOFF_EXPIRED_OR_USED', 410); }
     // A new phone replaces any earlier one: its secret becomes the only device credential and old upload tickets die.
-    const claimSecret = randomToken(); if (session.state === 'awaiting_mobile') session.state = 'capturing'; const claimHash = await sha256(claimSecret);
+    const claimSecret = randomToken(); if (session.state === 'awaiting_mobile') session.state = 'capturing'; session.pairedAt = Date.now(); const claimHash = await sha256(claimSecret);
     this.store.atomic(() => { this.store.run('UPDATE op_capture_sessions SET token_hash=NULL,claim_hash=? WHERE id=?', claimHash, id); this.store.run('UPDATE op_upload_tickets SET consumed=1 WHERE session_id=?', id); this.save(session); });
     this.store.metric('qr_claimed'); return { session: this.publicSession(id), claimSecret };
   }
@@ -138,7 +138,8 @@ export class CaptureService {
     }
     if ([...matches.values()].some(count => count >= ARCHIVE_MATCH_VIEWS)) { this.store.metric('archive_near_duplicate_rejected'); throw new ApiError('NEAR_DUPLICATE_CAPTURE', 409); }
   }
-  async retake(id: string, owner: string, viewId: string, secret: string | null): Promise<CaptureSession> { const session = await this.authorizeDevice(id, owner, secret); const frame = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); this.store.atomic(() => { this.store.run('DELETE FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); session.views = session.views.filter(v => v.view !== viewId); session.incoming = (session.incoming ?? []).filter(s => s.view !== viewId); session.moderation = 'pending'; delete session.approvedManifestHash; session.state = 'capturing'; this.save(session); }); if (frame) await this.runtime.privateBucket.delete(frame.storage_key); return this.publicSession(id, owner); }
+  /** Removes one photo so it can be shot again. The paired phone (device secret) or the owner's computer may do this before the 3D build starts. */
+  async retake(id: string, owner: string, viewId: string, secret: string | null): Promise<CaptureSession> { const session = secret ? await this.authorizeDevice(id, owner, secret) : (() => { const { row, session: s } = this.load(id, owner); if (row.expires <= Date.now() || !['awaiting_mobile', 'capturing', 'review'].includes(row.state)) throw new ApiError('CAPTURE_CLOSED', 409); return s; })(); const frame = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); this.store.atomic(() => { this.store.run('DELETE FROM op_capture_views WHERE session_id=? AND view_id=?', id, viewId); session.views = session.views.filter(v => v.view !== viewId); session.incoming = (session.incoming ?? []).filter(s => s.view !== viewId); if (!secret) session.removed = [...(session.removed ?? []).slice(-9), { view: viewId, at: Date.now() }]; session.moderation = 'pending'; delete session.approvedManifestHash; session.state = 'capturing'; this.save(session); }); if (frame) await this.runtime.privateBucket.delete(frame.storage_key); return this.publicSession(id, owner); }
   /**
    * Linked rescan: a fresh capture for the same owner. The old scan points at it (`successor`), so the desktop follows
    * automatically, and a paired phone is paired to the new scan straight away (no new QR needed).

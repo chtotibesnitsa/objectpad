@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Address } from 'viem';
 import { api } from './api';
 import { chain, ECONOMY, readCurve, readTrades, type CurveState } from './chain';
-import type { ObjectRecord, PublicFeed } from '@/shared/domain';
+import type { BuildingCoin, ObjectRecord, PublicFeed } from '@/shared/domain';
 import { ERC20_ABI } from '@/shared/pons';
 import { ESCROW_ABI, FORGE_ABI, PONS_FEE_ESCROW, VAULT_ABI, VAULT_FACTORY_ABI } from '@/shared/economy';
 
@@ -24,6 +24,8 @@ export function useArchive(options: { q?: string; category?: string; sort?: Sort
     return { items, partial: Boolean(feed.nextCursor) };
   } });
 }
+/** Coins that are sealed and waiting on their 3D model: live build progress for the Coins tab. */
+export function useBuilding() { return useQuery({ queryKey: ['objectpad', 'building'], queryFn: ({ signal }) => api<{ items: BuildingCoin[] }>('/building', { signal }), refetchInterval: 4000, retry: 1, staleTime: 2000 }); }
 export function useCurve(curve: Address | undefined) { return useQuery({ queryKey: ['objectpad', 'curve', curve], enabled: Boolean(curve), queryFn: () => readCurve(curve!), refetchInterval: 15_000, retry: 1 }); }
 export function useTrades(curve: Address | undefined) { return useQuery({ queryKey: ['objectpad', 'trades', curve], enabled: Boolean(curve), queryFn: () => readTrades(curve!), refetchInterval: 30_000, retry: 1 }); }
 

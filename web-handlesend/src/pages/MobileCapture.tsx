@@ -13,7 +13,7 @@ import { VIEWS, type CaptureSession, type ViewId } from '@/shared/domain';
 import { cn } from '@/lib/utils';
 
 type Status = 'queued' | 'uploading' | 'accepted' | 'rejected';
-interface Shot { view: ViewId; url: string; blob: Blob; signature: string; status: Status; error?: string; tries?: number; }
+interface Shot { view: ViewId; url: string; blob: Blob; signature: string; status: Status; error?: string; tries?: number; acceptedAt?: number; }
 interface Pose { heading: number; pitch: number; at: number; }
 interface Hud { light: 'dark' | 'bright' | 'ok'; sharp: boolean; object: boolean; steady: boolean; angle: boolean; moved: boolean; hold: number; delta: number | null; pitch: number | null; }
 interface Flying { key: number; url: string; style: Record<string, string>; }
@@ -180,7 +180,15 @@ export default function MobileCapture() {
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stay in sync with the computer while scanning: a rescan there moves this phone to the new scan too.
-  useEffect(() => { if (!session || phase === 'pair') return; const t = setInterval(() => { void call<CaptureSession>(`/sessions/${id}`).then(s => { if (s.successor) followScan(s.id, s.successor); else if (!['awaiting_mobile', 'capturing', 'review'].includes(s.state)) navigate(`/launch/${s.id}`, { replace: true }); }).catch(() => undefined); }, 4000); return () => clearInterval(t); }, [session !== null, phase, id, call, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Cancelled on the computer ("Start over") or taken over by a new phone: stop the camera and ask for the new QR code.
+  // A photo removed on the computer is dropped here too, so the phone asks for that angle again.
+  useEffect(() => { if (!session || phase === 'pair') return; const t = setInterval(() => { void call<CaptureSession>(`/sessions/${id}`).then(s => {
+    if (s.successor) { followScan(s.id, s.successor); return; }
+    if (s.state === 'cancelled' || s.state === 'expired') { stream.current?.getTracks().forEach(track => track.stop()); forgetDeviceScan(id); setPairError(s.state === 'cancelled' ? 'This scan was cancelled on your computer. Scan the new QR code on your computer to start again.' : 'This scan expired. Scan the new QR code on your computer to start again.'); return; }
+    if (!['awaiting_mobile', 'capturing', 'review'].includes(s.state)) { navigate(`/launch/${s.id}`, { replace: true }); return; }
+    const removed = (s.removed ?? []).filter(r => shotsRef.current.some(shot => shot.view === r.view && shot.status === 'accepted' && (shot.acceptedAt ?? 0) < r.at));
+    if (removed.length) { setShots(cur => cur.filter(shot => !removed.some(r => r.view === shot.view && shot.status === 'accepted' && (shot.acceptedAt ?? 0) < r.at))); setSession(s); if (navigator.vibrate) navigator.vibrate([15, 40, 15]); setPhase(p => p === 'review' ? 'intro' : p); }
+  }).catch(error => { if (error instanceof RequestError && error.code === 'CAPTURE_DEVICE_NOT_AUTHORIZED') { stream.current?.getTracks().forEach(track => track.stop()); setPairError('Another phone took over this scan. Scan the QR code on your computer to switch back to this phone.'); } }); }, 3000); return () => clearInterval(t); }, [session !== null, phase, id, call, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
   const accepted = useMemo(() => new Set<ViewId>(session?.views.map(v => v.view) ?? []), [session]);
   const covered = useMemo(() => new Set<ViewId>([...accepted, ...shots.filter(s => s.status !== 'rejected').map(s => s.view)]), [accepted, shots]);
   const target = ORDER.find(view => !covered.has(view)) ?? null; const targetRef = useRef<ViewId | null>(target); targetRef.current = target;
@@ -216,7 +224,7 @@ export default function MobileCapture() {
         try {
           const ticket = await call<{ url: string; token: string }>(`/sessions/${id}/tickets`, { method: 'POST', body: { view: next.view } });
           const updated = await call<CaptureSession>(ticket.url, { method: 'PUT', binary: next.blob, timeout: 60_000, headers: { 'X-Upload-Token': ticket.token } });
-          setSession(updated); setShots(cur => cur.map(s => s.view === next.view && s.blob === next.blob ? { ...s, status: 'accepted' } : s)); play('orbit');
+          setSession(updated); setShots(cur => cur.map(s => s.view === next.view && s.blob === next.blob ? { ...s, status: 'accepted', acceptedAt: Date.now() } : s)); play('orbit');
         } catch (error) {
           // Already on the server (an earlier try landed but its reply was lost): count it as in, don't ask for a retake.
           if (error instanceof RequestError && error.code === 'RETAKE_REQUIRED') { try { const fresh = await call<CaptureSession>(`/sessions/${id}`); if (fresh.views.some(v => v.view === next.view)) { setSession(fresh); setShots(cur => cur.map(s => s.view === next.view && s.blob === next.blob ? { ...s, status: 'accepted' } : s)); continue; } } catch { /* handled below */ } }
