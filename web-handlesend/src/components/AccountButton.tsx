@@ -32,9 +32,10 @@ export function AccountButton({ compact = false }: { compact?: boolean }) {
       <div className="px-3 pb-2 pt-2"><p className="truncate text-[15px] font-extrabold">{name}</p>{session.wallet && <p className="mt-0.5 font-mono text-[11.5px] text-ink/60">{shortAddress(session.wallet, 6, 4)}</p>}</div>
       <div className="sunk mx-1 rounded-2xl px-3 py-3"><p className="stat-label !text-[11px]">Creator fees to claim</p><p className="mt-1 text-[22px] font-extrabold tnum">{ethLabel(claimable)}</p>{ethUsd && claimable > 0 && <p className="font-mono text-[11.5px] text-ink/60">≈ {usd(claimable * ethUsd)}</p>}<p className="mt-1 font-mono text-[11px] font-bold text-ink/55">{me ? `${me.launches.length} coin${me.launches.length === 1 ? '' : 's'} launched · ${me.wallets.length} wallet${me.wallets.length === 1 ? '' : 's'}` : 'Loading your coins…'}</p></div>
       <div className="mt-1.5 space-y-0.5">
+        <Link to="/wallet" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl bg-ink px-3 text-[14px] font-extrabold text-white transition-transform hover:scale-[1.01]"><Wallet size={16}/>My wallet<span className="ml-auto font-mono text-[10px] font-bold uppercase text-white/60">Deposit · withdraw</span></Link>
         <Link to="/earnings" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><Coins size={16}/>Claim creator fees</Link>
         <Link to="/earnings#launches" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><Rocket size={16}/>My launches</Link>
-        <Link to="/earnings#wallets" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><Wallet size={16}/>Dev wallets</Link>
+        <Link to="/earnings#wallets" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><UserRound size={16}/>Dev wallets</Link>
         <button onClick={() => { setOpen(false); session.logout(); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-[14px] font-bold text-ink/70 hover:bg-white/70"><LogOut size={16}/>Sign out</button>
       </div>
     </div>}

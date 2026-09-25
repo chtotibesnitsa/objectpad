@@ -14,7 +14,7 @@ import { chain, prepareTx, waitForReceipt } from './chain';
 export interface AccountWallet { address: string; kind: 'account' | 'linked'; claimableWei: string; claimableEth: number; gasWei: string; }
 /** One coin the account launched (or that pays fees to one of its wallets). */
 export interface AccountLaunch { objectId: string; symbol: string; name: string; thumbnail: string; path: string; feeWallet: string | null; curve: string | null; token: string | null; launchedAt: number | null; }
-export interface Account { did: string; publicId: string; alias: string; wallets: AccountWallet[]; launches: AccountLaunch[]; totalClaimableEth: number; operator: boolean; }
+export interface Account { did: string; publicId: string; alias: string; wallets: AccountWallet[]; launches: AccountLaunch[]; totalClaimableEth: number; operator: boolean; treasury?: string; }
 
 export const ACCOUNT_KEY = ['objectpad', 'account', 'me'] as const;
 

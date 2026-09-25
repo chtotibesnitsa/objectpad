@@ -10,6 +10,8 @@ import type { RecordService } from './record-service';
 
 /** A wallet that receives creator fees for an account, with its live escrow balance. */
 export interface AccountWallet { address: string; kind: 'account' | 'linked'; claimableWei: string; claimableEth: number; gasWei: string; }
+/** One verified on-chain movement of funds in or out of an account wallet. */
+export interface WalletActivity { hash: string; wallet: string; kind: 'deposit' | 'withdraw' | 'transfer' | 'claim' | 'protocol_share'; valueWei: string; counterparty: string | null; at: number; }
 /** One coin launched by (or paying fees to) this account. */
 export interface AccountLaunch { objectId: string; symbol: string; name: string; thumbnail: string; path: string; feeWallet: string | null; curve: string | null; token: string | null; launchedAt: number | null; }
 
@@ -28,6 +30,36 @@ export class AccountService {
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly sponsor: SponsorService, private readonly records: RecordService) {
     store.run('CREATE TABLE IF NOT EXISTS op_linked_wallets (wallet TEXT PRIMARY KEY, owner TEXT NOT NULL, created_at INTEGER NOT NULL)');
     store.run('CREATE INDEX IF NOT EXISTS op_linked_owner ON op_linked_wallets(owner)');
+    store.run('CREATE TABLE IF NOT EXISTS op_wallet_activity (hash TEXT NOT NULL, wallet TEXT NOT NULL, owner TEXT NOT NULL, kind TEXT NOT NULL, value_wei TEXT NOT NULL, counterparty TEXT, at INTEGER NOT NULL, PRIMARY KEY(hash, wallet))');
+    store.run('CREATE INDEX IF NOT EXISTS op_wallet_activity_owner ON op_wallet_activity(owner, at)');
+  }
+  /**
+   * Adds a transaction to the account's wallet history after reading it back from Robinhood Chain. Nothing the client
+   * sends is trusted: sender, recipient, value and time all come from the chain, and only this account's wallets count.
+   */
+  async recordActivity(owner: string, hash: string): Promise<WalletActivity[]> {
+    if (!/^0x[a-fA-F0-9]{64}$/.test(hash)) throw new ApiError('HASH_INVALID');
+    const client = serverClient(this.runtime.env); const own = this.wallets(owner).map(w => w.address); if (!own.length) throw new ApiError('NO_WALLET', 409);
+    const [tx, receipt] = await Promise.all([client.getTransaction({ hash: hash as Hex }), client.getTransactionReceipt({ hash: hash as Hex })]).catch(() => { throw new ApiError('TX_NOT_FOUND', 404); });
+    if (receipt.status !== 'success') throw new ApiError('TX_REVERTED', 409);
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber }); const at = Number(block.timestamp) * 1000;
+    const from = tx.from.toLowerCase(); const to = tx.to?.toLowerCase() ?? null; const escrow = PONS_FEE_ESCROW.toLowerCase(); const treasury = this.sponsor.address.toLowerCase();
+    const out: WalletActivity[] = [];
+    if (own.includes(from)) {
+      if (to === escrow) {
+        const before = receipt.blockNumber > 0n ? await client.readContract({ address: PONS_FEE_ESCROW, abi: ESCROW_ABI, functionName: 'balanceOf', args: [from as Address], blockNumber: receipt.blockNumber - 1n }).catch(() => 0n) : 0n;
+        out.push({ hash, wallet: from, kind: 'claim', valueWei: before.toString(), counterparty: escrow, at });
+      } else if (tx.value > 0n) out.push({ hash, wallet: from, kind: to === treasury ? 'protocol_share' : to && own.includes(to) ? 'transfer' : 'withdraw', valueWei: tx.value.toString(), counterparty: to, at });
+    }
+    if (to && own.includes(to) && tx.value > 0n && !own.includes(from)) out.push({ hash, wallet: to, kind: 'deposit', valueWei: tx.value.toString(), counterparty: from, at });
+    if (!out.length) throw new ApiError('TX_NOT_YOURS', 409);
+    this.store.atomic(() => { for (const a of out) this.store.run('INSERT OR IGNORE INTO op_wallet_activity(hash,wallet,owner,kind,value_wei,counterparty,at) VALUES (?,?,?,?,?,?,?)', a.hash, a.wallet, owner, a.kind, a.valueWei, a.counterparty, a.at); });
+    this.store.metric(`wallet_${out[0].kind}`); return out;
+  }
+  /** The account's verified wallet history, newest first. */
+  activity(owner: string): WalletActivity[] {
+    return this.store.all<{ hash: string; wallet: string; kind: WalletActivity['kind']; value_wei: string; counterparty: string | null; at: number }>('SELECT hash,wallet,kind,value_wei,counterparty,at FROM op_wallet_activity WHERE owner=? ORDER BY at DESC LIMIT 60', owner)
+      .map(r => ({ hash: r.hash, wallet: r.wallet, kind: r.kind, valueWei: r.value_wei, counterparty: r.counterparty, at: r.at }));
   }
   private publicId(owner: string): string { const row = this.store.one<{ public_id: string }>('SELECT public_id FROM op_profiles WHERE owner=?', owner); if (!row) throw new ApiError('PROFILE_REQUIRED', 409); return row.public_id; }
   wallets(owner: string): { address: string; kind: AccountWallet['kind'] }[] {
@@ -68,11 +100,11 @@ export class AccountService {
     for (const row of rows) { try { const r = this.records.publicRecord(row.id); const p = JSON.parse(row.payload) as { feeVault?: string; confirmedAt?: number }; out.push({ objectId: r.objectId, symbol: r.symbol, name: r.verifiedName, thumbnail: r.model.thumbnailUrl, path: `/objects/${r.objectId}`, feeWallet: p.feeVault?.toLowerCase() ?? null, curve: r.curveAddress ?? null, token: r.tokenAddress ?? null, launchedAt: p.confirmedAt ?? null }); } catch { /* hidden or not yet public */ } }
     return out;
   }
-  async me(owner: string, operator: boolean): Promise<{ did: string; publicId: string; alias: string; wallets: AccountWallet[]; launches: AccountLaunch[]; totalClaimableEth: number; operator: boolean }> {
+  async me(owner: string, operator: boolean): Promise<{ did: string; publicId: string; alias: string; wallets: AccountWallet[]; launches: AccountLaunch[]; totalClaimableEth: number; operator: boolean; treasury: string }> {
     const profile = this.store.one<{ public_id: string; alias: string }>('SELECT public_id,alias FROM op_profiles WHERE owner=?', owner); if (!profile) throw new ApiError('PROFILE_REQUIRED', 409);
     const list = this.wallets(owner); const bal = await this.balances(list.map(w => w.address));
     const wallets = list.map(w => { const b = bal.get(w.address) ?? { claimable: 0n, gas: 0n }; return { ...w, claimableWei: b.claimable.toString(), claimableEth: Number(formatEther(b.claimable)), gasWei: b.gas.toString() }; });
-    return { did: owner, publicId: profile.public_id, alias: profile.alias, wallets, launches: this.launches(owner, list.map(w => w.address)), totalClaimableEth: wallets.reduce((s, w) => s + w.claimableEth, 0), operator };
+    return { did: owner, publicId: profile.public_id, alias: profile.alias, wallets, launches: this.launches(owner, list.map(w => w.address)), totalClaimableEth: wallets.reduce((s, w) => s + w.claimableEth, 0), operator, treasury: this.sponsor.address.toLowerCase() };
   }
   /** Sends a linked wallet just enough treasury ETH to pay for its claim, when it has fees waiting and no gas. Once a day per wallet. */
   async claimGas(owner: string, address: string): Promise<{ sent: boolean; hash?: string }> {

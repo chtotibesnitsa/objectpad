@@ -24,7 +24,7 @@ const TABS = [
   { to: '/docs', label: 'How it works', icon: BookOpen, match: (p: string) => p === '/docs' },
 ];
 const DRAWER: { code: string; title: string; items: { to: string; label: string; icon: GlassName; note: string }[] }[] = [
-  { code: '01', title: 'Make', items: [{ to: '/launch', label: 'Scan & launch', icon: 'qr', note: 'Phone camera → coin' }, { to: '/inventory', label: 'Saved scans', icon: 'mesh', note: 'Resume any scan' }, { to: '/earnings', label: 'Creator earnings', icon: 'coins', note: '0.5% of every trade' }] },
+  { code: '01', title: 'Make', items: [{ to: '/launch', label: 'Scan & launch', icon: 'qr', note: 'Phone camera → coin' }, { to: '/inventory', label: 'Saved scans', icon: 'mesh', note: 'Resume any scan' }, { to: '/wallet', label: 'My wallet', icon: 'wallet', note: 'Balance · deposit · withdraw' }, { to: '/earnings', label: 'Creator earnings', icon: 'coins', note: '0.5% of every trade' }] },
   { code: '02', title: 'Market', items: [{ to: '/explore', label: 'Object coins', icon: 'chart', note: 'Every scanned coin' }, { to: '/burn', label: '$OBJECTPAD burn', icon: 'burn', note: 'Buyback & burn log' }, { to: '/treasury', label: 'Launch treasury', icon: 'vault', note: 'Pays every launch' }] },
   { code: '03', title: 'Protocol', items: [{ to: '/docs', label: 'How it works', icon: 'chain', note: '4 steps · receipt · fees' }, { to: '/provenance', label: 'Provenance', icon: 'fingerprint', note: 'Trace any object' }, { to: '/craft', label: 'Crafting Table', icon: 'diamond', note: 'Launching soon' }, { to: '/safety', label: 'Safety & rights', icon: 'shield', note: 'What we accept' }] },
 ];
