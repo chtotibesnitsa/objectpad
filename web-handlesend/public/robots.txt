@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /capture/
+Disallow: /studio/
+Disallow: /operator
+Disallow: /api/

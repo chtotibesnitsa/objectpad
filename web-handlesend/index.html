@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>ObjectPad — tokenize the physical world</title>
+    <meta name="description" content="Tokenize the physical world. Scan any real object in 3D and launch its coin for free on Robinhood Chain. No account needed." />
+    <meta name="theme-color" content="#F2F3F5" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ObjectPad" />
+    <meta property="og:title" content="ObjectPad — tokenize the physical world" />
+    <meta property="og:description" content="Scan any real object in 3D and launch its coin for free on Robinhood Chain." />
+    <meta property="og:url" content="https://objectpad.rork.app/" />
+    <meta property="og:image" content="https://objectpad.rork.app/og-objectpad-banner.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The launchpad for physical objects: a phone scans a Pepe figure that turns into digits and becomes a coin with a rising chart. ObjectPad.fun" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ObjectPad — tokenize the physical world" />
+    <meta name="twitter:description" content="Scan any real object in 3D and launch its coin for free on Robinhood Chain." />
+    <meta name="twitter:image" content="https://objectpad.rork.app/og-objectpad-banner.jpg" />
+    <link rel="canonical" href="https://objectpad.rork.app/" />
+
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" href="/fonts/anybody.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/fonts/geist.ttf" as="font" type="font/ttf" crossorigin />
+  </head>
+  <body>
+    <style>
+      #boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #F2F3F5; color: #0C0D10; font-family: Arial, Helvetica, sans-serif; }
+      #boot .mark { width: 48px; height: 48px; border-radius: 14px; background: url(/icon.png) center/cover no-repeat; animation: boot-pulse 1.4s ease-in-out infinite alternate; }
+      #boot .word { font-weight: 800; font-size: 17px; letter-spacing: -0.02em; }
+      #boot .hint { font: 500 10px ui-monospace, monospace; letter-spacing: 0.2em; text-transform: uppercase; color: #5E6068; }
+      @keyframes boot-pulse { from { transform: scale(0.95); opacity: 0.8; } to { transform: scale(1.03); opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { #boot .mark { animation: none; } }
+    </style>
+    <div id="root">
+      <div id="boot" role="status" aria-live="polite">
+        <div class="mark" aria-hidden="true"></div>
+        <div class="word">ObjectPad</div>
+        <div class="hint">Loading the scanner</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

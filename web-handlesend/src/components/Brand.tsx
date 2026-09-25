@@ -1,0 +1,3 @@
+import { Link } from 'react-router-dom';
+export function Mark({ className = '' }: { className?: string }) { return <svg viewBox="0 0 32 36" fill="none" aria-hidden="true" className={className}><path d="M16 2 29 9.5v16L16 33 3 25.5v-16L16 2Z" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round"/><path d="m3 9.5 13 8 13-8M16 17.5V33" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round"/><circle cx="16" cy="17.5" r="2.6" fill="currentColor"/></svg>; }
+export function Brand({ compact = false }: { compact?: boolean }) { return <Link to="/" className="flex items-center gap-2 text-[20px] font-extrabold tracking-[-.05em]" aria-label="ObjectPad home"><Mark className="h-7 w-6"/>{!compact && <span>ObjectPad</span>}</Link>; }

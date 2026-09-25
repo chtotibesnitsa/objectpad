@@ -1,0 +1,29 @@
+{
+  "$schema": "https://rork.com/schema/rork.json",
+  "apps": [
+    {
+      "name": "Casepad",
+      "path": "web-handlesend",
+      "framework": "web"
+    },
+    {
+      "name": "Functions",
+      "path": "functions",
+      "framework": "cloudflare"
+    },
+    {
+      "name": "CasePad Android",
+      "path": "android",
+      "framework": "kotlin"
+    },
+    {
+      "name": "CasePad iOS",
+      "path": "ios-tagstock",
+      "framework": "swift",
+      "settings": {
+        "displayName": "CasePad",
+        "iosBundleId": "app.rork.1twehjy6mwk3snm9cdfyy"
+      }
+    }
+  ]
+}
