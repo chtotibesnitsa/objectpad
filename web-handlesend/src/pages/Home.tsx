@@ -13,6 +13,7 @@ import { AsciiField, AsciiObject } from '@/components/AsciiField';
 import { GlassIcon, type GlassName } from '@/components/GlassIcon';
 import { SpecimenCard, LaunchTile } from '@/components/CoinCard';
 import { TxPanel, sampleTx, useLaunchTx } from '@/components/TxProof';
+import { AndroidAppButton, QrLinkReveal } from '@/components/QrLink';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useInView } from '@/hooks/use-in-view';
 import { useTreasury } from '@/lib/treasury';
@@ -129,7 +130,9 @@ function FreeLaunch() {
               </div>
               <p className="mt-4 flex items-center gap-2 whitespace-nowrap text-[19px] font-extrabold"><Smartphone size={20} strokeWidth={2.6}/>Scan with your phone</p>
               {link.url && !resume && <a href={`/capture/claim${link.url.includes('#') ? link.url.slice(link.url.indexOf('#')) : ''}`} className="mt-1.5 text-[14px] font-bold text-ink/60 underline underline-offset-4 hover:text-ink">or use this computer’s camera</a>}
+              {link.url && !resume && link.expires > now && <QrLinkReveal url={link.url} className="mt-1"/>}
               <p className="mt-3 flex items-center gap-2 font-mono text-[11.5px] font-extrabold uppercase text-ink/65">{resume ? <><span className="pulse-dot size-2 rounded-full bg-up"/>Phone connected</> : link.url && link.expires > now ? <><span className="pulse-signal size-2 rounded-full bg-ink"/>Private to you · waiting for your phone · {clock(link.expires - now)}</> : 'Single-use · no account'}</p>
+              <AndroidAppButton className="mt-3"/>
             </>}
         </div>
       </div>
