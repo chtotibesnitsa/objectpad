@@ -1,9 +1,8 @@
 import { lazy, memo, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Activity, ArrowUpRight, Box, Fingerprint, KeyRound, Search, TrendingUp } from 'lucide-react';
+import { Activity, Box, KeyRound, Search, TrendingUp } from 'lucide-react';
 import type { ObjectRecord } from '@/shared/domain';
-import { shortHash } from '@/shared/security';
 import { ErrorState, Loading } from '@/components/Feedback';
 import { MarketBoard } from '@/components/MarketBoard';
 import { SegmentedTabs } from '@/components/Tabs';
@@ -12,29 +11,34 @@ import { BuildingCard } from '@/components/BuildingCoin';
 import { useInView } from '@/hooks/use-in-view';
 import { useMarket } from '@/lib/market';
 import { useCoins } from '@/lib/coins';
-import { SpecimenCard, LaunchTile } from '@/components/CoinCard';
+import { SpecimenCard, LaunchTile, ChangeChip, LiveBadge, CoinCardStats } from '@/components/CoinCard';
 import { GlassIcon } from '@/components/GlassIcon';
-import { eth, tinyUsd, usd } from '@/lib/format';
 import { type CurveState } from '@/lib/chain';
 import { cn } from '@/lib/utils';
 
 const ExhibitViewer = lazy(() => import('@/components/ExhibitViewer'));
 
 /** Live coin card: the real scanned 3D model spins over its photo while the card is on screen. */
-export const ObjectCard = memo(function ObjectCard({ object, curve, ethUsd = null, spin = true }: { object: ObjectRecord; curve?: CurveState | null; ethUsd?: number | null; spin?: boolean }) {
+export const ObjectCard = memo(function ObjectCard({ object, curve, ethUsd: ethUsdProp = null, spin = true }: { object: ObjectRecord; curve?: CurveState | null; ethUsd?: number | null; spin?: boolean }) {
   const stage = useRef<HTMLDivElement>(null); const seen = useInView(stage, '160px'); const [ready, setReady] = useState<boolean>(false);
   const onReady = useMemo(() => () => setReady(true), []);
-  return <Link to={`/objects/${object.objectId}`} className="raised lift group overflow-hidden rounded-[26px]">
-    <div ref={stage} className="relative m-1.5 overflow-hidden rounded-[19px] scan-stage"><img src={object.model.thumbnailUrl} alt={`3D scan of ${object.verifiedName}`} loading="lazy" className={cn('aspect-square w-full object-contain p-5 transition-all duration-500 group-hover:scale-105 motion-reduce:transform-none', ready && 'scale-90 opacity-0')}/>
+  // Same live indexed stats as ObjectPad originals: trades, holders, 24h change and the price sparkline from real on-chain trades.
+  const feed = useCoins(); const market = useMarket(); const ethUsd = ethUsdProp ?? market.data?.ethUsd ?? null;
+  const coin = useMemo(() => feed.data?.items.find(c => c.id === object.objectId) ?? null, [feed.data, object.objectId]);
+  const priceEth = coin?.priceEth || curve?.priceEth || 0; const marketCapEth = coin?.marketCapEth || curve?.marketCapEth || 0;
+  const spark = useMemo(() => coin?.spark.length ? coin.spark : priceEth ? [priceEth, priceEth] : [], [coin, priceEth]);
+  const change = coin?.change24h ?? 0; const progress = coin?.progress ?? curve?.progress ?? 0; const graduated = coin?.graduated ?? curve?.graduated ?? false;
+  const live = Boolean(coin || curve);
+  return <Link to={`/objects/${object.objectId}`} className="raised lift group block overflow-hidden rounded-[26px]">
+    <div ref={stage} className="scan-stage crop relative m-1.5 overflow-hidden rounded-[21px]"><i/><i/><i/><i/>
+      <div className="grid-paper absolute inset-0 opacity-60" aria-hidden="true"/><img src={object.model.thumbnailUrl} alt={`3D scan of ${object.verifiedName}`} loading="lazy" className={cn('relative aspect-square w-full object-contain p-5 transition-all duration-500 group-hover:scale-105 motion-reduce:transform-none', ready && 'scale-90 opacity-0')}/>
       {spin && seen && <div className={cn('pointer-events-none absolute inset-0 transition-opacity duration-700', ready ? 'opacity-100' : 'opacity-0')}><Suspense fallback={null}><ExhibitViewer src={object.model.modelUrl} active fallback={null} onReady={onReady} speed={1.6}/></Suspense></div>}
       <span className="chip-dark absolute left-3 top-3">${object.symbol}</span>
-      <span className="absolute right-3 top-3 flex gap-1">{object.checkin && <span className="flex size-7 items-center justify-center rounded-full bg-up text-white" title="Object Key check-in"><KeyRound size={13}/></span>}{curve?.graduated && <span className="chip-dark">Graduated</span>}</span>
-      {object.objectTag && <span className="glass-strong absolute bottom-3 left-3 rounded-full px-2.5 py-1 font-mono text-[11.5px]">{object.objectTag}</span>}</div>
-    <div className="px-4 pb-4 pt-2"><div className="flex items-start justify-between gap-3"><h2 className="text-[15px] font-semibold leading-tight">{object.verifiedName}</h2><ArrowUpRight size={15} className="shrink-0 text-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"/></div>
-      <p className="mt-0.5 truncate text-xs text-muted">{object.objectName ?? object.category}</p>
-      <div className="mt-3 grid grid-cols-2 gap-3 text-xs"><div><p className="stat-label">Market cap</p><p className="mt-1 font-semibold tnum">{curve ? (ethUsd ? usd(curve.marketCapEth * ethUsd) : eth(curve.marketCapEth, 2)) : '—'}</p></div><div><p className="stat-label">Price</p><p className="mt-1 font-semibold tnum">{curve ? (ethUsd ? tinyUsd(curve.priceEth * ethUsd) : eth(curve.priceEth, 10)) : '—'}</p></div></div>
-      {curve && !curve.graduated && <div className="mt-3"><div className="h-1 overflow-hidden rounded-full bg-ink/[0.07]"><div className="h-full rounded-full bg-ink" style={{ width: `${Math.max(2, curve.progress * 100)}%` }}/></div><p className="mt-1.5 font-mono text-[11px] uppercase text-muted">{(curve.progress * 100).toFixed(1)}% to graduation</p></div>}
-      <div className="mt-3 flex items-center gap-2 border-t border-ink/[0.06] pt-3 font-mono text-[11.5px] text-muted"><Fingerprint size={12}/>{shortHash(object.originalModelHash)}</div></div>
+      {live && <ChangeChip change={change}/>}
+      {object.checkin && <span className="absolute left-3 top-12 flex size-7 items-center justify-center rounded-full bg-up text-white" title="Object Key check-in"><KeyRound size={13}/></span>}
+      {object.objectTag && <span className="chip absolute bottom-3 left-3 hidden !text-[11px] sm:inline-flex">{object.objectTag}</span>}
+      {live && <LiveBadge/>}</div>
+    <CoinCardStats id={`c-${object.objectId}`} name={object.verifiedName} marketCapEth={marketCapEth} ethUsd={ethUsd} trades={coin?.trades ?? 0} holders={coin?.holders ?? 0} spark={spark} change={change} progress={progress} graduated={graduated} live={live}/>
   </Link>;
 });
 
