@@ -43,13 +43,21 @@ const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const Portfolio = lazy(() => import('./pages/Account').then(module => ({ default: module.Portfolio })));
 const Creator = lazy(() => import('./pages/Account').then(module => ({ default: module.Creator })));
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: false, retry: 1 }, mutations: { retry: false } } });
-const CHUNK_ERROR = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i;
+// Any wording a browser uses when a hashed chunk (JS or CSS) 404s after a fresh deploy renamed it, or the request
+// simply dropped mid-deploy. Chrome, Safari and Firefox each phrase this differently, so match broadly.
+const CHUNK_ERROR = /fetch dynamically imported module|importing a module script failed|error loading dynamically imported module|unable to preload css|failed to fetch|load failed|networkerror when attempting to fetch|dynamically imported module/i;
 const RELOADED_KEY = 'objectpad.chunk-reload';
-/** A new deploy renames chunk files; a tab left open before that still asks for the old name and 404s. That is not a real
- * app error, so it auto-reloads once (silently) to pick up the fresh build instead of showing the error screen. */
+function looksLikeStaleChunk(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return CHUNK_ERROR.test(message);
+}
+/** A new deploy renames chunk files; a tab left open before that still asks for the old name and 404s, or a lazy
+ * import simply drops mid-deploy. Neither is a real app error, so this auto-reloads once (silently) to pick up the
+ * fresh build instead of showing the error screen — the reload is a same-tab location.reload(), so it always lands
+ * back on the exact page the user was on. */
 class Boundary extends Component<{ children: ReactNode }, { failed: boolean; stale: boolean }> {
   state = { failed: false, stale: false };
-  static getDerivedStateFromError(error: unknown) { const stale = error instanceof Error && CHUNK_ERROR.test(error.message); return { failed: true, stale }; }
+  static getDerivedStateFromError(error: unknown) { return { failed: true, stale: looksLikeStaleChunk(error) }; }
   componentDidCatch() {
     if (!this.state.stale) return;
     try { if (sessionStorage.getItem(RELOADED_KEY) === '1') return; sessionStorage.setItem(RELOADED_KEY, '1'); } catch { /* storage may be disabled */ }
@@ -60,6 +68,16 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean; sta
     if (this.state.stale) return null;
     return <div role="alert" className="page py-24"><h1 className="display text-4xl">This view could not be opened.</h1><p className="mt-4 text-muted">No operation is assumed to have succeeded. Reload to recover your saved state.</p><button className="mt-6 min-h-11 btn px-6 " onClick={() => location.reload()}>Reload safely</button></div>;
   }
+}
+// A lazy `import()` can also reject outside React's render pass (e.g. a route prefetch on hover/idle) where the
+// error boundary above never sees it. Treat a stale-chunk rejection there the same way: one silent same-tab reload.
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', event => {
+    if (!looksLikeStaleChunk(event.reason)) return;
+    event.preventDefault();
+    try { if (sessionStorage.getItem(RELOADED_KEY) === '1') return; sessionStorage.setItem(RELOADED_KEY, '1'); } catch { /* storage may be disabled */ }
+    location.reload();
+  });
 }
 function NavigationEffects() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); const titles: Record<string, string> = { '/': 'The launchpad for real-world objects', '/v2': 'V2 release notes', '/explore': 'Object coins', '/launch': 'Scan & launch free', '/provenance': 'Provenance', '/status': 'System status', '/safety': 'Safety and rights', '/docs': 'How it works', '/craft': 'Crafting Table', '/inventory': 'Inventory', '/burn': '$OBJECTPAD burn', '/earnings': 'Creator earnings', '/wallet': 'My wallet', '/download': 'Mobile apps', '/earn': 'Earn for verified posts', '/rewards': 'Paid Rewards', '/treasury': 'Launch treasury' }; document.title = `ObjectPad · ${titles[pathname] ?? 'The physical-object launchpad'}`; }, [pathname]); return null; }
 /** /launch/<session uuid> is the live studio; /launch/<64-hex record id> is the launch status of a sealed record. */
