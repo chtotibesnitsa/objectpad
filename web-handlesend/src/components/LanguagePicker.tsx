@@ -35,7 +35,7 @@ export function LanguageRow({ onOpen, className }: { onOpen?: () => void; classN
 const Row = memo(function Row({ lang, active, onPick }: { lang: Language; active: boolean; onPick: (code: string) => void }) {
   return <button onClick={() => onPick(lang.code)} lang={lang.code} className={cn('flex min-h-[54px] w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors', active ? 'bg-ink text-white' : 'hover:bg-ink/[0.05]')} aria-pressed={active}>
     <Flag emoji={lang.flag} size={24}/>
-    <span className="min-w-0 flex-1"><span dir="auto" className="block truncate text-start text-[15px] font-extrabold tracking-[-0.01em]">{lang.native}</span>{lang.native !== lang.english && <span className={cn('block truncate text-[12px] font-semibold', active ? 'text-white/60' : 'text-ink/50')}>{lang.english}</span>}</span>
+    <span className="min-w-0 flex-1"><span dir="auto" className="block truncate text-left text-[15px] font-extrabold tracking-[-0.01em]">{lang.native}</span>{lang.native !== lang.english && <span className={cn('block truncate text-[12px] font-semibold', active ? 'text-white/60' : 'text-ink/50')}>{lang.english}</span>}</span>
     {active && <Check size={17} strokeWidth={3}/>}
   </button>;
 });

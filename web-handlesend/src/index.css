@@ -448,3 +448,6 @@ html.touch-lite .app-card::after { display: none; }
 /* When the live chat is docked, the header gives up secondary chips before anything overlaps. */
 @media (max-width: 1919px) { html.chat-docked .dock-squeeze { display: none; } }
 @media (max-width: 1599px) { html.chat-docked .dock-label { display: none; } }
+
+/* Translated text is longer/shorter than the English it replaces: let hero lines wrap instead of clipping. */
+html.translated h1, html.translated h1 *, html.translated h2 * { white-space: normal !important; overflow-wrap: anywhere; }
