@@ -43,7 +43,24 @@ const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const Portfolio = lazy(() => import('./pages/Account').then(module => ({ default: module.Portfolio })));
 const Creator = lazy(() => import('./pages/Account').then(module => ({ default: module.Creator })));
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: false, retry: 1 }, mutations: { retry: false } } });
-class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> { state = { failed: false }; static getDerivedStateFromError() { return { failed: true }; } render() { return this.state.failed ? <div role="alert" className="page py-24"><h1 className="display text-4xl">This view could not be opened.</h1><p className="mt-4 text-muted">No operation is assumed to have succeeded. Reload to recover your saved state.</p><button className="mt-6 min-h-11 btn px-6 " onClick={() => location.reload()}>Reload safely</button></div> : this.props.children; } }
+const CHUNK_ERROR = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i;
+const RELOADED_KEY = 'objectpad.chunk-reload';
+/** A new deploy renames chunk files; a tab left open before that still asks for the old name and 404s. That is not a real
+ * app error, so it auto-reloads once (silently) to pick up the fresh build instead of showing the error screen. */
+class Boundary extends Component<{ children: ReactNode }, { failed: boolean; stale: boolean }> {
+  state = { failed: false, stale: false };
+  static getDerivedStateFromError(error: unknown) { const stale = error instanceof Error && CHUNK_ERROR.test(error.message); return { failed: true, stale }; }
+  componentDidCatch() {
+    if (!this.state.stale) return;
+    try { if (sessionStorage.getItem(RELOADED_KEY) === '1') return; sessionStorage.setItem(RELOADED_KEY, '1'); } catch { /* storage may be disabled */ }
+    location.reload();
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    if (this.state.stale) return null;
+    return <div role="alert" className="page py-24"><h1 className="display text-4xl">This view could not be opened.</h1><p className="mt-4 text-muted">No operation is assumed to have succeeded. Reload to recover your saved state.</p><button className="mt-6 min-h-11 btn px-6 " onClick={() => location.reload()}>Reload safely</button></div>;
+  }
+}
 function NavigationEffects() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); const titles: Record<string, string> = { '/': 'The launchpad for real-world objects', '/v2': 'V2 release notes', '/explore': 'Object coins', '/launch': 'Scan & launch free', '/provenance': 'Provenance', '/status': 'System status', '/safety': 'Safety and rights', '/docs': 'How it works', '/craft': 'Crafting Table', '/inventory': 'Inventory', '/burn': '$OBJECTPAD burn', '/earnings': 'Creator earnings', '/wallet': 'My wallet', '/download': 'Mobile apps', '/earn': 'Earn for verified posts', '/rewards': 'Paid Rewards', '/treasury': 'Launch treasury' }; document.title = `ObjectPad · ${titles[pathname] ?? 'The physical-object launchpad'}`; }, [pathname]); return null; }
 /** /launch/<session uuid> is the live studio; /launch/<64-hex record id> is the launch status of a sealed record. */
 function LaunchRoute() { const { id = '' } = useParams(); return /^[a-f0-9]{64}$/.test(id) ? <LaunchReview/> : <Studio/>; }
