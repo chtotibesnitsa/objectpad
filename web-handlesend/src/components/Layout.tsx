@@ -8,6 +8,7 @@ import { BurnToasts } from './BurnToasts';
 import { InstallBanner } from './InstallBanner';
 import { registerAppWorker } from '@/lib/install';
 import { AccountButton } from './AccountButton';
+import { LanguageButton, LanguagePicker, LanguageRow } from './LanguagePicker';
 import { ChatDock } from './social/ChatDock';
 import { NotificationBell } from './social/Notifications';
 import { RainDialog, TipDialog, UsernameGate } from './social/SocialDialogs';
@@ -90,7 +91,9 @@ function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
           <GlassIcon name={item.icon} size={38} className="transition-transform group-hover:scale-110"/>
           <span className="min-w-0 flex-1"><span className="block text-[14.5px] font-extrabold tracking-[-0.01em]">{item.label}</span><span className="block font-mono text-[11.5px] text-ink/60">{item.note}</span></span>
         </NavLink>)}</div>
-      </div>)}</nav>
+      </div>)}
+        <div><p className="lab px-1 py-1.5">04 · Language</p><div className="mt-1"><LanguageRow onOpen={onClose}/></div></div>
+      </nav>
       <div className="relative border-t border-ink/[0.08] p-4">
         {session.configured && (session.authenticated ? <div className="flex items-center gap-3"><span className="size-2 rounded-full bg-up"/><span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold">{session.wallet ? shortAddress(session.wallet, 6, 4) : 'Signed in'}</span><button onClick={() => { session.logout(); onClose(); }} className="press btn-ghost min-h-10 px-3 text-xs" tabIndex={open ? 0 : -1}><LogOut size={14}/>Sign out</button></div>
           : <button onClick={() => { session.login(); onClose(); }} className="btn press min-h-11 w-full text-[13px]" tabIndex={open ? 0 : -1}>Sign in / Sign up · X, email or wallet</button>)}
@@ -133,7 +136,7 @@ export default function Layout() {
     <CryptoBackdrop/>
     {!scanning && <div className="hidden lg:block"><LiveTicker/></div>}
     {!scanning && <header className="phone-bar sticky top-0 z-40 lg:hidden">
-      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><div className="flex items-center gap-1.5"><TreasuryMini/><NotificationBell compact/><AccountButton compact/></div></div>
+      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><div className="flex items-center gap-1.5"><LanguageButton compact/><TreasuryMini/><NotificationBell compact/><AccountButton compact/></div></div>
       <div className="border-t border-ink/[0.06]"><LiveTicker/></div>
     </header>}
     {!scanning && <header className="sticky top-0 z-40 hidden lg:block">
@@ -145,6 +148,7 @@ export default function Layout() {
         <TabStrip/>
         <div className="flex shrink-0 items-center justify-end gap-2">
           <span className="dock-squeeze contents"><XLink className="size-[52px]"/><TreasuryChip/></span>
+          <LanguageButton/>
           <NotificationBell/>
           <AccountButton/>
           <Link to="/launch" className="btn press flex min-h-[52px] pl-1.5 pr-5 text-[14.5px]" aria-label="Scan & launch"><span className="orb size-10"><GlassIcon name="qr" size={30} className="!filter-none"/></span><span className="dock-label">Scan & launch</span></Link>
@@ -178,6 +182,6 @@ export default function Layout() {
     <Drawer open={drawer} onClose={() => setDrawer(false)}/>
     {!scanning && <BurnToasts/>}
     {!scanning && <ChatDock/>}
-    <TipDialog/><RainDialog/><UsernameGate/>
+    <TipDialog/><RainDialog/><UsernameGate/><LanguagePicker/>
   </>;
 }

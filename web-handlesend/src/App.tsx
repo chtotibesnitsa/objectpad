@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import Home from './pages/Home';
 import { AuthBoundary } from './lib/session';
 import { PreferencesProvider } from './hooks/use-preferences';
+import { LanguageProvider } from './lib/i18n';
 import { SocialProvider } from './lib/social';
 import { Loading } from './components/Feedback';
 const Explore = lazy(() => import('./pages/Explore'));
@@ -47,7 +48,7 @@ function NavigationEffects() { const { pathname } = useLocation(); useEffect(() 
 /** /launch/<session uuid> is the live studio; /launch/<64-hex record id> is the launch status of a sealed record. */
 function LaunchRoute() { const { id = '' } = useParams(); return /^[a-f0-9]{64}$/.test(id) ? <LaunchReview/> : <Studio/>; }
 function Legacy({ to }: { to: string }) { const { id = '' } = useParams(); return <Navigate to={to.replace(':id', id)} replace/>; }
-export default function App() { return <QueryClientProvider client={queryClient}><AuthBoundary><SocialProvider><PreferencesProvider><BrowserRouter><Boundary><NavigationEffects/><Suspense fallback={<Loading label="Opening ObjectPad…"/>}><Routes><Route path="capture/claim" element={<MobileCapture/>}/><Route path="app/*" element={<AppShell/>}/><Route element={<Layout/>}>
+export default function App() { return <QueryClientProvider client={queryClient}><AuthBoundary><SocialProvider><PreferencesProvider><LanguageProvider><BrowserRouter><Boundary><NavigationEffects/><Suspense fallback={<Loading label="Opening ObjectPad…"/>}><Routes><Route path="capture/claim" element={<MobileCapture/>}/><Route path="app/*" element={<AppShell/>}/><Route element={<Layout/>}>
   <Route index element={<Home/>}/>
   <Route path="explore" element={<Explore/>}/>
   <Route path="objects/:id" element={<ObjectDetail/>}/>
@@ -87,4 +88,4 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="v2" element={<V2/>}/>
   <Route path="changelog" element={<Navigate to="/v2" replace/>}/>
   <Route path="*" element={<div className="page py-24"><h1 className="display text-5xl">Nothing here.</h1><p className="mt-4 text-muted">This page doesn’t exist, or the coin isn’t live yet.</p><Link to="/explore" className="mt-6 inline-flex min-h-11 items-center btn px-6 font-semibold ">Explore coins</Link></div>}/>
-</Route></Routes></Suspense></Boundary></BrowserRouter></PreferencesProvider></SocialProvider></AuthBoundary><Analytics/></QueryClientProvider>; }
+</Route></Routes></Suspense></Boundary></BrowserRouter></LanguageProvider></PreferencesProvider></SocialProvider></AuthBoundary><Analytics/></QueryClientProvider>; }

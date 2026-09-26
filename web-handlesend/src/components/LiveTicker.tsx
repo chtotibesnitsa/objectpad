@@ -14,7 +14,7 @@ const MIN_ITEMS = 24;
 /** $OBJECTPAD chip: opens our own coin page; the CA copies in one tap. */
 export function ObjectPadCa({ className, dark = false }: { className?: string; dark?: boolean }) {
   const [copied, setCopied] = useState<boolean>(false);
-  return <span className={cn('flex items-center gap-1.5', className)}>
+  return <span translate="no" className={cn('notranslate flex items-center gap-1.5', className)}>
     <Link to={OBJECTPAD_COIN_PATH} className="flex items-center gap-1.5 font-extrabold hover:opacity-80"><img src="/brand/x-profile-96.png" alt="" width={20} height={20} decoding="async" className="size-5 rounded-md object-cover"/>$OBJECTPAD</Link>
     {OBJECTPAD_CA ? <button onClick={() => void copyText(OBJECTPAD_CA ?? '').then(setCopied)} className={cn('flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono font-bold', dark ? 'bg-white/10' : 'bg-ink/[0.06] hover:bg-ink/10')} title="Copy contract address">CA {shortAddress(OBJECTPAD_CA, 6, 4)}{copied ? <Check size={11}/> : <Copy size={11}/>}</button>
       : <span className={cn('rounded-md px-1.5 py-0.5 font-mono font-bold', dark ? 'bg-white/10' : 'bg-ink/[0.06] text-ink/65')}>CA · launching on ObjectPad</span>}
