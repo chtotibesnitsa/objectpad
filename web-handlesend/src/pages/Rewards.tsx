@@ -54,6 +54,23 @@ function SubmitForm({ bounty }: { bounty: LiveBounty }) {
   </form>;
 }
 
+function WinnerCard({ bounty }: { bounty: LiveBounty }) {
+  const w = bounty.winner; if (!w) return null;
+  return <div className="sunk mt-4 rounded-[24px] p-4">
+    <p className="lab flex items-center gap-1.5"><Crown size={12}/>Winner{w.paid ? ' · paid out' : ''}</p>
+    <div className="mt-2.5 flex items-center gap-2.5">
+      <img src={w.avatar} alt="" className="size-11 shrink-0 rounded-full object-cover"/>
+      <div className="min-w-0 flex-1"><p className="truncate text-[14px] font-extrabold">{w.name}</p><a href={w.profileUrl} target="_blank" rel="noreferrer" className="font-mono text-[12px] font-bold text-ink/55 hover:text-ink">@{w.handle}</a></div>
+      {w.paid && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-up/15 px-2 py-1 font-mono text-[10px] font-extrabold uppercase text-up"><Check size={11} strokeWidth={3}/>Paid</span>}
+    </div>
+    <p className="mt-2.5 rounded-2xl bg-ink/[0.04] px-3.5 py-3 text-[13.5px] font-semibold leading-snug">“{w.postText}”</p>
+    <div className="mt-2.5 flex flex-wrap gap-2 font-mono text-[11.5px] font-bold">
+      <a href={w.profileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline underline-offset-2">View the post<ExternalLink size={11}/></a>
+      <a href={w.coinUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline underline-offset-2">View the coin<ExternalLink size={11}/></a>
+    </div>
+  </div>;
+}
+
 const BountyCard = memo(function BountyCard({ bounty, index }: { bounty: LiveBounty; index: number }) {
   const [reveal, setReveal] = useState<boolean>(!bounty.adult);
   return <article className="card-pop raised overflow-hidden rounded-[30px]" style={{ ['--delay' as string]: `${index * 90}ms` }}>
@@ -70,6 +87,7 @@ const BountyCard = memo(function BountyCard({ bounty, index }: { bounty: LiveBou
       <p className="mt-2 text-[14.5px] font-semibold leading-snug text-ink/70">{bounty.tagline}</p>
       <ul className="mt-3 flex flex-wrap gap-1.5">{bounty.rules.map(r => <li key={r} className="sunk inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-bold text-ink/75"><Check size={12} strokeWidth={3}/>{r}</li>)}</ul>
       <div className="mt-4"><SubmitForm bounty={bounty}/></div>
+      <WinnerCard bounty={bounty}/>
       <div className="mt-4 border-t border-ink/[0.08] pt-3">
         <p className="lab">{bounty.submissions.length} {bounty.submissions.length === 1 ? 'submission' : 'submissions'}</p>
         {bounty.submissions.length ? <ul className="divide-y divide-ink/[0.07]">{bounty.submissions.map(s => <SubmissionRow key={s.id} s={s}/>)}</ul>
