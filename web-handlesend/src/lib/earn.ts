@@ -7,7 +7,7 @@ export const EARN_CA = '0x520541d03dec790ce51746da2a495dafa62e87f8';
 export const EXPLORER_TX = (hash: string): string => `https://robinhoodchain.blockscout.com/tx/${hash}`;
 
 export interface EarnMarket { token: string; source: string; supply: number; pair: string; priceUsd: number; marketCapUsd: number; liquidityUsd: number; ethUsd: number | null; at: number; rewardUsd: number; nextRewardUsd: number; nextMilestoneUsd: number; remainingUsd: number; progress: number; }
-export interface EarnRules { holdHours: number; postMaxAgeDays: number; minClaimUsd: number; milestoneUsd: number; minOwnChars: number; dailyMax: number; submissionsOpen: boolean; payoutsOpen: boolean; budgetUsd: number; budgetLeftUsd: number; campaignStart: number; token: string; payout: string; }
+export interface EarnRules { holdHours: number; postMaxAgeDays: number; minClaimUsd: number; baselineUsd: number; milestoneUsd: number; minOwnChars: number; dailyMax: number; submissionsOpen: boolean; payoutsOpen: boolean; budgetUsd: number; budgetLeftUsd: number; campaignStart: number; token: string; payout: string; }
 export type CheckState = 'pass' | 'fail' | 'pending' | 'skip';
 export interface EarnCheck { id: string; label: string; state: CheckState; detail: string; }
 export interface EarnReason { code: string; message: string; fix: string; retryable: boolean; }
@@ -22,8 +22,8 @@ export type FeedFilter = 'all' | 'approved' | 'paid' | 'pending' | 'rejected';
 
 export const EARN_ME_KEY = ['objectpad', 'earn', 'me'] as const;
 
-/** $1 + $1 per complete $100K of market cap. Mirrors the server formula for previews only; the server locks the real amount. */
-export const rewardFor = (marketCapUsd: number): number => 1 + Math.floor(Math.max(0, marketCapUsd) / 100_000);
+/** Flat $1 up to $100K market cap, then +$1 per complete $100K after that ($2 at $200K, $3 at $300K...). Mirrors the server formula for previews only; the server locks the real amount. */
+export const rewardFor = (marketCapUsd: number): number => 1 + Math.floor(Math.max(0, marketCapUsd - 100_000) / 100_000);
 
 /** Validated live $OBJECTPAD price, market cap and reward tier. */
 export function useEarnMarket() { return useQuery({ queryKey: ['objectpad', 'earn', 'market'], queryFn: () => api<EarnMarket>('/earn/market'), refetchInterval: 30_000, staleTime: 15_000, retry: 1 }); }
@@ -57,7 +57,6 @@ export function draftChecks(text: string): { id: string; label: string; ok: bool
     { id: 'cashtag', label: '$ObjectPad', ok: /\$objectpad\b/i.test(text) },
     { id: 'contract', label: 'Contract address', ok: t.includes(EARN_CA) },
     { id: 'website', label: 'objectpad.fun', ok: /(^|[^a-z0-9.-])(www\.)?objectpad\.fun\b/i.test(text) },
-    { id: 'disclosure', label: '#ad disclosure', ok: /(^|[\s(])#(ad|sponsored|paid)\b|sponsored by objectpad|paid objectpad post/i.test(text) },
   ];
 }
 export const EARN_ERRORS: Record<string, string> = {

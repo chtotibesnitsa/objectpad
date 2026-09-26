@@ -18,10 +18,9 @@ import type { AccountService } from './accounts';
 export const EARN_TOKEN = '0x520541d03dec790ce51746da2a495dafa62e87f8';
 const HOUR = 3_600_000; const DAY = 24 * HOUR;
 /** Published campaign rules. Changing these is a public rules change. */
-export const EARN_RULES = { holdHours: 24, postMaxAgeDays: 7, minClaimUsd: 1, milestoneUsd: 100_000, minOwnChars: 25, reviewTwins: 3 } as const;
-/** $1 base + $1 for every complete $100K of live market cap. */
-export const rewardCentsFor = (marketCapUsd: number): number => (1 + Math.floor(Math.max(0, marketCapUsd) / EARN_RULES.milestoneUsd)) * 100;
-const DISCLOSURE = /(^|[\s(])#(ad|sponsored|paid|paidpost)\b|sponsored by objectpad|paid objectpad post|\bsponsored\b|\bpaid (post|promotion|partnership)\b/i;
+export const EARN_RULES = { holdHours: 24, postMaxAgeDays: 7, minClaimUsd: 1, baselineUsd: 100_000, milestoneUsd: 100_000, minOwnChars: 25, reviewTwins: 3 } as const;
+/** $1 base while market cap is at or below $100K. Every complete $100K above that adds another $1 (so $2 at $200K, $3 at $300K, ...). */
+export const rewardCentsFor = (marketCapUsd: number): number => (1 + Math.floor(Math.max(0, marketCapUsd - EARN_RULES.baselineUsd) / EARN_RULES.milestoneUsd)) * 100;
 const HIDDEN = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/;
 const TOKEN_ABI = parseAbi(['function totalSupply() view returns (uint256)']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -40,7 +39,6 @@ const REASONS: Record<string, [string, string, boolean]> = {
   MISSING_CASHTAG: ['Missing: $ObjectPad', 'Publish a new post that includes the cashtag $ObjectPad.', false],
   WRONG_CONTRACT: ['Wrong or missing contract address', `Include the exact address ${EARN_TOKEN}.`, false],
   MISSING_WEBSITE: ['Website link not found', 'Add objectpad.fun to the post.', false],
-  MISSING_DISCLOSURE: ['Disclosure requirement missing', 'Add #ad or “Sponsored by ObjectPad” so readers know it’s incentivized.', false],
   WRONG_AUTHOR: ['Post belongs to a different X account', 'Submit a post published by the X account connected to ObjectPad.', false],
   DAILY_LIMIT: ['Daily reward limit reached', 'Submit this post again when your 24-hour window resets.', true],
   DUPLICATE_CONTENT: ['Same text as one of your earlier posts', 'Write a new post in your own words.', false],
@@ -154,8 +152,10 @@ export class EarnService {
     const priceUsd = quote.priceUsd; const marketCapUsd = priceUsd * this.supply;
     if (quote.reportedCap && Math.abs(marketCapUsd - quote.reportedCap) / quote.reportedCap > 0.15) throw new Error(`${quote.source}: cap mismatch`);
     const best = { pairAddress: quote.pair, liquidity: { usd: quote.liquidityUsd } };
-    const reward = rewardCentsFor(marketCapUsd) / 100; const nextMilestone = (Math.floor(marketCapUsd / EARN_RULES.milestoneUsd) + 1) * EARN_RULES.milestoneUsd;
-    return { token: EARN_TOKEN, chain: 'robinhood', chainId: 4663, source: quote.source, supply: this.supply, pair: best.pairAddress, priceUsd, marketCapUsd, liquidityUsd: best.liquidity?.usd ?? 0, ethUsd: await this.ethUsd(), at: Date.now(), rewardUsd: reward, nextRewardUsd: reward + 1, nextMilestoneUsd: nextMilestone, remainingUsd: nextMilestone - marketCapUsd, progress: (marketCapUsd % EARN_RULES.milestoneUsd) / EARN_RULES.milestoneUsd };
+    // Reward growth only counts market cap above the $100K baseline: flat $1 up to $100K, then +$1 per complete $100K after.
+    const adjusted = Math.max(0, marketCapUsd - EARN_RULES.baselineUsd);
+    const reward = rewardCentsFor(marketCapUsd) / 100; const nextMilestone = EARN_RULES.baselineUsd + (Math.floor(adjusted / EARN_RULES.milestoneUsd) + 1) * EARN_RULES.milestoneUsd;
+    return { token: EARN_TOKEN, chain: 'robinhood', chainId: 4663, source: quote.source, supply: this.supply, pair: best.pairAddress, priceUsd, marketCapUsd, liquidityUsd: best.liquidity?.usd ?? 0, ethUsd: await this.ethUsd(), at: Date.now(), rewardUsd: reward, nextRewardUsd: reward + 1, nextMilestoneUsd: nextMilestone, remainingUsd: nextMilestone - marketCapUsd, progress: (adjusted % EARN_RULES.milestoneUsd) / EARN_RULES.milestoneUsd };
   }
   /**
    * Validated live market. Display may use a snapshot up to 10 minutes old (its timestamp is always shown); reward
@@ -248,7 +248,6 @@ export class EarnService {
       add('contract', 'Checking contract address', lower.includes(EARN_TOKEN), lower.includes(EARN_TOKEN) ? 'Exact contract address found' : 'Exact contract address not found', 'WRONG_CONTRACT');
       const site = post.urls.some(u => { try { return ['objectpad.fun', 'www.objectpad.fun'].includes(new URL(u).hostname.toLowerCase()); } catch { return false; } }) || /(^|[^a-z0-9.-])(www\.)?objectpad\.fun\b/i.test(text);
       add('website', 'Checking objectpad.fun', site, site ? 'Link resolves to objectpad.fun' : 'objectpad.fun not found', 'MISSING_WEBSITE');
-      add('disclosure', 'Checking disclosure', DISCLOSURE.test(text), DISCLOSURE.test(text) ? 'Incentive disclosure found' : 'No #ad or “Sponsored by ObjectPad”', 'MISSING_DISCLOSURE');
       const { used } = this.usedToday(x.id, now);
       add('allowance', 'Checking daily allowance', used < settings.dailyMax, `${used} of ${settings.dailyMax} rewarded posts used in the last 24h`, 'DAILY_LIMIT');
       const own = ownWords(text); hash = await sha256(own.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''));

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { AlertTriangle, ArrowRight, ArrowUpRight, Check, ChevronDown, Clock, Copy, Download, ExternalLink, Loader2, RotateCcw, Send, Share2, ShieldCheck, Sparkles, Wallet, X as XIcon } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ArrowUpRight, Check, ChevronDown, Clock, Copy, Download, ExternalLink, Loader2, RotateCcw, Send, Share2, ShieldCheck, Shuffle, Sparkles, Wallet, X as XIcon } from 'lucide-react';
 import { useSession } from '@/lib/session';
 import { copyText, shortAddress, timeAgo } from '@/lib/format';
 import { RequestError } from '@/lib/api';
@@ -15,7 +15,15 @@ const bigMoney = (v: number): string => `$${Math.round(v).toLocaleString('en-US'
 const tiny = (v: number): string => v >= 0.01 ? `$${v.toFixed(4)}` : `$${v.toPrecision(3)}`;
 const errorText = (e: unknown): string => e instanceof RequestError ? (EARN_ERRORS[e.code] ?? e.message) : e instanceof Error ? e.message : 'Something went wrong. Try again.';
 const newKey = (): string => crypto.randomUUID();
-const TEMPLATE = `Scan any real object, launch its coin for $0. Every coin is one physical thing — 3D-scanned, can't be copied.\n\n$ObjectPad ${EARN_CA}\nobjectpad.fun\n\n#ad`;
+const TEMPLATES = [
+  `Scan any real object, launch its coin for $0. Every coin is one physical thing — 3D-scanned, can't be copied.\n\n$ObjectPad ${EARN_CA}\nobjectpad.fun`,
+  `Found a way to turn any object on my desk into a real coin in under a minute. No fee, no wallet setup, just scan and launch.\n\n$ObjectPad ${EARN_CA}\nobjectpad.fun`,
+  `The first coin backed by a literal physical object. Scan it once on your phone and it's yours forever — nobody can fake the 3D scan.\n\n$ObjectPad ${EARN_CA}\nobjectpad.fun`,
+  `Everyone's launching coins from thin air. ObjectPad makes you scan something real first. Free, instant, on-chain.\n\n$ObjectPad ${EARN_CA}\nobjectpad.fun`,
+  `Your keys, your shoes, your coffee mug — all launchable as coins in seconds with ObjectPad. I just tried it, it's wild.\n\n$ObjectPad ${EARN_CA}\nobjectpad.fun`,
+];
+/** ObjectPad requires a visible paid-post disclosure on X itself; keep it out of the editable draft so people don't delete it by accident. */
+const DISCLOSURE_TAG = '#ad';
 
 function useNow(interval = 1000): number { const [now, setNow] = useState<number>(Date.now()); useEffect(() => { const t = setInterval(() => setNow(Date.now()), interval); return () => clearInterval(t); }, [interval]); return now; }
 function countdown(ms: number): string { if (ms <= 0) return 'now'; const h = Math.floor(ms / 3_600_000); const m = Math.floor((ms % 3_600_000) / 60_000); return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`; }
@@ -24,6 +32,32 @@ function useCount(target: number, ms = 900): number {
   useEffect(() => { const start = performance.now(); const a = from.current; let raf = 0; const step = (t: number) => { const p = Math.min(1, (t - start) / ms); const e = 1 - Math.pow(1 - p, 3); setV(a + (target - a) * e); if (p < 1) raf = requestAnimationFrame(step); else from.current = target; }; raf = requestAnimationFrame(step); return () => cancelAnimationFrame(raf); }, [target, ms]);
   return v;
 }
+/** The real X (Twitter) wordmark. */
+function XGlyph({ size = 18 }: { size?: number }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>; }
+/** The real MetaMask fox mark, official brand artwork, at a size big enough to actually recognize. */
+function MetaMaskGlyph({ size = 26 }: { size?: number }) { return <svg width={size} height={size} viewBox="0 0 318.6 318.6" aria-hidden="true">
+  <path fill="#e2761b" d="m274.1 35.5-99.5 73.9L193 65.8z"/>
+  <path fill="#e4761b" d="m44.4 35.5 98.7 74.6-17.5-44.3zm193.9 171.3-26.5 40.6 56.7 15.6 16.3-55.3zm-204.4.9L50.1 263l56.7-15.6-26.5-40.6z"/>
+  <path fill="#e4761b" d="m103.6 138.2-15.8 23.9 56.3 2.5-2-60.5zm111.3 0-39-34.8-1.3 61.2 56.2-2.5zM106.8 247.4l33.8-16.5-29.2-22.8zm71.1-16.5 33.9 16.5-4.7-39.3z"/>
+  <path fill="#d7c1b3" d="m211.8 247.4-33.9-16.5 2.7 22.1-.3 9.3zm-105 0 31.5 14.9-.2-9.3 2.5-22.1z"/>
+  <path fill="#233447" d="m138.8 193.5-28.2-8.3 19.9-9.1zm40.9 0 8.3-17.4 20 9.1z"/>
+  <path fill="#cd6116" d="m106.8 247.4 4.8-40.6-31.3.9zM207 206.8l4.8 40.6 26.5-39.7zm23.8-44.7-56.2 2.5 5.2 28.9 8.3-17.4 20 9.1zm-120.2 23.1 20-9.1 8.2 17.4 5.3-28.9-56.3-2.5z"/>
+  <path fill="#e4751f" d="m87.8 162.1 23.6 46-.8-22.9zm120.3 23.1-1 22.9 23.7-46zm-64-20.6-5.3 28.9 6.6 34.1 1.5-44.9zm30.5 0-2.7 18 1.2 45 6.7-34.1z"/>
+  <path fill="#f6851b" d="m179.8 193.5-6.7 34.1 4.8 3.3 29.2-22.8 1-22.9zm-69.2-8.3.8 22.9 29.2 22.8 4.8-3.3-6.6-34.1z"/>
+  <path fill="#c0ad9e" d="m180.3 262.3.3-9.3-2.5-2.2h-37.7l-2.3 2.2.2 9.3-31.5-14.9 11 9 22.3 15.5h38.3l22.4-15.5 11-9z"/>
+  <path fill="#161616" d="m177.9 230.9-4.8-3.3h-27.7l-4.8 3.3-2.5 22.1 2.3-2.2h37.7l2.5 2.2z"/>
+  <path fill="#763d16" d="m278.3 114.2 8.5-40.8-12.7-37.9-96.2 71.4 37 31.3 52.3 15.3 11.6-13.5-5-3.6 8-7.3-6.2-4.8 8-6.1zM31.8 73.4l8.5 40.8-5.4 4 8 6.1-6.1 4.8 8 7.3-5 3.6 11.5 13.5 52.3-15.3 37-31.3-96.2-71.4z"/>
+  <path fill="#f6851b" d="m267.2 153.5-52.3-15.3 15.9 23.9-23.7 46 31.2-.4h46.5zm-163.6-15.3-52.3 15.3-17.4 54.2h46.4l31.1.4-23.6-46zm71 26.4 3.3-57.7 15.2-41.1h-67.5l15 41.1 3.5 57.7 1.2 18.2.1 44.8h27.7l.2-44.8z"/>
+</svg>; }
+/** Big, obvious sign-in card — not a pill. `tone` picks the icon plate color. */
+function AuthOption({ icon, tone, title, subtitle, onClick }: { icon: React.ReactNode; tone: 'x' | 'wallet'; title: string; subtitle: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className="app-card press group flex w-full items-center gap-3.5 rounded-[22px] p-4 text-left sm:gap-4">
+    <span className={cn('flex size-14 shrink-0 items-center justify-center rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,.25)]', tone === 'x' ? 'bg-ink text-white' : 'bg-[#FDF1E7]')}>{icon}</span>
+    <div className="min-w-0 flex-1"><p className="text-[15.5px] font-extrabold leading-tight">{title}</p><p className="mt-0.5 text-[12.5px] font-semibold text-ink/55">{subtitle}</p></div>
+    <ArrowRight size={17} className="shrink-0 text-ink/30 transition-transform group-hover:translate-x-0.5 group-hover:text-ink/60"/>
+  </button>;
+}
+
 const Status = memo(function Status({ state, label }: { state: 'ok' | 'bad' | 'wait' | 'info'; label: string }) {
   const tone = state === 'ok' ? 'bg-up/10 text-up ring-up/25' : state === 'bad' ? 'bg-down/10 text-down ring-down/25' : state === 'wait' ? 'bg-[#1F6BFF]/10 text-[#1447C9] ring-[#1F6BFF]/25' : 'bg-ink/5 text-ink/70 ring-ink/10';
   const Icon = state === 'ok' ? Check : state === 'bad' ? XIcon : state === 'wait' ? Clock : ShieldCheck;
@@ -61,43 +95,49 @@ function Hero({ market, loading, error, onStart }: { market?: EarnMarket; loadin
 function Milestone({ market }: { market?: EarnMarket }) {
   const [shown, setShown] = useState<number>(0); useEffect(() => { const t = setTimeout(() => setShown(market?.progress ?? 0), 150); return () => clearTimeout(t); }, [market?.progress]);
   return <section className="raised card-pop mt-4 rounded-[28px] p-5 sm:p-6" aria-labelledby="tier-title">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab">Reward rate</p><h2 id="tier-title" className="mt-1.5 text-[19px] font-extrabold tracking-[-0.02em] sm:text-[22px]">Every complete $100K in ObjectPad market cap adds $1 to the reward for every approved post.</h2></div></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab">Reward rate</p><h2 id="tier-title" className="mt-1.5 text-[19px] font-extrabold tracking-[-0.02em] sm:text-[22px]">$1 per approved post up to $100K market cap. Every complete $100K after that adds another $1.</h2></div></div>
     {market ? <>
       <div className="mt-5 flex items-center justify-between font-mono text-[11px] font-extrabold uppercase text-ink/60"><span>Now {money(market.rewardUsd)}</span><span>Next {money(market.nextRewardUsd)} at {bigMoney(market.nextMilestoneUsd)}</span></div>
       <div className="earn-meter sunk relative mt-2 h-4 overflow-hidden rounded-full" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(market.progress * 100)} aria-label="Progress to the next reward milestone"><span className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#1F6BFF] to-[#7FB2FF] shadow-[0_0_16px_rgba(31,107,255,.6)]" style={{ width: `${Math.max(2, shown * 100)}%` }}/></div>
       <div className="mt-4 grid gap-2 sm:grid-cols-4">{[['Market cap', bigMoney(market.marketCapUsd)], ['Current reward', money(market.rewardUsd)], ['Next reward', money(market.nextRewardUsd)], ['Needed to unlock', bigMoney(market.remainingUsd)]].map(([k, v]) => <div key={k} className="sunk rounded-2xl p-3"><p className="font-mono text-[10px] font-bold uppercase text-ink/55">{k}</p><p className="mt-0.5 text-[16px] font-extrabold tabular-nums">{v}</p></div>)}</div>
-      <p className="mt-3 text-[11.5px] font-semibold text-ink/55">$1 + $1 × floor(market cap ÷ $100,000). Price from {market.source}, market cap = price × on-chain supply ({market.supply.toLocaleString('en-US')}) of {shortAddress(EARN_CA)} on Robinhood Chain. Your reward is locked the moment your post is approved.</p>
+      <p className="mt-3 text-[11.5px] font-semibold text-ink/55">$1 base, then +$1 for every complete $100,000 of market cap above the first $100,000 (so $1 up to $100K, $2 at $200K, $3 at $300K...). Price from {market.source}, market cap = price × on-chain supply ({market.supply.toLocaleString('en-US')}) of {shortAddress(EARN_CA)} on Robinhood Chain. Your reward is locked the moment your post is approved.</p>
     </> : <Skeleton className="mt-5 h-24 w-full"/>}
   </section>;
 }
 
 // ---------------------------------------------------------------- how it works
 const STEPS = [
-  { n: '01', t: 'Sign in', d: 'With X, or MetaMask then connect X. We read your X account from X itself.' },
-  { n: '02', t: 'Publish a post', d: 'Include $ObjectPad, the contract, objectpad.fun and #ad.' },
+  { n: '01', t: 'Sign in', d: 'Connect X (and MetaMask for payouts). We read your X account straight from X.' },
+  { n: '02', t: 'Publish a post', d: 'Include $ObjectPad, the contract, objectpad.fun and mark it #ad on X.' },
   { n: '03', t: 'Paste the link', d: 'We fetch the post from X and verify every rule live.' },
   { n: '04', t: 'Earn & claim', d: 'Credited after 24h live. Claim to your wallet any time.' },
 ];
 
 // ---------------------------------------------------------------- composer
 function Composer() {
-  const [text, setText] = useState<string>(TEMPLATE); const [copied, setCopied] = useState<boolean>(false); const checks = useMemo(() => draftChecks(text), [text]);
-  const copy = async () => { if (await copyText(text)) { setCopied(true); track('post_draft_copied'); setTimeout(() => setCopied(false), 1800); } };
-  return <div className="raised rounded-[28px] p-5">
+  const [idea, setIdea] = useState<number>(0); const [text, setText] = useState<string>(TEMPLATES[0]); const [copied, setCopied] = useState<boolean>(false); const checks = useMemo(() => draftChecks(text), [text]);
+  const copy = async () => { if (await copyText(`${text}\n\n${DISCLOSURE_TAG}`)) { setCopied(true); track('post_draft_copied'); setTimeout(() => setCopied(false), 1800); } };
+  const shuffle = () => { const next = (idea + 1 + Math.floor(Math.random() * (TEMPLATES.length - 1))) % TEMPLATES.length; setIdea(next); setText(TEMPLATES[next]); };
+  return <div className="raised card-pop rounded-[28px] p-5">
     <div className="flex items-center justify-between"><p className="lab">1 · Write your post</p><span className="font-mono text-[11px] font-bold text-ink/50">{text.length}/280+</span></div>
     <label htmlFor="earn-draft" className="sr-only">Draft your X post</label>
-    <textarea id="earn-draft" value={text} onChange={e => setText(e.target.value)} rows={7} className="sunk mt-3 w-full resize-none rounded-[18px] p-4 text-[14.5px] font-medium leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-[#1F6BFF]"/>
-    <ul className="mt-3 grid grid-cols-2 gap-1.5" aria-label="Required items">{checks.map(c => <li key={c.id} className={cn('flex items-center gap-2 rounded-xl px-2.5 py-2 text-[12.5px] font-bold transition-colors', c.ok ? 'bg-up/10 text-ink' : 'bg-down/5 text-ink/70')}><span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full', c.ok ? 'earn-tick bg-up text-white' : 'bg-ink/10 text-ink/50')}>{c.ok ? <Check size={12} strokeWidth={3.5}/> : <XIcon size={11} strokeWidth={3}/>}</span><span>{c.label}<span className="sr-only">{c.ok ? ' included' : ' missing'}</span></span></li>)}</ul>
+    <textarea id="earn-draft" value={text} onChange={e => setText(e.target.value)} rows={6} className="sunk mt-3 w-full resize-none rounded-[18px] p-4 text-[14.5px] font-medium leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-[#1F6BFF]"/>
+    <p className="mt-2 flex items-center gap-1.5 text-[11.5px] font-bold text-ink/45"><ShieldCheck size={12}/>Posted with a visible <span className="font-mono font-extrabold text-ink/70">#ad</span> tag on X, as required by disclosure rules.</p>
+    <ul className="mt-3 grid grid-cols-2 gap-1.5" aria-label="Required items">{checks.map(c => <li key={c.id} className={cn('flex items-center gap-2 rounded-xl px-2.5 py-2 text-[12.5px] font-bold transition-colors', c.ok ? 'bg-up/10 text-ink' : 'bg-down/5 text-ink/70')}><span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full transition-transform', c.ok ? 'earn-tick bg-up text-white' : 'bg-ink/10 text-ink/50')}>{c.ok ? <Check size={12} strokeWidth={3.5}/> : <XIcon size={11} strokeWidth={3}/>}</span><span>{c.label}<span className="sr-only">{c.ok ? ' included' : ' missing'}</span></span></li>)}</ul>
     <p className="mt-2 text-[11.5px] font-semibold text-ink/55">Add a sentence in your own words. Copy-paste templates are checked for duplicates.</p>
-    <div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => void copy()} className="btn press min-h-12 text-[14px]">{copied ? <Check size={16}/> : <Copy size={16}/>}{copied ? 'Copied' : 'Copy post'}</button><a href={`https://x.com/intent/post?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" onClick={() => track('post_draft_copied')} className="cta-hero press justify-center py-1.5 pl-1.5 pr-4 text-[14px]"><span className="orb size-9"><Send size={15} className="text-ink"/></span>Open X</a></div>
+    <div className="mt-4 grid grid-cols-[auto_1fr_1fr] gap-2">
+      <button onClick={shuffle} className="btn-ghost press min-h-12 px-4 text-[14px]" aria-label="Generate a different post idea"><Shuffle size={16}/></button>
+      <button onClick={() => void copy()} className="btn press min-h-12 text-[14px]">{copied ? <Check size={16}/> : <Copy size={16}/>}{copied ? 'Copied' : 'Copy post'}</button>
+      <a href={`https://x.com/intent/post?text=${encodeURIComponent(`${text}\n\n${DISCLOSURE_TAG}`)}`} target="_blank" rel="noreferrer" onClick={() => track('post_draft_copied')} className="cta-hero press justify-center py-1.5 pl-1.5 pr-4 text-[14px]"><span className="orb size-9"><Send size={15} className="text-ink"/></span>Open X</a>
+    </div>
     <p className="mt-2 text-center text-[11px] font-semibold text-ink/50">Nothing posts automatically. You publish it yourself on X.</p>
   </div>;
 }
 
 // ---------------------------------------------------------------- verification stage
-const PENDING_STEPS = ['Fetching authoritative X post…', 'Confirming post author…', 'Checking $ObjectPad…', 'Checking contract address…', 'Checking objectpad.fun…', 'Checking disclosure…', 'Checking daily allowance…', 'Checking duplicate submissions…', 'Running integrity checks…', 'Calculating live reward…'];
+const PENDING_STEPS = ['Fetching authoritative X post…', 'Confirming post author…', 'Checking $ObjectPad…', 'Checking contract address…', 'Checking objectpad.fun…', 'Checking daily allowance…', 'Checking duplicate submissions…', 'Running integrity checks…', 'Calculating live reward…'];
 function highlight(text: string): (string | { m: string })[] {
-  const re = new RegExp(`(\\$objectpad\\b|${EARN_CA}|(?:https?:\\/\\/)?(?:www\\.)?objectpad\\.fun\\S*|#ad\\b|#sponsored\\b|sponsored by objectpad|paid objectpad post)`, 'gi');
+  const re = new RegExp(`(\\$objectpad\\b|${EARN_CA}|(?:https?:\\/\\/)?(?:www\\.)?objectpad\\.fun\\S*|#ad\\b|#sponsored\\b)`, 'gi');
   const out: (string | { m: string })[] = []; let last = 0; for (const match of text.matchAll(re)) { const i = match.index ?? 0; if (i > last) out.push(text.slice(last, i)); out.push({ m: match[0] }); last = i + match[0].length; } if (last < text.length) out.push(text.slice(last)); return out;
 }
 function PostCard({ s, revealed, scanning, className }: { s: EarnSubmission; revealed: number; scanning: boolean; className?: string }) {
@@ -160,7 +200,7 @@ function Celebration({ s, remaining, onClose, onAnother }: { s: EarnSubmission; 
   </div>;
 }
 function proofUrl(id: string): string { return `${window.location.origin}/earn/proof/${id}`; }
-function caption(s: { rewardUsd: number }): string { return `Just got verified on @ObjectPadFun Earn: +$${s.rewardUsd.toFixed(2)} for posting about $ObjectPad.\n\nScan any real object, launch its coin free → objectpad.fun/earn\n\n#ad`; }
+function caption(s: { rewardUsd: number }): string { return `Just got verified on @ObjectPadFun Earn: +$${s.rewardUsd.toFixed(2)} for posting about $ObjectPad.\n\nScan any real object, launch its coin free → objectpad.fun/earn`; }
 async function renderProof(s: EarnSubmission, hash?: string | null): Promise<Blob> {
   const W = 1200; const H = 675; const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); if (!g) throw new Error('Canvas unavailable');
   const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#1B5BFF'); bg.addColorStop(0.5, '#0B3BD6'); bg.addColorStop(1, '#07195E'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
@@ -193,9 +233,18 @@ function SubmitPanel({ onSubmitted }: { onSubmitted: () => void }) {
   const valid = postIdFrom(url) !== null; const x = me.data?.x;
   const run = useCallback(async (link: string) => { setError(null); setResult(null); try { const r = await submit.mutateAsync(link); setResult(r.submission); onSubmitted(); } catch (e) { setError(errorText(e)); } }, [submit, onSubmitted]);
   const daily = me.data?.daily; const remaining = daily ? Math.max(0, daily.max - daily.used) : null;
-  const gate = !session.authenticated ? <div className="sunk flex flex-col items-start gap-3 rounded-[20px] p-4 sm:flex-row sm:items-center"><p className="flex-1 text-[13.5px] font-bold text-ink/70">Sign in to submit a post. We confirm authorship with your X account.</p><div className="flex gap-2"><button onClick={() => { track('auth_started'); session.login(['twitter']); }} className="btn press min-h-11 px-4 text-[13px]"><XIcon size={14}/>Sign in with X</button><button onClick={() => { track('auth_started'); session.login(['wallet']); }} className="btn-ghost press min-h-11 px-4 text-[13px]"><Wallet size={14}/>MetaMask</button></div></div>
-    : me.isLoading ? <Skeleton className="h-16 w-full"/>
-    : !x ? <div className="sunk flex flex-col items-start gap-3 rounded-[20px] p-4 sm:flex-row sm:items-center"><p className="flex-1 text-[13.5px] font-bold text-ink/70">{me.data?.xError ? (EARN_ERRORS[me.data.xError] ?? 'Could not read your X account.') : 'Connect your X account so we can confirm the post is yours. Read-only: we never post for you.'}</p>{session.linkX && <button onClick={() => { track('auth_started'); session.linkX?.(); }} className="btn press min-h-11 px-4 text-[13px]"><XIcon size={14}/>Connect X</button>}</div> : null;
+  const gate = !session.authenticated ? <div>
+      <p className="text-[13.5px] font-bold text-ink/70">Sign in to submit a post. We confirm authorship straight from your X account — only signed-in creators can use Earn.</p>
+      <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+        <AuthOption icon={<XGlyph size={19}/>} tone="x" title="Sign in with X" subtitle="Required · confirms you wrote the post" onClick={() => { track('auth_started'); session.login(['twitter']); }}/>
+        <AuthOption icon={<MetaMaskGlyph size={28}/>} tone="wallet" title="Connect MetaMask" subtitle="Optional · lets you claim rewards on-chain" onClick={() => { track('auth_started'); session.login(['wallet']); }}/>
+      </div>
+    </div>
+    : me.isLoading ? <Skeleton className="h-20 w-full"/>
+    : !x ? <div>
+      <p className="text-[13.5px] font-bold text-ink/70">{me.data?.xError ? (EARN_ERRORS[me.data.xError] ?? 'Could not read your X account.') : 'Connect your X account so we can confirm the post is yours. Read-only: we never post for you.'}</p>
+      {session.linkX && <div className="mt-3"><AuthOption icon={<XGlyph size={19}/>} tone="x" title="Connect X" subtitle="One more step to submit posts" onClick={() => { track('auth_started'); session.linkX?.(); }}/></div>}
+    </div> : null;
   return <div className="raised rounded-[28px] p-5">
     <div className="flex items-center justify-between"><p className="lab">2 · Submit the link</p>{x && <span className="inline-flex items-center gap-2 font-mono text-[11.5px] font-bold text-ink/60">{x.avatar && <img src={x.avatar} alt="" className="size-5 rounded-full"/>}@{x.handle}</span>}</div>
     {gate ?? <form onSubmit={e => { e.preventDefault(); if (valid && !submit.isPending) void run(url); }} className="mt-3">
@@ -337,7 +386,7 @@ function Rules() {
       <ul className="mt-4 space-y-3 text-[14px] font-semibold leading-relaxed text-ink/75">
         <li><b className="text-ink">Rewards.</b> Rewards start at $1 per approved post. Every complete $100K in ObjectPad market cap adds another $1 to every post reward.</li>
         <li><b className="text-ink">Daily limit.</b> Earn rewards for up to {r?.dailyMax ?? 5} approved posts per rolling 24-hour period. Your authenticated X account, submission history, and campaign integrity checks determine eligibility.</li>
-        <li><b className="text-ink">Required in every post.</b> $ObjectPad, the contract address {shortAddress(EARN_CA, 8, 6)}, objectpad.fun, and a disclosure like #ad or “Sponsored by ObjectPad”. At least {r?.minOwnChars ?? 25} characters in your own words.</li>
+        <li><b className="text-ink">Required in every post.</b> $ObjectPad, the contract address {shortAddress(EARN_CA, 8, 6)}, objectpad.fun, and #ad on X (its paid-partnership label). At least {r?.minOwnChars ?? 25} characters in your own words.</li>
         <li><b className="text-ink">Minimum live period.</b> Rewards credit after your post stays live for {r?.holdHours ?? 24} hours. Posts deleted earlier move to review. Confirmed payouts are never clawed back.</li>
         <li><b className="text-ink">Eligible posts.</b> Standalone public posts from the connected X account, published in the last {r?.postMaxAgeDays ?? 7} days and after the campaign started. No replies, reposts, hidden text or reused text.</li>
         <li><b className="text-ink">Payouts.</b> {r?.payout ?? 'ETH on Robinhood Chain at the live ETH/USD price when you claim'}. Minimum claim {money(r?.minClaimUsd ?? 1)}. ObjectPad pays the network fee.</li>
