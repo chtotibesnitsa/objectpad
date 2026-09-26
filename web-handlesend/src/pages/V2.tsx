@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 
 /** V2.0 release notes: each line is something that shipped and can be used today. */
 const NOTES: { tag: string; title: string; body: string }[] = [
+  { tag: 'New', title: 'ObjectPad for iPhone, as a web app', body: 'Add ObjectPad to your iPhone home screen from objectpad.fun/app: the full iOS app with every screen, animation, sound effect, wallet and launch feature, free and without the App Store. It is our workaround while the native app is in App Store review. Phone visitors get an “Add App” prompt automatically.' },
+  { tag: 'Improved', title: 'Launch from your phone, no QR code', body: 'The downloads page and every desktop QR page now offer the iPhone web app next to the Android app, so you can install once and scan, pair and launch straight from your phone.' },
   { tag: 'New', title: 'Stock pairing at launch', body: 'Every coin can now be paired with a tokenized stock, ETF, commodity or asset approved on Pons V2, including NVDA, TSLA, AAPL, SPCX, GME, SPY, GLD, USDG and cbBTC. ETH is still the default.' },
   { tag: 'New', title: 'AI pair suggestion', body: 'After your scan, the AI reads the object and suggests the stock whose story fits it best, with a one-line reason. It is a one-tap suggestion only, and nothing is paired unless you choose it.' },
   { tag: 'New', title: 'Pay with ETH for paired coins', body: 'Buying a stock-paired coin routes your ETH through Uniswap V3 on Robinhood Chain into the pair asset, then into the curve. Every step is quoted on-chain and signed in your wallet.' },
@@ -21,6 +23,7 @@ const NOTES: { tag: string; title: string; body: string }[] = [
 const STATUS: { name: string; state: 'live' | 'review' | 'next'; note: string }[] = [
   { name: 'Web app', state: 'live', note: 'objectpad.fun · V2 live' },
   { name: 'Android', state: 'live', note: 'APK available · V2 pairing' },
+  { name: 'iPhone web app', state: 'live', note: 'objectpad.fun/app · Add to Home Screen' },
   { name: 'iOS', state: 'review', note: 'TestFlight live · App Store review' },
   { name: 'Launch engine', state: 'live', note: 'Pons V2 · ETH & stock pairs' },
 ];
@@ -40,6 +43,7 @@ export const V2_POSTS: string[] = [
   'New in V2: the AI now suggests a stock for your object.\n\nScan a sneaker and it may point you to a footwear name. Scan a console and it may point to gaming. One tap to accept, or keep ETH.\n\nYour coin gets a story, not just a picture.',
   'Stock-paired coins, bought with ETH.\n\nV2 routes your ETH through Uniswap V3 on Robinhood Chain into the pair asset, then into the curve. Quoted on-chain, signed in your wallet, no custody.\n\nEvery coin card now shows its pair and the pair’s live move.',
   'Build log, day 1 of V2:\n\n✅ Stock pairing live (web + Android)\n✅ iOS in TestFlight, submitted to the App Store\n✅ AI pair suggestions\n✅ Pair filter on the market\n\nNext: one-signature paired buys.\n\nTap the gold V2 pill on objectpad.fun for the full log.',
+  'On iPhone? You don’t have to wait for the App Store.\n\nOpen objectpad.fun/app in Safari → Share → Add to Home Screen.\n\nThe full ObjectPad iOS app, on your home screen, free. Scan, pair with a stock, launch and claim right from your phone.',
 ];
 
 function StatusDot({ state }: { state: 'live' | 'review' | 'next' }) { return <span className={cn('size-2 shrink-0 rounded-full', state === 'live' ? 'pulse-dot bg-up' : state === 'review' ? 'bg-[#D9A521]' : 'bg-ink/30')}/>; }
@@ -85,6 +89,10 @@ export default function V2() {
 
     <section className="mt-12"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab">Live on Robinhood Chain</p><h2 className="display mt-3 text-[30px] sm:text-[42px]">Pair assets, priced on-chain.</h2></div><Link to="/launch" className="pill press !pr-5">Pair yours<ArrowRight size={15}/></Link></div>
       <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{movers.map(a => <div key={a.address} className="raised flex items-center gap-2.5 rounded-2xl p-3"><PairLogo src={a.logo} symbol={a.symbol} size={32}/><div className="min-w-0"><p className="font-extrabold">{a.symbol}</p><p className="font-mono text-[12px] font-bold tnum">{usd(a.priceUsd ?? 0)} <span className={(a.change24h ?? 0) >= 0 ? 'text-up' : 'text-down'}>{a.change24h === null ? '' : pct(a.change24h)}</span></p></div></div>)}{!movers.length && <p className="col-span-full text-sm font-bold text-ink/60">{pairs.isError ? 'Pair prices are unavailable right now.' : 'Reading pair prices from chain…'}</p>}</div>
+    </section>
+
+    <section className="mt-12"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab">New · iPhone web app</p><h2 className="display mt-3 text-[30px] sm:text-[42px]">The iOS app, on any iPhone today.</h2><p className="mt-3 max-w-2xl text-[15px] font-semibold text-ink/65">While the App Store review runs, open objectpad.fun/app on your iPhone and tap Share › Add to Home Screen. Same screens, animations and sounds as the native app, with no App Store needed.</p></div><div className="flex flex-wrap gap-2"><Link to="/app/?install=1" className="cta-hero min-h-[56px] px-5 text-[15px]">Get the iPhone app<ArrowRight size={16}/></Link><Link to="/download" className="btn-ghost press min-h-[56px] px-5 text-[14px]">All downloads<ArrowUpRight size={14}/></Link></div></div>
+      <div className="no-scrollbar mt-5 flex gap-3 overflow-x-auto pb-2">{['home', 'market', 'coin', 'scan', 'rewards', 'wallet'].map(s => <figure key={s} className="raised shrink-0 overflow-hidden rounded-[26px] p-1.5"><img src={`/v2/app-${s}.webp`} alt={`ObjectPad iPhone app: ${s} screen`} loading="lazy" className="h-[420px] w-auto rounded-[21px]"/><figcaption className="flex items-center justify-between px-2 py-2 font-mono text-[11px] font-extrabold uppercase text-ink/60"><span>{s}</span><a href={`/v2/app-${s}.webp`} download className="underline">Download</a></figcaption></figure>)}</div>
     </section>
 
     <section className="mt-12"><p className="lab">From the build</p><h2 className="display mt-3 text-[30px] sm:text-[42px]">Screens & stills.</h2>

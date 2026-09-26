@@ -398,3 +398,5 @@ html.touch-lite .app-card::after { display: none; }
 @keyframes merge-burst { 0%, 42% { transform: scale(.2); opacity: 0; } 48% { transform: scale(1); opacity: 1; } 70%, 100% { transform: scale(1.6); opacity: 0; } }
 @keyframes merge-result { 0%, 44% { transform: scale(.6); opacity: 0; } 54% { transform: scale(1.06); opacity: 1; } 60%, 88% { transform: scale(1); opacity: 1; } 96%, 100% { transform: scale(.9); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .v2-pill::after, .merge-left, .merge-right, .merge-burst { animation: none !important; } .merge-result { animation: none !important; opacity: 1; } .merge-left, .merge-right { opacity: 0; } }
+
+@keyframes install-drop { from { transform: translateY(-120%); opacity: 0; } to { transform: none; opacity: 1; } }

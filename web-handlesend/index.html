@@ -25,7 +25,13 @@
     <link rel="canonical" href="https://objectpad.fun/" />
 
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" href="/app/icon-180.png" />
+    <link rel="manifest" href="/app.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ObjectPad" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script src="/app-boot.js"></script>
     <link rel="preload" href="/fonts/anybody.ttf" as="font" type="font/ttf" crossorigin />
     <link rel="preload" href="/fonts/geist.ttf" as="font" type="font/ttf" crossorigin />
   </head>
@@ -37,6 +43,9 @@
       #boot .hint { font: 500 10px ui-monospace, monospace; letter-spacing: 0.2em; text-transform: uppercase; color: #5E6068; }
       @keyframes boot-pulse { from { transform: scale(0.95); opacity: 0.8; } to { transform: scale(1.03); opacity: 1; } }
       @media (prefers-reduced-motion: reduce) { #boot .mark { animation: none; } }
+      html[data-app] body, html[data-app] #boot { background: #111216; color: #fff; }
+      html[data-app] #boot .mark { width: 72px; height: 72px; border-radius: 18px; background-image: url(/app/icon-192.png); background-size: cover; }
+      html[data-app] #boot .hint { color: rgba(255,255,255,.5); }
     </style>
     <div id="root">
       <div id="boot" role="status" aria-live="polite">

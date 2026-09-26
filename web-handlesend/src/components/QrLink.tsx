@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Apple, ArrowRight, Check, Copy, Download, EyeOff, Link2 } from 'lucide-react';
 import { copyText } from '@/lib/format';
+import { QRCodeSVG } from 'qrcode.react';
 import { Link } from 'react-router-dom';
 import { OBJECTPAD_APK_URL } from '@/lib/brand';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,24 @@ export function IosSoonLine({ className, tone = 'dark' }: { className?: string; 
   return <p className={cn('inline-flex items-center gap-1.5 text-[11.5px] font-semibold italic', tone === 'dark' ? 'text-white/60' : 'text-ink/60', className)}><Apple size={13} strokeWidth={2.4} className={cn('-mt-px shrink-0', tone === 'dark' ? 'text-white' : 'text-ink')}/><span><span className={cn('not-italic font-extrabold', tone === 'dark' ? 'text-white' : 'text-ink')}>iOS</span> in App Store review · out soon</span></p>;
 }
 
+/**
+ * iPhone web app: the full iOS app, added to the home screen from objectpad.fun (while the App Store listing is in review).
+ * On a phone it opens the app with the install guide; on a computer it reveals a QR code so nobody has to type the link.
+ */
+export function IphoneAppLine({ className, tone = 'light' }: { className?: string; tone?: 'dark' | 'light' }) {
+  const [qr, setQr] = useState<boolean>(false); const phone = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
+  const dark = tone === 'dark';
+  return <div className={cn('w-full', className)}>
+    <div className="flex items-center gap-2.5">
+      <img src="/app/icon-192.png" alt="" className="size-9 shrink-0 rounded-[10px] shadow-sm"/>
+      <p className={cn('min-w-0 flex-1 text-left text-[12px] font-semibold leading-4', dark ? 'text-white/70' : 'text-ink/65')}><span className={cn('font-extrabold', dark ? 'text-white' : 'text-ink')}>iPhone? Use the app now.</span> Add it to your Home Screen, free, no App Store and no QR code next time.</p>
+      {phone ? <Link to="/app/?install=1" className="btn press min-h-10 shrink-0 px-3.5 text-[12.5px]">Get it</Link>
+        : <button type="button" onClick={() => setQr(v => !v)} aria-expanded={qr} className="btn press min-h-10 shrink-0 px-3.5 text-[12.5px]">{qr ? 'Hide' : 'On iPhone'}</button>}
+    </div>
+    {qr && <div className="slide-in mt-2.5 flex items-center gap-3 rounded-[18px] bg-white p-2.5 text-left shadow-sm"><QRCodeSVG value="https://objectpad.fun/app/?install=1" size={84} level="M" marginSize={0} fgColor="#0C0D10" title="Open the ObjectPad app on your iPhone"/><p className="text-[12px] font-bold leading-4 text-ink/70">Scan with your iPhone camera, then tap <span className="font-extrabold text-ink">Share › Add to Home Screen</span>. Or open <span className="font-mono font-extrabold text-ink">objectpad.fun/app</span>.</p></div>}
+  </div>;
+}
+
 /** The real ObjectPad app icon in an app-store style tile. */
 export function AppTile({ size = 56, className }: { size?: number; className?: string }) {
   return <span className={cn('app-tile', className)} style={{ width: size, height: size }}><img src="/apple-touch-icon.png" alt="" width={size} height={size} draggable={false}/></span>;
@@ -64,7 +83,8 @@ export function AndroidFeatureCard({ className, badge = 'Update #1', layout = 's
       </div>
       <GetButton className="min-h-12 w-full sm:w-auto"/>
     </div>
-    <div className="app-well mt-1.5 flex items-center justify-between gap-3 rounded-[20px] px-3.5 py-2.5"><IosSoonLine tone="light"/><Link to="/download" className="press inline-flex shrink-0 items-center gap-1 text-[12px] font-extrabold text-ink hover:gap-1.5">How it works<ArrowRight size={13} strokeWidth={2.6}/></Link></div>
+    <div className="app-well mt-1.5 rounded-[20px] px-3.5 py-2.5"><IphoneAppLine/></div>
+    <p className="mt-2 px-2 text-center text-[11.5px] font-semibold text-ink/55">Rather not scan a QR code every time? Install the app and launch right from your phone, free. <Link to="/download" className="font-extrabold text-ink underline underline-offset-2">How it works</Link></p>
   </div>;
   return <div className={cn('app-card flex w-full flex-col items-center rounded-[28px] p-4 text-center', className)}>
     <div className="flex w-full items-center gap-3 text-left">
@@ -76,6 +96,7 @@ export function AndroidFeatureCard({ className, badge = 'Update #1', layout = 's
     </div>
     <p className="mt-2.5 w-full text-left font-mono text-[10.5px] font-bold uppercase tracking-[0.04em] text-ink/50">Free · No Play Store · No sign-up</p>
     <GetButton className="mt-3 min-h-12 w-full"/>
-    <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1"><IosSoonLine tone="light"/><Link to="/download" className="press inline-flex items-center gap-1 text-[12px] font-extrabold text-ink">How it works<ArrowRight size={13} strokeWidth={2.6}/></Link></div>
+    <div className="app-well mt-3 w-full rounded-[20px] p-2.5"><IphoneAppLine/></div>
+    <p className="mt-2.5 text-[11.5px] font-semibold leading-4 text-ink/55">Rather not scan a QR code? Install the app on your phone and launch from there, free. <Link to="/download" className="inline-flex items-center gap-0.5 font-extrabold text-ink">How it works<ArrowRight size={12} strokeWidth={2.6}/></Link></p>
   </div>;
 }

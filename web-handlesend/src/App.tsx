@@ -29,6 +29,7 @@ const Rewards = lazy(() => import('./pages/Rewards'));
 const RewardDetail = lazy(() => import('./pages/Rewards').then(module => ({ default: module.RewardDetail })));
 const Operator = lazy(() => import('./pages/Operator'));
 const V2 = lazy(() => import('./pages/V2'));
+const AppShell = lazy(() => import('./app/AppShell'));
 const Docs = lazy(() => import('./pages/Information').then(module => ({ default: module.Docs })));
 const Safety = lazy(() => import('./pages/Information').then(module => ({ default: module.Safety })));
 const Status = lazy(() => import('./pages/Information').then(module => ({ default: module.Status })));
@@ -43,7 +44,7 @@ function NavigationEffects() { const { pathname } = useLocation(); useEffect(() 
 /** /launch/<session uuid> is the live studio; /launch/<64-hex record id> is the launch status of a sealed record. */
 function LaunchRoute() { const { id = '' } = useParams(); return /^[a-f0-9]{64}$/.test(id) ? <LaunchReview/> : <Studio/>; }
 function Legacy({ to }: { to: string }) { const { id = '' } = useParams(); return <Navigate to={to.replace(':id', id)} replace/>; }
-export default function App() { return <QueryClientProvider client={queryClient}><AuthBoundary><PreferencesProvider><BrowserRouter><Boundary><NavigationEffects/><Suspense fallback={<Loading label="Opening ObjectPad…"/>}><Routes><Route path="capture/claim" element={<MobileCapture/>}/><Route element={<Layout/>}>
+export default function App() { return <QueryClientProvider client={queryClient}><AuthBoundary><PreferencesProvider><BrowserRouter><Boundary><NavigationEffects/><Suspense fallback={<Loading label="Opening ObjectPad…"/>}><Routes><Route path="capture/claim" element={<MobileCapture/>}/><Route path="app/*" element={<AppShell/>}/><Route element={<Layout/>}>
   <Route index element={<Home/>}/>
   <Route path="explore" element={<Explore/>}/>
   <Route path="objects/:id" element={<ObjectDetail/>}/>
@@ -73,7 +74,6 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="rewards/:id" element={<RewardDetail/>}/>
   <Route path="android" element={<Navigate to="/download" replace/>}/>
   <Route path="ios" element={<Navigate to="/download" replace/>}/>
-  <Route path="app" element={<Navigate to="/download" replace/>}/>
   <Route path="docs" element={<Docs/>}/>
   <Route path="safety" element={<Safety/>}/>
   <Route path="status" element={<Status/>}/>

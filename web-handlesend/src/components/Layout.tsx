@@ -5,6 +5,8 @@ import { PixelIcon, type PixelName } from './PixelIcon';
 import { Brand } from './Brand';
 import { LiveTicker, ObjectPadCa } from './LiveTicker';
 import { BurnToasts } from './BurnToasts';
+import { InstallBanner } from './InstallBanner';
+import { registerAppWorker } from '@/lib/install';
 import { AccountButton } from './AccountButton';
 import { CryptoBackdrop, AsciiObject } from './AsciiField';
 import { GlassIcon, type GlassName } from './GlassIcon';
@@ -121,7 +123,9 @@ export default function Layout() {
   const [drawer, setDrawer] = useState<boolean>(false); const location = useLocation(); const { sound, toggleSound } = usePreferences();
   const scanning = location.pathname.startsWith('/capture/claim');
   useEffect(() => { setDrawer(false); }, [location.pathname]);
+  useEffect(() => { registerAppWorker(); }, []);
   return <>
+    <InstallBanner/>
     <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-full focus:bg-white focus:px-6 focus:py-3">Skip to content</a>
     <CryptoBackdrop/>
     {!scanning && <div className="hidden lg:block"><LiveTicker/></div>}

@@ -1,0 +1,105 @@
+/* ObjectPad home-screen app: a 1:1 port of the iOS app's look (Pad palette, pearl cards, smoke panels, liquid glass). */
+.ap-root { --paper: #ECEEF1; --pearl: #F8F9FA; --ink: #0C0D10; --graphite: #1B1D22; --muted: #6A6E78; --up: #12A150; --down: #E5484D; --sky: #2F7BF2; --sky-light: #6FB2FF; --amber: #F59E0B; --gold: #F5C542;
+  --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
+  position: relative; min-height: 100dvh; color: var(--ink); background: linear-gradient(180deg, #F3F4F6, #ECEEF1 50%, #E3E6EB); font-family: 'Geist', -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; overscroll-behavior-y: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.ap-root input, .ap-root textarea { -webkit-user-select: text; user-select: text; }
+.ap-root :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ap-display { font-family: 'Anybody', 'Geist', sans-serif; font-stretch: 116%; font-weight: 820; letter-spacing: -0.03em; line-height: 0.92; }
+.ap-mono { font-family: 'Geist Mono', ui-monospace, monospace; }
+.ap-lab { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 800; letter-spacing: 0.11em; text-transform: uppercase; }
+.ap-num { font-variant-numeric: tabular-nums; }
+.ap-scroll { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.ap-scroll::-webkit-scrollbar { display: none; }
+
+/* Surfaces */
+.ap-raised { background: linear-gradient(180deg, #fff, var(--pearl)); box-shadow: 0 10px 18px -6px rgba(12,13,16,.08), 0 0 0 1px rgba(12,13,16,.07); }
+.ap-smoke { position: relative; isolation: isolate; color: #fff; background: radial-gradient(260px 260px at 0 0, rgba(255,255,255,.14), transparent 70%), linear-gradient(135deg, #2C2F36, #17191E 55%, #111216); box-shadow: 0 16px 24px -8px rgba(12,13,16,.35), inset 0 0 0 1.2px rgba(255,255,255,.14); }
+.ap-sunk { background: rgba(12,13,16,.05); }
+.ap-night { background: linear-gradient(135deg, #2C2F36, #17191E 55%, #111216); }
+.ap-sky { background: linear-gradient(180deg, #2F7BF2, #6FB2FF 55%, #BFE0FF); }
+.ap-gold { background: linear-gradient(180deg, #FCE7A2, #F2C94C 55%, #D9A521); color: #3A2A05; }
+.ap-gold-text { background: linear-gradient(180deg, #FCE7A2, #F2C94C 55%, #D9A521); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.ap-glass { background: rgba(255,255,255,.62); backdrop-filter: blur(22px) saturate(180%); -webkit-backdrop-filter: blur(22px) saturate(180%); box-shadow: inset 0 0 0 .8px rgba(255,255,255,.7), 0 1px 0 rgba(255,255,255,.4); }
+.ap-glass-dark { background: rgba(12,13,16,.42); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); box-shadow: inset 0 0 0 .8px rgba(255,255,255,.22); }
+
+/* Springy press (the iOS PressStyle) */
+.ap-press { transition: transform .28s cubic-bezier(.34,1.56,.64,1), filter .2s ease; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+.ap-press:active { transform: scale(.955); filter: brightness(.97); transition-duration: .08s; }
+.ap-quiet:active { transform: scale(.97); }
+.ap-press:disabled { cursor: default; }
+
+/* Motion */
+@keyframes ap-enter { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+.ap-enter { animation: ap-enter .62s cubic-bezier(.22,1.2,.36,1) both; animation-delay: var(--d, 0s); }
+@keyframes ap-bob { 0% { transform: translateY(4px) rotate(2deg); } 100% { transform: translateY(-8px) rotate(-2deg); } }
+.ap-bob { animation: ap-bob 2.6s ease-in-out infinite alternate; }
+@keyframes ap-float { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+.ap-float { animation: ap-float 2.4s ease-in-out infinite alternate; }
+@keyframes ap-pulse-ring { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(2.4); opacity: 0; } }
+.ap-pulse-dot { position: relative; display: inline-block; border-radius: 999px; flex-shrink: 0; }
+.ap-pulse-dot::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: inherit; opacity: .45; animation: ap-pulse-ring 1.3s ease-out infinite; }
+@keyframes ap-pulse-big { 0% { transform: scale(.8); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+.ap-pulse { animation: ap-pulse-big 1.2s ease-out infinite; }
+@keyframes ap-shimmer { from { transform: translateX(-100%); } to { transform: translateX(240%); } }
+.ap-shimmer { position: relative; overflow: hidden; background: rgba(12,13,16,.06); }
+.ap-shimmer::after { content: ''; position: absolute; inset: 0; width: 60%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation: ap-shimmer 1.2s linear infinite; }
+@keyframes ap-sweep { from { transform: translateX(-60%) rotate(12deg); } to { transform: translateX(320%) rotate(12deg); } }
+.ap-sweep { position: absolute; inset: -20% auto -20% 0; width: 35%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); animation: ap-sweep 1.8s ease-in-out infinite; pointer-events: none; }
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+.ap-spin { animation: ap-spin 1s linear infinite; }
+.ap-spin-slow { animation: ap-spin 30s linear infinite; }
+.ap-spin-orb { animation: ap-spin 2.4s linear infinite; }
+@keyframes ap-shine { 0%, 40% { transform: translateX(-30px); } 100% { transform: translateX(30px); } }
+.ap-shine { position: absolute; top: 0; bottom: 0; left: 50%; width: 18px; margin-left: -9px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.8), transparent); animation: ap-shine 2.6s ease-in-out infinite; pointer-events: none; }
+@keyframes ap-marquee { to { transform: translateX(-50%); } }
+.ap-marquee { display: flex; width: max-content; animation: ap-marquee var(--dur, 40s) linear infinite; }
+@keyframes ap-roll { from { transform: translateY(40%); opacity: 0; filter: blur(2px); } to { transform: none; opacity: 1; filter: none; } }
+.ap-roll { display: inline-block; animation: ap-roll .5s cubic-bezier(.22,1.2,.36,1) both; }
+@keyframes ap-bounce { 0% { transform: scale(1); } 35% { transform: scale(1.22); } 70% { transform: scale(.94); } 100% { transform: scale(1); } }
+.ap-bounce { animation: ap-bounce .5s cubic-bezier(.34,1.56,.64,1); }
+@keyframes ap-push { from { transform: translateX(34%); opacity: 0; } to { transform: none; opacity: 1; } }
+.ap-push { animation: ap-push .42s cubic-bezier(.22,1,.36,1) both; }
+@keyframes ap-fade { from { opacity: 0; } to { opacity: 1; } }
+.ap-fade { animation: ap-fade .3s ease both; }
+@keyframes ap-pop { 0% { transform: scale(.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.ap-pop { animation: ap-pop .45s cubic-bezier(.34,1.56,.64,1) both; }
+@keyframes ap-toast { from { transform: translateY(-120%); opacity: 0; } to { transform: none; opacity: 1; } }
+.ap-toast { animation: ap-toast .4s cubic-bezier(.34,1.4,.64,1) both; }
+@keyframes ap-confetti { 0% { transform: translate(0,0) rotate(0); opacity: 1; } 100% { transform: translate(var(--x), var(--y)) rotate(var(--r)); opacity: 0; } }
+.ap-confetti i { position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -4.5px; border-radius: 2px; animation: ap-confetti 1.6s cubic-bezier(.15,.7,.3,1) both; }
+@keyframes ap-flash { 0% { opacity: .85; } 100% { opacity: 0; } }
+.ap-flash { animation: ap-flash .43s ease-out both; }
+@keyframes ap-scan-pulse { 0% { transform: scale(.95); opacity: .8; } 100% { transform: scale(1.18); opacity: 0; } }
+.ap-scan-pulse { animation: ap-scan-pulse 1.8s ease-out infinite; }
+@keyframes ap-merge-l { 0%, 20% { transform: translateX(-190%); } 40%, 100% { transform: translateX(-12%); } }
+@media (prefers-reduced-motion: reduce) { .ap-root *, .ap-root *::before, .ap-root *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+
+/* Sheets & covers */
+.ap-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(12,13,16,.38); animation: ap-fade .28s ease both; }
+.ap-backdrop.out { animation: ap-fade .22s ease reverse both; }
+@keyframes ap-sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.ap-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 81; margin: 0 auto; max-width: 560px; display: flex; flex-direction: column; border-radius: 34px 34px 0 0; background: linear-gradient(180deg, #F3F4F6, #ECEEF1 50%, #E3E6EB); box-shadow: 0 -20px 60px -20px rgba(12,13,16,.35); animation: ap-sheet-in .46s cubic-bezier(.22,1.1,.36,1) both; will-change: transform; }
+.ap-sheet.out { animation: ap-sheet-in .3s cubic-bezier(.4,0,1,1) reverse both; }
+.ap-cover { position: fixed; inset: 0; z-index: 90; animation: ap-sheet-in .5s cubic-bezier(.22,1,.36,1) both; }
+.ap-cover.out { animation: ap-sheet-in .3s cubic-bezier(.4,0,1,1) reverse both; }
+
+/* Tab bar */
+.ap-tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; margin: 0 auto; max-width: 560px; padding: 0 14px calc(4px + var(--safe-bottom)); pointer-events: none; }
+.ap-tabbar > div { pointer-events: auto; }
+.ap-navbar { position: sticky; top: 0; z-index: 40; padding-top: var(--safe-top); background: rgba(236,238,241,.72); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); }
+
+/* Fields */
+.ap-field { width: 100%; border-radius: 18px; background: #fff; padding: 14px 16px; font-size: 16px; font-weight: 650; color: var(--ink); border: 0; outline: none; box-shadow: inset 0 0 0 1.2px rgba(12,13,16,.1); transition: box-shadow .15s ease; }
+.ap-field:focus { box-shadow: inset 0 0 0 2px var(--ink); }
+.ap-field::placeholder { color: rgba(12,13,16,.35); font-weight: 500; }
+.ap-root input.ap-bare { background: transparent; border: 0; box-shadow: none; padding: 0; outline: none; backdrop-filter: none; border-radius: 0; }
+.ap-root input.ap-bare:focus { box-shadow: none; }
+
+/* Desktop: the app sits in a phone frame */
+@media (min-width: 900px) {
+  .ap-desktop { display: flex; min-height: 100dvh; align-items: center; justify-content: center; gap: 56px; padding: 32px; background: radial-gradient(1200px 700px at 30% 20%, #fff, transparent), linear-gradient(180deg, #E9EBEF, #DADDE3); }
+  .ap-device { position: relative; width: 402px; height: min(874px, calc(100dvh - 64px)); border-radius: 56px; padding: 12px; background: #0C0D10; box-shadow: 0 60px 120px -40px rgba(12,13,16,.6), inset 0 0 0 2px #2C2F36; }
+  .ap-device > .ap-screen { position: relative; height: 100%; overflow: hidden; border-radius: 44px; transform: translateZ(0); }
+  .ap-device .ap-root { min-height: 100%; height: 100%; overflow-y: auto; }
+  .ap-device .ap-tabbar, .ap-device .ap-sheet, .ap-device .ap-backdrop, .ap-device .ap-cover, .ap-device .ap-fixed { position: absolute; }
+}
