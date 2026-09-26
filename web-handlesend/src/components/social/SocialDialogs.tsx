@@ -139,7 +139,7 @@ export function UsernameGate() {
     </label>
     <p className={cn('mt-2 text-[12px] font-bold', taken ? 'text-[#E5484D]' : 'text-ink/50')}>{taken ? 'That one’s taken.' : '3–20 letters, numbers or underscores.'}</p>
     {error && <p className="mt-3 rounded-xl bg-[#E5484D]/10 px-3 py-2 text-[12.5px] font-bold text-[#C52F35]">{error}</p>}
-    <button onClick={() => void save()} disabled={!valid || Boolean(taken) || saving} className="btn press mt-5 min-h-14 w-full !bg-ink text-[15px] !text-white disabled:opacity-40">{saving ? <Loader2 size={17} className="animate-spin"/> : null}Continue as @{name || '…'}</button>
+    <button onClick={() => void save()} disabled={!valid || Boolean(taken) || saving} className="press mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-ink text-[15px] font-black tracking-[-0.01em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,.18),0_14px_30px_-14px_rgba(12,13,16,.9)] transition-opacity hover:bg-ink/90 disabled:pointer-events-none disabled:opacity-40">{saving ? <Loader2 size={17} className="animate-spin"/> : null}Continue as @{name || '…'}</button>
     <button onClick={() => session.logout()} className="mx-auto mt-3 flex items-center gap-1.5 text-[12.5px] font-bold text-ink/50 hover:text-ink"><LogOut size={13}/>Sign out instead</button>
   </Sheet>;
 }
