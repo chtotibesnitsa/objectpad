@@ -27,7 +27,7 @@ function Rig({ src, coin, pair, clock, onReady }: { src: string; coin: string; p
     const o = obj.current; if (o) { o.visible = p.objVisible; o.position.set(p.objX, p.merge * 0.35, 0); o.scale.setScalar(p.objScale * (1 + (1.3 * size - 1) * p.split)); }
     if (shadow.current) shadow.current.visible = p.split < 0.2;
     const c = chart.current; if (c) { c.visible = p.chartVisible; c.position.set(p.chartX, 0.12 + p.merge * 0.23, 0.1); c.scale.setScalar(p.chartScale * size * 1.1); c.rotation.set(0.05, p.chartTilt + Math.sin(now / 900) * 0.05, 0); }
-    const m = minted.current; if (m) { m.visible = p.coinScale > 0.01; m.position.set(0, 0.35 + Math.sin(now / 700) * 0.04, 0.2); m.scale.setScalar(p.coinScale * 1.2 * size); m.rotation.set(0, p.coinSpin + Math.sin(now / 1100) * 0.38, 0); }
+    const m = minted.current; if (m) { m.visible = p.coinScale > 0.01; m.position.set(0, 0.35 + Math.sin(now / 700) * 0.04, 0.2); m.scale.setScalar(p.coinScale * 1.2 * size); m.rotation.set(0, p.coinSpin, 0); }
   });
   return <group>
     <group ref={spin}><Model src={src} innerRef={obj} onReady={onReady}/></group>

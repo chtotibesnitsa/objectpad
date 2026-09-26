@@ -1,0 +1,14 @@
+import { chromium } from 'playwright';
+const base = 'https://pdud1tb5ce6u6kv0hgpfl-web-handlesend.rork.live';
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 } });
+const p = await ctx.newPage();
+p.on('console', m => { if (m.type() === 'error') console.log('CON', m.text().slice(0, 200)); });
+p.on('pageerror', e => console.log('ERR', e.message.slice(0, 200)));
+p.on('response', r => { if (r.url().includes('/sessions') || r.url().includes('/guests')) console.log('RES', r.status(), r.url()); });
+await p.goto(base + '/launch', { waitUntil: 'domcontentloaded', timeout: 40000 });
+await p.waitForTimeout(4000);
+const text = await p.evaluate(() => document.querySelector('h1')?.textContent);
+console.log('h1:', text);
+await p.screenshot({ path: '/tmp/pw2/launch.png' });
+await b.close();

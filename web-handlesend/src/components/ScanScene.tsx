@@ -88,7 +88,7 @@ function Fusion({ coin, pair, clock, fuse, shadow }: { coin: string; pair: Stage
     if (f) { f.position.set(p.objX, p.merge * 0.5, 0); f.scale.setScalar(p.objScale * (1 + (size - 1) * p.split)); f.visible = p.objVisible; }
     if (shadow.current) shadow.current.visible = p.split < 0.2;
     const c = chart.current; if (c) { c.visible = p.chartVisible; c.position.set(p.chartX, 0.22 + p.merge * 0.3, 0.1); c.scale.setScalar(p.chartScale * size); c.rotation.set(0.05, p.chartTilt + Math.sin(now / 900) * 0.05, 0); }
-    const m = minted.current; if (m) { m.visible = p.coinScale > 0.01; m.position.set(0, 0.55 + Math.sin(now / 700) * 0.04, 0.2); m.scale.setScalar(p.coinScale * 1.12 * size); m.rotation.set(0, p.coinSpin + Math.sin(now / 1100) * 0.38, 0); }
+    const m = minted.current; if (m) { m.visible = p.coinScale > 0.01; m.position.set(0, 0.55 + Math.sin(now / 700) * 0.04, 0.2); m.scale.setScalar(p.coinScale * 1.12 * size); m.rotation.set(0, p.coinSpin, 0); }
   });
   return <>
     <GlassChart symbol={pair.symbol} price={pair.price} change={pair.change} env={env} innerRef={chart}/>
