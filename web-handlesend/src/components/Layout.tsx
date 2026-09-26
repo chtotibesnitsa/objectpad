@@ -19,13 +19,13 @@ import { cn } from '@/lib/utils';
 const TABS = [
   { to: '/explore', label: 'Coins', icon: Compass, match: (p: string, s: string) => (p === '/explore' && !s.includes('tab=market')) || p.startsWith('/coin/') || p.startsWith('/objects/') },
   { to: '/explore?tab=market', label: 'Market', icon: Activity, match: (p: string, s: string) => p === '/explore' && s.includes('tab=market') },
-  { to: '/earn', label: 'Earn', icon: Sparkles, match: (p: string) => p.startsWith('/earn') },
+  { to: '/earn', label: 'Earn', icon: Sparkles, match: (p: string) => p.startsWith('/earn') || p.startsWith('/rewards') },
   { to: '/burn', label: 'Burn', icon: Flame, match: (p: string) => p === '/burn' },
   { to: '/treasury', label: 'Treasury', icon: Vault, match: (p: string) => p === '/treasury' },
   { to: '/docs', label: 'How it works', icon: BookOpen, match: (p: string) => p === '/docs' },
 ];
 const DRAWER: { code: string; title: string; items: { to: string; label: string; icon: GlassName; note: string }[] }[] = [
-  { code: '01', title: 'Make', items: [{ to: '/launch', label: 'Scan & launch', icon: 'qr', note: 'Phone camera → coin' }, { to: '/download', label: 'Mobile apps', icon: 'rocket', note: 'Android live · iOS soon' }, { to: '/inventory', label: 'Saved scans', icon: 'mesh', note: 'Resume any scan' }, { to: '/rewards', label: 'Paid Rewards', icon: 'diamond', note: '$600 in scan bounties · open' }, { to: '/earn', label: 'Earn', icon: 'coins', note: 'Get paid for verified X posts' }, { to: '/wallet', label: 'My wallet', icon: 'wallet', note: 'Balance · deposit · withdraw' }, { to: '/earnings', label: 'Creator earnings', icon: 'coins', note: '0.5% of every trade' }] },
+  { code: '01', title: 'Make', items: [{ to: '/launch', label: 'Scan & launch', icon: 'qr', note: 'Phone camera → coin' }, { to: '/download', label: 'Mobile apps', icon: 'rocket', note: 'Android live · iOS soon' }, { to: '/inventory', label: 'Saved scans', icon: 'mesh', note: 'Resume any scan' }, { to: '/rewards', label: 'Paid Rewards', icon: 'diamond', note: 'Find & scan objects · post your own bounty' }, { to: '/earn', label: 'Post & earn', icon: 'coins', note: 'Get paid for verified X posts' }, { to: '/wallet', label: 'My wallet', icon: 'wallet', note: 'Balance · deposit · withdraw' }, { to: '/earnings', label: 'Creator earnings', icon: 'coins', note: '0.5% of every trade' }] },
   { code: '02', title: 'Market', items: [{ to: '/explore', label: 'Object coins', icon: 'chart', note: 'Every scanned coin' }, { to: '/burn', label: '$OBJECTPAD burn', icon: 'burn', note: 'Buyback & burn log' }, { to: '/treasury', label: 'Launch treasury', icon: 'vault', note: 'Pays every launch' }] },
   { code: '03', title: 'Protocol', items: [{ to: '/docs', label: 'How it works', icon: 'chain', note: '4 steps · receipt · fees' }, { to: '/provenance', label: 'Provenance', icon: 'fingerprint', note: 'Trace any object' }, { to: '/craft', label: 'Crafting Table', icon: 'diamond', note: 'Launching soon' }, { to: '/safety', label: 'Safety & rights', icon: 'shield', note: 'What we accept' }] },
 ];

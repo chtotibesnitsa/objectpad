@@ -26,6 +26,7 @@ const Download = lazy(() => import('./pages/Download'));
 const Earn = lazy(() => import('./pages/Earn'));
 const EarnProof = lazy(() => import('./pages/Earn').then(module => ({ default: module.EarnProof })));
 const Rewards = lazy(() => import('./pages/Rewards'));
+const RewardDetail = lazy(() => import('./pages/Rewards').then(module => ({ default: module.RewardDetail })));
 const Operator = lazy(() => import('./pages/Operator'));
 const Docs = lazy(() => import('./pages/Information').then(module => ({ default: module.Docs })));
 const Safety = lazy(() => import('./pages/Information').then(module => ({ default: module.Safety })));
@@ -68,6 +69,7 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="earn" element={<Earn/>}/>
   <Route path="earn/proof/:id" element={<EarnProof/>}/>
   <Route path="rewards" element={<Rewards/>}/>
+  <Route path="rewards/:id" element={<RewardDetail/>}/>
   <Route path="android" element={<Navigate to="/download" replace/>}/>
   <Route path="ios" element={<Navigate to="/download" replace/>}/>
   <Route path="app" element={<Navigate to="/download" replace/>}/>

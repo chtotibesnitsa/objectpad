@@ -363,3 +363,21 @@ html.touch-lite .earn-pixel { display: none; }
 html.touch-lite .app-card { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: linear-gradient(180deg, #FFFFFF, #F4F5F7); }
 html.touch-lite .app-card::after { display: none; }
 @media (prefers-reduced-motion: reduce) { .app-card::after { animation: none; display: none; } }
+
+/* Paid Rewards: sky posters, voxels, bubbles, scan sweep */
+.sky-clouds { background: radial-gradient(40% 30% at 20% 85%, rgba(255,255,255,.95), transparent 70%), radial-gradient(35% 25% at 70% 95%, rgba(255,255,255,.9), transparent 70%), radial-gradient(30% 22% at 90% 20%, rgba(255,255,255,.75), transparent 70%), radial-gradient(28% 18% at 45% 8%, rgba(255,255,255,.6), transparent 70%), linear-gradient(180deg, #1F6FEB 0%, #4A97FF 55%, #9CCBFF 100%); background-size: 140% 140%; animation: clouds 26s ease-in-out infinite alternate; }
+.voxel { background: linear-gradient(135deg, rgba(120,190,255,.95), rgba(30,90,230,.85)); box-shadow: 0 0 10px rgba(120,200,255,.8), inset 0 0 0 1px rgba(255,255,255,.55); animation: voxel 4.2s ease-in-out infinite; }
+.bubble { background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.95), rgba(255,255,255,.15) 40%, rgba(160,120,255,.25) 65%, rgba(120,220,255,.35) 80%, rgba(255,255,255,.6)); box-shadow: inset 0 0 6px rgba(255,255,255,.7); animation: float-y 6s ease-in-out infinite; }
+.scan-sweep { background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation: sweep 1.6s ease-in-out infinite; }
+.reward-glow { box-shadow: 0 0 0 1px rgba(12,13,16,.08), 0 30px 60px -30px rgba(31,111,235,.55); }
+.ascii-ticker { animation: marquee 40s linear infinite; }
+.boot-line { animation: boot .45s steps(18) both; animation-delay: var(--delay, 0ms); overflow: hidden; white-space: nowrap; }
+.pixel-in { animation: pixel-in .7s steps(6) both; animation-delay: var(--delay, 0ms); }
+.confetti-bit { position: absolute; width: 8px; height: 8px; border-radius: 2px; animation: confetti 1.4s cubic-bezier(.2,.8,.3,1) forwards; }
+@keyframes clouds { from { background-position: 0% 40%; } to { background-position: 100% 60%; } }
+@keyframes voxel { 0%, 100% { transform: translate(0,0) rotate(0); opacity: .95; } 50% { transform: translate(6px,-10px) rotate(12deg); opacity: .6; } }
+@keyframes sweep { from { transform: translateX(0); } to { transform: translateX(400%); } }
+@keyframes boot { from { max-width: 0; } to { max-width: 100%; } }
+@keyframes pixel-in { 0% { opacity: 0; filter: blur(8px) contrast(3); clip-path: inset(0 100% 0 0); } 100% { opacity: 1; filter: none; clip-path: inset(0 0 0 0); } }
+@keyframes confetti { from { transform: translate(0,0) rotate(0); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) rotate(540deg); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sky-clouds, .voxel, .bubble, .scan-sweep, .ascii-ticker, .confetti-bit { animation: none !important; } .boot-line, .pixel-in { animation: none; } }

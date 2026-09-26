@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { AlertTriangle, ArrowRight, ArrowUpRight, Check, ChevronDown, Clock, Copy, Download, ExternalLink, Loader2, RotateCcw, Send, Share2, ShieldCheck, Shuffle, Sparkles, Wallet, X as XIcon } from 'lucide-react';
 import { useSession } from '@/lib/session';
+import { EarnSwitch } from '@/components/EarnSwitch';
 import { copyText, shortAddress, timeAgo } from '@/lib/format';
 import { RequestError } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -427,6 +428,7 @@ export default function Earn() {
   const authed = useRef<boolean>(session.authenticated); useEffect(() => { if (session.authenticated && !authed.current) track('auth_completed'); authed.current = session.authenticated; }, [session.authenticated]);
   const refresh = useCallback(() => { void me.refetch(); }, [me]);
   return <div className="page py-6 sm:py-10">
+    <EarnSwitch className="enter mb-6"/>
     <Hero market={market.data} loading={market.isLoading} error={market.isError} onStart={() => submitRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}/>
     <Milestone market={market.data}/>
     <Dashboard market={market.data}/>

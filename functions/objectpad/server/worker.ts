@@ -18,6 +18,8 @@ import { TradeIndexer } from './indexer';
 import { AccountService } from './accounts';
 import { EarnService } from './earn';
 import { BountyService } from './bounty';
+import { RewardService } from './rewards';
+import { ethPrice } from './market';
 import { normalizeIcon, normalizeImage } from './media';
 import { visionJson } from './ai';
 
@@ -114,13 +116,14 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
     this.runtime = { env, origin: canonicalOrigin(env), apiOrigin: publicBase(env.OBJECTPAD_API_ORIGIN), privyAppId: (env.OBJECTPAD_PRIVY_APP_ID || env.VITE_PRIVY_APP_ID || '').trim(), toolkitUrl: clean(env.EXPO_PUBLIC_TOOLKIT_URL) || 'https://toolkit.rork.com', toolkitKey: (env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY ?? '').trim(), privateBucket: this.store.bucket('private'), artifactBucket: this.store.bucket('artifacts') };
     this.captures = new CaptureService(this.store, this.runtime); this.sponsor = new SponsorService(this.store, this.runtime); this.records = new RecordService(this.store, this.runtime, this.captures, this.sponsor);
     this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime); this.accounts = new AccountService(this.store, this.runtime, this.sponsor, this.records); this.earn = new EarnService(this.store, this.runtime, this.sponsor, this.accounts); this.bounties = new BountyService(this.store, this.records);
+    this.rewards = new RewardService(this.store, this.runtime, this.records, async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { handle: x.handle, name: x.name, avatar: x.avatar } : null; }, owner => this.records.creatorWallet(owner));
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
   }
   private exclusive<T>(action: () => Promise<T>): Promise<T> { const run = this.queue.then(action, action); this.queue = run.then(() => {}, () => {}); return run; }
@@ -141,6 +144,10 @@ export class ObjectPad extends DurableObject<Env> {
       if (method === 'GET' && path === '/earn/market') return json(await this.earn.market());
       if (method === 'GET' && path === '/earn/rules') return json(this.earn.rules());
       if (method === 'GET' && path === '/bounties') return json(this.bounties.list(null));
+      // Paid Rewards v2: public board and detail. A signed-in viewer (optional) also sees their drafts and which proofs are theirs.
+      if (method === 'GET' && path === '/rewards') { const viewer = await this.identity(request).catch(() => null); return json(await this.rewards.board(viewer, viewer ? this.isOperator(viewer) : false)); }
+      const rewardGet = path.match(/^\/rewards\/([a-z0-9-]{3,40})$/); if (method === 'GET' && rewardGet) { const viewer = await this.identity(request).catch(() => null); return json(await this.rewards.detail(rewardGet[1], viewer, viewer ? this.isOperator(viewer) : false)); }
+      if (method === 'PUT' && path === '/rewards/photos') return await this.rewardPhoto(request);
       if (method === 'GET' && path === '/earn/feed') return json(this.earn.feed(new URL(request.url).searchParams.get('filter') ?? 'all'));
       if (method === 'GET' && path === '/earn/leaderboard') return json(this.earn.leaderboard());
       if (method === 'GET' && path === '/treasury') return json({ sponsor: await this.sponsor.status(true).catch(() => null), launches: this.store.one('SELECT COUNT(*) AS n FROM op_launches')?.n ?? 0, earn: this.earn.leaderboard(1).totals });
@@ -422,7 +429,33 @@ export class ObjectPad extends DurableObject<Env> {
     const value = { checkedAt: Date.now(), keyConfigured: Boolean(this.runtime.toolkitKey), engine3d: { status: mesh, authorized: mesh !== 0 && mesh !== 401 && mesh !== 403, ms: meshMs }, vision: { status: vision, ok: vision === 200, model: visionModel, ms: Date.now() - t1 } };
     this.engineCache = { at: Date.now(), value }; return value;
   }
-  private operator(owner: string): void { if (!(this.env.OBJECTPAD_OPERATOR_DIDS ?? '').split(',').map(v => v.trim()).filter(Boolean).includes(owner)) throw new ApiError('FORBIDDEN', 403); }
+  private isOperator(owner: string): boolean { return (this.env.OBJECTPAD_OPERATOR_DIDS ?? '').split(',').map(v => v.trim()).filter(Boolean).includes(owner); }
+  private operator(owner: string): void { if (!this.isOperator(owner)) throw new ApiError('FORBIDDEN', 403); }
+  /** Proof / cover photo upload for Paid Rewards. Re-encoded server-side (metadata such as GPS is dropped) and served publicly by hash. */
+  private async rewardPhoto(request: Request): Promise<Response> {
+    this.assertOrigin(request); const owner = await this.identity(request); if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
+    const type = request.headers.get('content-type') ?? ''; if (!['image/png', 'image/jpeg'].includes(type)) throw new ApiError('UNSUPPORTED_IMAGE', 415);
+    this.store.rate(`reward-photo:${owner}`, 40, 3_600_000);
+    const image = normalizeIcon(await boundedBody(request, 6_000_000)); const hash = await sha256(image.bytes); const key = `objectpad/v1/artifacts/${hash}`;
+    if (!this.store.one('SELECT hash FROM op_artifacts WHERE hash=?', hash)) { await this.runtime.artifactBucket.put(key, image.bytes, { httpMetadata: { contentType: image.type } }); this.store.run('INSERT OR IGNORE INTO op_artifacts(hash,storage_key,kind,bytes,public,session_id) VALUES (?,?,?,?,?,?)', hash, key, 'reward_photo', image.bytes.byteLength, 1, 'rewards'); }
+    return json({ hash, url: `${this.runtime.apiOrigin}/api/artifacts/${hash}` });
+  }
+  /** AI cover art for a new community bounty in the ObjectPad Rewards poster style. Falls back to the designed card if it fails. */
+  private async rewardCover(id: string): Promise<void> {
+    const prompt = this.rewards.coverPrompt(id); if (!prompt) return;
+    try {
+      if (!this.runtime.toolkitKey) throw new Error('no toolkit key');
+      const model = 'openai/gpt-image-2';
+      const response = await fetch(`${this.runtime.toolkitUrl}/v2/vercel/v3/ai/image-model`, { method: 'POST', headers: { Authorization: `Bearer ${this.runtime.toolkitKey}`, 'Content-Type': 'application/json', 'ai-gateway-protocol-version': '0.0.1', 'ai-image-model-specification-version': '4', 'ai-model-id': model }, body: JSON.stringify({ model, prompt, n: 1, size: '1536x1024', providerOptions: {} }), signal: AbortSignal.timeout(150_000) });
+      if (!response.ok) throw new Error(`image ${response.status}`);
+      const data = await response.json() as { images?: string[] }; const b64 = data.images?.[0]; if (!b64) throw new Error('empty');
+      const raw = Uint8Array.from(atob(b64.replace(/^data:[^,]+,/, '')), c => c.charCodeAt(0)); const image = normalizeIcon(raw);
+      const hash = await sha256(image.bytes); const key = `objectpad/v1/artifacts/${hash}`;
+      await this.runtime.artifactBucket.put(key, image.bytes, { httpMetadata: { contentType: image.type } });
+      this.store.run('INSERT OR IGNORE INTO op_artifacts(hash,storage_key,kind,bytes,public,session_id) VALUES (?,?,?,?,?,?)', hash, key, 'reward_cover', image.bytes.byteLength, 1, 'rewards');
+      this.rewards.setCover(id, `${this.runtime.apiOrigin}/api/artifacts/${hash}`); this.store.metric('reward_cover_ok');
+    } catch (error) { console.warn('objectpad.reward.cover', error instanceof Error ? error.message.slice(0, 160) : ''); this.rewards.setCover(id, null); this.store.metric('reward_cover_failed'); }
+  }
   /** Opportunistic polling while a creator watches progress, in addition to the durable alarm. */
   private async pollIfDue(): Promise<void> {
     if (!this.captures.hasActiveJobs() && !this.records.hasPending() && !this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved','screening') LIMIT 1")) return;
@@ -558,6 +591,25 @@ export class ObjectPad extends DurableObject<Env> {
       throw new ApiError('NOT_FOUND', 404);
     }
     if (path === '/bounties/mine' && method === 'GET') return json(this.bounties.list(owner));
+    // Paid Rewards v2: post + escrow, proofs, payouts and refunds. Every action needs a real account.
+    if (path.startsWith('/rewards') && method === 'POST') {
+      if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
+      await this.ensureProfile(owner); const op = this.isOperator(owner); const data = await body(request);
+      const str = (v: unknown, max: number): string => typeof v === 'string' ? v.slice(0, max) : '';
+      if (path === '/rewards') { this.store.rate(`reward-create:${owner}`, 10, 86_400_000); const result = await this.rewards.create(owner, data, await ethPrice()); const run = this.rewardCover(String(result.id)); try { this.ctx.waitUntil(run); } catch { void run; } return json(result); }
+      const act = path.match(/^\/rewards\/([a-z0-9-]{3,40})\/(fund|cancel|submissions)$/);
+      if (act) {
+        if (act[2] === 'fund') { this.store.rate(`reward-fund:${owner}`, 30, 3_600_000); return json(await this.rewards.fund(owner, act[1], str(data.hash, 66))); }
+        if (act[2] === 'cancel') { const result = await this.rewards.cancel(owner, op, act[1], str(data.reason, 200)); if (op) await this.store.audit(await sha256(owner), 'reward', 'cancel', act[1]); return json(result); }
+        this.store.rate(`reward-proof:${owner}`, 30, 3_600_000); return json(await this.rewards.submit(owner, act[1], { photo: str(data.photo, 64), coin: str(data.coin, 300), note: str(data.note, 280) }));
+      }
+      const subAct = path.match(/^\/rewards\/submissions\/([a-f0-9-]{36})\/(payout|review)$/);
+      if (subAct?.[2] === 'payout') { const result = await this.rewards.payout(owner, op, subAct[1]); if (op) await this.store.audit(await sha256(owner), 'reward', 'payout', subAct[1]); return json(result); }
+      if (subAct?.[2] === 'review') return json(this.rewards.review(owner, op, subAct[1], str(data.state, 12), str(data.note, 200), str(data.tx, 66)));
+      const remove = path.match(/^\/rewards\/([a-f0-9-]{36})\/remove$/);
+      if (remove) { this.operator(owner); const result = await this.rewards.remove(owner, remove[1], str(data.reason, 200)); await this.store.audit(await sha256(owner), 'reward', 'remove', remove[1]); return json(result); }
+      throw new ApiError('NOT_FOUND', 404);
+    }
     if (path === '/bounties/submissions' && method === 'POST') { if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401); this.store.rate(`bounty:${owner}`, 20, 3_600_000); const data = await body(request); return json(this.bounties.submit(owner, string(data.bountyId, 40), string(data.coin, 300), typeof data.note === 'string' ? data.note.slice(0, 280) : '')); }
     if (path.startsWith('/ops/')) { this.operator(owner);
       if (method === 'GET' && path === '/ops/bounties') return json(this.bounties.queue());

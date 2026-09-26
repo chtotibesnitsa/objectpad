@@ -34,7 +34,7 @@ function sniffImage(bytes: Uint8Array): string | null {
 const SPAN = 1_500n;
 const printable = (value: unknown, max: number): string => typeof value === 'string' ? value.replace(/[^\x20-\x7e]/g, '').trim().slice(0, max) : '';
 let ethUsd: { at: number; value: number | null } | null = null;
-async function ethPrice(): Promise<number | null> {
+export async function ethPrice(): Promise<number | null> {
   if (ethUsd && Date.now() - ethUsd.at < 300_000) return ethUsd.value;
   try { const response = await fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot', { signal: AbortSignal.timeout(5000) }); const data = await response.json() as { data?: { amount?: string } }; const value = Number(data.data?.amount); ethUsd = { at: Date.now(), value: Number.isFinite(value) && value > 0 ? value : null }; }
   catch { ethUsd = { at: Date.now(), value: ethUsd?.value ?? null }; }
