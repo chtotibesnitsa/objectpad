@@ -51,7 +51,7 @@ function seeded(seed: string): () => number {
 }
 
 /** The stock face of the glass: ticker, live change and price, drawn crisp onto a canvas. */
-function useLabel(symbol: string, price: string, change: number | null): CanvasTexture | null {
+export function useLabel(symbol: string, price: string, change: number | null): CanvasTexture | null {
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 250; const g = canvas.getContext('2d'); if (!g) return null;
     g.clearRect(0, 0, 640, 250);
@@ -68,12 +68,17 @@ function useLabel(symbol: string, price: string, change: number | null): CanvasT
   return texture;
 }
 
+/** Deterministic mini bar-chart heights for a symbol, shared by the glass chart and the minted coin's live ticker. */
+export function useBars(symbol: string, count = 10): { x: number; h: number }[] {
+  return useMemo(() => {
+    const rand = seeded(symbol); let h = 0.07; const step = count > 1 ? 1 / (count - 1) : 1;
+    return Array.from({ length: count }, (_, i) => { h = Math.min(0.32, Math.max(0.05, h + 0.018 + (rand() - 0.32) * 0.07)); return { x: -0.5 + i * step, h: i === count - 1 ? 0.34 : h }; });
+  }, [symbol, count]);
+}
+
 /** A liquid-glass slab holding a live stock chart: rising green candles, a glowing trend line and the ticker on the face. */
 export function GlassChart({ symbol, price, change, env, innerRef }: { symbol: string; price: string; change: number | null; env: Texture; innerRef: MutableRefObject<Group | null> }) {
-  const bars = useMemo(() => {
-    const rand = seeded(symbol); let h = 0.07;
-    return Array.from({ length: 10 }, (_, i) => { h = Math.min(0.32, Math.max(0.05, h + 0.018 + (rand() - 0.32) * 0.07)); return { x: -0.5 + i * 0.111, h: i === 9 ? 0.34 : h }; });
-  }, [symbol]);
+  const bars = useBars(symbol);
   const tube = useMemo(() => new TubeGeometry(new CatmullRomCurve3(bars.map(b => new Vector3(b.x, -0.42 + b.h + 0.05, 0.03))), 80, 0.013, 8, false), [bars]);
   const label = useLabel(symbol, price, change);
   const mats = useMemo(() => ({
@@ -92,8 +97,24 @@ export function GlassChart({ symbol, price, change, env, innerRef }: { symbol: s
   </group>;
 }
 
-/** One minted coin: the object's coin art on both faces with a polished gold rim (gold = paired). */
-export function PairCoin({ art, env, innerRef }: { art: string; env: Texture; innerRef: MutableRefObject<Group | null> }) {
+/** Live ticker chip baked onto a minted coin: a small glass plaque with a mini sparkline, symbol, live price and 24h change, so the pair's real market data rides along on the coin itself once object and stock merge. */
+function CoinTicker({ symbol, price, change, env }: { symbol: string; price: string; change: number | null; env: Texture }) {
+  const bars = useBars(symbol, 6);
+  const label = useLabel(symbol, price, change);
+  const mats = useMemo(() => ({
+    plaque: new MeshPhysicalMaterial({ color: '#FFFFFF', transparent: true, opacity: 0.92, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05, envMap: env, envMapIntensity: 1.2 }),
+    bar: new MeshStandardMaterial({ color: '#12A150', emissive: new Color('#12A150'), emissiveIntensity: 0.55, roughness: 0.3, metalness: 0.1 }),
+  }), [env]);
+  useEffect(() => () => { mats.plaque.dispose(); mats.bar.dispose(); }, [mats]);
+  return <group position={[0.42, -0.56, 0.12]} rotation={[0, 0, 0.06]} scale={0.4}>
+    <RoundedBox args={[1.5, 0.66, 0.1]} radius={0.09} smoothness={4} material={mats.plaque} renderOrder={4}/>
+    {bars.map((b, i) => <mesh key={i} position={[b.x * 1.2, -0.16 + (b.h * 0.9) / 2, 0.07]} material={mats.bar} renderOrder={5}><boxGeometry args={[0.07, Math.max(0.06, b.h * 0.9), 0.07]}/></mesh>)}
+    {label && <mesh position={[0, 0.2, 0.075]} renderOrder={5}><planeGeometry args={[1.36, 0.44]}/><meshBasicMaterial map={label} transparent toneMapped={false} depthWrite={false}/></mesh>}
+  </group>;
+}
+
+/** One minted coin: the object's coin art upright on both faces (circular UVs, so nothing appears rotated onto its side), a polished gold rim, and the paired stock's live price baked on as a ticker chip. */
+export function PairCoin({ art, pair, env, innerRef }: { art: string; pair: { symbol: string; price: string; change: number | null }; env: Texture; innerRef: MutableRefObject<Group | null> }) {
   const map = useTexture(art);
   const mats = useMemo(() => {
     map.colorSpace = SRGBColorSpace; map.anisotropy = 4;
@@ -101,8 +122,11 @@ export function PairCoin({ art, env, innerRef }: { art: string; env: Texture; in
   }, [map, env]);
   useEffect(() => () => { mats.face.dispose(); mats.rim.dispose(); }, [mats]);
   return <group ref={innerRef} visible={false}>
-    <mesh rotation={[Math.PI / 2, 0, 0]} material={[mats.rim, mats.face, mats.face]}><cylinderGeometry args={[0.62, 0.62, 0.11, 72]}/></mesh>
+    <mesh rotation={[Math.PI / 2, 0, 0]} material={mats.rim}><cylinderGeometry args={[0.62, 0.62, 0.11, 72, 1, true]}/></mesh>
+    <mesh position={[0, 0, 0.056]} material={mats.face}><circleGeometry args={[0.62, 72]}/></mesh>
+    <mesh position={[0, 0, -0.056]} rotation={[0, Math.PI, 0]} material={mats.face}><circleGeometry args={[0.62, 72]}/></mesh>
     {[0.056, -0.056].map(z => <mesh key={z} position={[0, 0, z]} material={mats.rim}><torusGeometry args={[0.62, 0.03, 14, 96]}/></mesh>)}
+    <CoinTicker symbol={pair.symbol} price={pair.price} change={pair.change} env={env}/>
   </group>;
 }
 

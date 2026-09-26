@@ -92,7 +92,7 @@ function Fusion({ coin, pair, clock, fuse, shadow }: { coin: string; pair: Stage
   });
   return <>
     <GlassChart symbol={pair.symbol} price={pair.price} change={pair.change} env={env} innerRef={chart}/>
-    <PairCoin art={coin} env={env} innerRef={minted}/>
+    <PairCoin art={coin} pair={pair} env={env} innerRef={minted}/>
     <Sparks ageOf={ageOf} y={0.55}/>
   </>;
 }

@@ -32,7 +32,7 @@ function Rig({ src, coin, pair, clock, onReady }: { src: string; coin: string; p
   return <group>
     <group ref={spin}><Model src={src} innerRef={obj} onReady={onReady}/></group>
     <GlassChart symbol={pair.symbol} price={pair.price} change={pair.change} env={env} innerRef={chart}/>
-    <PairCoin art={coin} env={env} innerRef={minted}/>
+    <PairCoin art={coin} pair={pair} env={env} innerRef={minted}/>
     <Sparks ageOf={ageOf} y={0.35}/>
     <group ref={shadow}><ContactShadows position={[0, -1, 0]} opacity={0.28} scale={6} blur={2.6} far={3} frames={1}/></group>
   </group>;
