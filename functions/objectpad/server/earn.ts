@@ -405,6 +405,18 @@ export class EarnService {
     const row = this.store.one<SubRow>("SELECT * FROM op_earn_submissions WHERE id=? AND state IN ('approved','pending_review')", id); if (!row) throw new ApiError('NOT_FOUND', 404);
     const { reasons: _r, checks, ...rest } = this.view(row) as Record<string, unknown>; void _r; return { ...rest, checks };
   }
+  /** Public leaderboard: real X earners ranked by confirmed on-chain payouts (falls back to credited-but-unclaimed while a payout is in flight). */
+  leaderboard(limit = 20): Record<string, unknown> {
+    const rows = this.store.all<{ x_user_id: string; handle: string; name: string; avatar: string; paid_cents: number; credited_cents: number; payouts: number; last_at: number }>(
+      `SELECT x.x_user_id, x.handle, x.name, x.avatar,
+        COALESCE((SELECT SUM(c.amount_cents) FROM op_earn_claims c WHERE c.owner=x.owner AND c.state='confirmed'),0) AS paid_cents,
+        COALESCE((SELECT SUM(l.amount_cents) FROM op_earn_ledger l WHERE l.owner=x.owner),0) AS credited_cents,
+        (SELECT COUNT(*) FROM op_earn_claims c WHERE c.owner=x.owner AND c.state='confirmed') AS payouts,
+        COALESCE((SELECT MAX(c.updated_at) FROM op_earn_claims c WHERE c.owner=x.owner AND c.state='confirmed'), (SELECT MAX(s.approved_at) FROM op_earn_submissions s WHERE s.owner=x.owner)) AS last_at
+       FROM op_x_identities x WHERE credited_cents > 0 OR paid_cents > 0 ORDER BY paid_cents DESC, credited_cents DESC LIMIT ?`, limit);
+    return { earners: rows.filter(r => r.credited_cents > 0 || r.paid_cents > 0).map(r => ({ handle: r.handle, name: r.name, avatar: r.avatar, paidUsd: r.paid_cents / 100, creditedUsd: r.credited_cents / 100, payouts: r.payouts, lastAt: r.last_at ?? 0 })),
+      totals: { paidUsd: this.sum("SELECT COALESCE(SUM(amount_cents),0) AS s FROM op_earn_claims WHERE state='confirmed'") / 100, creditedUsd: this.sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM op_earn_ledger') / 100, earners: this.sum('SELECT COUNT(DISTINCT x_user_id) AS s FROM op_x_identities'), payouts: this.sum("SELECT COUNT(*) AS s FROM op_earn_claims WHERE state='confirmed'") } };
+  }
 
   // ---------------------------------------------------------------- operator
   async overview(): Promise<Record<string, unknown>> {

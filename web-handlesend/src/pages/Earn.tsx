@@ -6,9 +6,10 @@ import { useSession } from '@/lib/session';
 import { copyText, shortAddress, timeAgo } from '@/lib/format';
 import { RequestError } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { EARN_CA, EARN_ERRORS, EXPLORER_TX, draftChecks, postIdFrom, track, useClaimReward, useEarnFeed, useEarnMarket, useEarnMe, useEarnRules, useSubmitPost, type EarnCheck, type EarnClaim, type EarnMarket, type EarnSubmission, type FeedFilter, type FeedItem } from '@/lib/earn';
+import { EARN_CA, EARN_ERRORS, EXPLORER_TX, draftChecks, postIdFrom, track, useClaimReward, useEarnFeed, useEarnLeaderboard, useEarnMarket, useEarnMe, useEarnRules, useSubmitPost, type EarnCheck, type EarnClaim, type EarnMarket, type EarnSubmission, type FeedFilter, type FeedItem } from '@/lib/earn';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { Trophy } from 'lucide-react';
 
 const money = (v: number): string => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const bigMoney = (v: number): string => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -377,6 +378,25 @@ function Feed() {
   </section>;
 }
 
+// ---------------------------------------------------------------- leaderboard
+const MEDAL = ['#F2C94C', '#C7CDD6', '#C97A3D'];
+function Leaderboard() {
+  const board = useEarnLeaderboard(); const rows = board.data?.earners ?? [];
+  return <section className="mt-12" aria-labelledby="lb-title">
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab inline-flex items-center gap-2"><Trophy size={13}/>Real earners, real payouts</p><h2 id="lb-title" className="display mt-1 text-[30px] sm:text-[38px]">Earn Leaderboard</h2></div>
+      {board.data && <div className="flex gap-4 font-mono text-[11.5px] font-bold text-ink/60"><span>{money(board.data.totals.paidUsd)} paid on-chain</span><span>{money(board.data.totals.creditedUsd)} credited</span><span>{board.data.totals.earners} X accounts linked</span></div>}</div>
+    {board.isLoading ? <div className="mt-4 grid gap-2">{[0, 1, 2].map(i => <Skeleton key={i} className="h-16 rounded-[22px]"/>)}</div>
+      : !rows.length ? <div className="sunk mt-4 rounded-[24px] p-8 text-center"><p className="text-[16px] font-extrabold">No credited rewards yet.</p><p className="mt-1 text-[13px] font-semibold text-ink/60">The first person to earn a reward takes the top spot.</p></div>
+      : <ol className="mt-4 grid gap-2">{rows.map((r, i) => <li key={r.handle} className="raised earn-float-up flex items-center gap-3 rounded-[22px] p-3.5" style={{ ['--delay' as string]: `${i * 40}ms` }}>
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full font-mono text-[13px] font-extrabold" style={{ background: MEDAL[i] ? `${MEDAL[i]}30` : 'rgba(12,13,16,.06)', color: MEDAL[i] ?? 'rgba(12,13,16,.55)' }}>{i + 1}</span>
+          {r.avatar ? <img src={r.avatar} alt="" className="size-10 shrink-0 rounded-full" loading="lazy"/> : <span className="size-10 shrink-0 rounded-full bg-ink/10"/>}
+          <div className="min-w-0 flex-1"><p className="truncate text-[14px] font-extrabold">{r.name || `@${r.handle}`}</p><p className="truncate font-mono text-[11.5px] font-semibold text-ink/55">@{r.handle} · {r.payouts} {r.payouts === 1 ? 'payout' : 'payouts'} · last {timeAgo(r.lastAt)}</p></div>
+          <div className="shrink-0 text-right"><p className="font-mono text-[15px] font-extrabold tabular-nums">{money(r.paidUsd || r.creditedUsd)}</p><p className="font-mono text-[10px] font-bold uppercase text-ink/45">{r.paidUsd ? 'paid' : 'credited'}</p></div>
+        </li>)}</ol>}
+    <p className="mt-3 text-[12px] font-semibold text-ink/55">Ranked by confirmed on-chain payouts, then by credited balance. Only real, verified $ObjectPad earners appear here.</p>
+  </section>;
+}
+
 // ---------------------------------------------------------------- rules
 function Rules() {
   const rules = useEarnRules(); const r = rules.data;
@@ -416,6 +436,7 @@ export default function Earn() {
     <div ref={submitRef} className="mt-8 grid scroll-mt-24 gap-4 lg:grid-cols-[1fr_1.35fr]"><Composer/><SubmitPanel onSubmitted={refresh}/></div>
     <History/>
     <Feed/>
+    <Leaderboard/>
     <Rules/>
   </div>;
 }

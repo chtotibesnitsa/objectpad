@@ -19,6 +19,9 @@ export interface EarnMe { x: { id: string; handle: string; name: string; avatar:
 export type FeedItem = { kind: 'post'; id: string; handle: string; avatar: string; preview: string; url: string; state: SubmissionState; reason: string | null; rewardUsd: number; rewardState: string; at: number } | { kind: 'payout'; id: string; handle: string; wallet: string; amountUsd: number; amountWei: string; state: 'submitted' | 'confirmed' | 'failed'; hash: string | null; at: number };
 export interface EarnFeed { items: FeedItem[]; stats: { approved: number; earners: number; paidUsd: number; payouts: number }; updatedAt: number; }
 export type FeedFilter = 'all' | 'approved' | 'paid' | 'pending' | 'rejected';
+export interface LeaderboardEntry { handle: string; name: string; avatar: string; paidUsd: number; creditedUsd: number; payouts: number; lastAt: number; }
+export interface Leaderboard { earners: LeaderboardEntry[]; totals: { paidUsd: number; creditedUsd: number; earners: number; payouts: number }; }
+export interface TreasurySnapshot { sponsor: { address: string; balanceWei: string; launchCostWei: string; launchesAffordable: number; dailyLimit: number; usedToday: number; perPersonDaily: number } | null; launches: number; earn: Leaderboard['totals']; }
 
 export const EARN_ME_KEY = ['objectpad', 'earn', 'me'] as const;
 
@@ -30,6 +33,10 @@ export function useEarnMarket() { return useQuery({ queryKey: ['objectpad', 'ear
 export function useEarnRules() { return useQuery({ queryKey: ['objectpad', 'earn', 'rules'], queryFn: () => api<EarnRules>('/earn/rules'), staleTime: 60_000 }); }
 /** Public proof feed. Polls every 8s so new approvals and payouts appear live. */
 export function useEarnFeed(filter: FeedFilter) { return useQuery({ queryKey: ['objectpad', 'earn', 'feed', filter], queryFn: () => api<EarnFeed>(`/earn/feed?filter=${filter}`), refetchInterval: 8_000, staleTime: 4_000, placeholderData: prev => prev }); }
+/** Real, on-chain-confirmed top earners. Nobody is listed unless they have a credited or paid balance. */
+export function useEarnLeaderboard() { return useQuery({ queryKey: ['objectpad', 'earn', 'leaderboard'], queryFn: () => api<Leaderboard>('/earn/leaderboard'), refetchInterval: 20_000, staleTime: 10_000 }); }
+/** The one treasury wallet that funds both free launches and every /earn payout, with live totals for each. */
+export function useTreasurySnapshot() { return useQuery({ queryKey: ['objectpad', 'treasury'], queryFn: () => api<TreasurySnapshot>('/treasury'), refetchInterval: 20_000, staleTime: 8_000 }); }
 /** The signed-in person's X identity, balances, allowance, submissions and claims (all server-resolved). */
 export function useEarnMe() {
   const session = useSession();

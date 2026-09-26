@@ -14,6 +14,8 @@ import { AsciiField, AsciiObject } from '@/components/AsciiField';
 import { GlassIcon, type GlassName } from '@/components/GlassIcon';
 import { cn } from '@/lib/utils';
 import { useTreasury } from '@/lib/treasury';
+import { useTreasurySnapshot } from '@/lib/earn';
+import { usd } from '@/lib/format';
 import { copyText } from '@/lib/format';
 import { Donut } from '@/components/Charts';
 import { Reveal } from '@/components/Reveal';
@@ -97,24 +99,28 @@ export function Docs() {
   </div>;
 }
 
-/** The launch treasury: the wallet that pays for every free launch, with live balance and how to fund it. */
+/** The treasury: one ObjectPad wallet that pays every free launch AND every /earn reward payout. Nothing here is estimated. */
 export function Treasury() {
-  const t = useTreasury(); const [copied, setCopied] = useState<boolean>(false); const gauge = t.affordable ? Math.min(1, t.affordable / 60) : 0;
+  const t = useTreasury(); const snap = useTreasurySnapshot(); const [copied, setCopied] = useState<boolean>(false); const gauge = t.affordable ? Math.min(1, t.affordable / 60) : 0;
+  const launches = snap.data?.launches ?? 0; const paidUsd = snap.data?.earn.paidUsd ?? 0; const creditedUsd = snap.data?.earn.creditedUsd ?? 0; const earners = snap.data?.earn.earners ?? 0;
   return <div className="page max-w-6xl py-8 sm:py-12">
     <section className="raised relative overflow-hidden rounded-[40px] p-6 sm:p-12">
       <div className="grid-paper pointer-events-none absolute inset-0 opacity-60" aria-hidden="true"/>
       <AsciiObject src="/models/points/card.json" cols={50} rows={26} className="absolute -right-6 top-1/2 hidden -translate-y-1/2 text-[11.5px] text-ink/[0.08] md:block"/>
-      <div className="relative flex flex-wrap items-center gap-6"><GlassIcon name="vault" size={128} float/><div><p className="lab flex items-center gap-2"><span className={cn('size-2 rounded-full', t.open ? 'pulse-dot bg-up' : 'bg-ink/40')}/>Launch treasury · live</p><p className="display mt-3 text-[54px] leading-none tnum sm:text-[84px]">{t.label}</p><p className="mt-3 text-[18px] font-extrabold text-ink/60">{t.balanceUsd} · covers {t.affordable} free launches at {t.costUsd} each</p></div></div>
+      <div className="relative flex flex-wrap items-center gap-6"><GlassIcon name="vault" size={128} float/><div><p className="lab flex items-center gap-2"><span className={cn('size-2 rounded-full', t.open ? 'pulse-dot bg-up' : 'bg-ink/40')}/>ObjectPad treasury · live</p><p className="display mt-3 text-[54px] leading-none tnum sm:text-[84px]">{t.label}</p><p className="mt-3 text-[18px] font-extrabold text-ink/60">{t.balanceUsd} · one wallet, two jobs</p><p className="mt-2 max-w-xl text-[14.5px] font-semibold text-ink/55">This is the only ObjectPad treasury. It pays the launch fee, first buy and gas for every free coin launch, and it sends every <Link to="/earn" className="underline underline-offset-2">Earn</Link> reward payout, in ETH, from the same balance.</p></div></div>
       <div className="sunk relative mt-8 h-3 overflow-hidden rounded-full"><div className="bar-grow h-full rounded-full bg-ink" style={{ width: `${Math.max(2, gauge * 100)}%` }}/></div>
       <div className="relative mt-5 grid max-w-3xl gap-2 sm:grid-cols-3">{[['Free per person', `${t.perPerson} / day`], ['Covers now', t.loading ? '…' : `${t.affordable} launches`], ['Per launch', t.costEth ? `${t.costEth.toFixed(5)} ETH` : '…']].map(([k, v]) => <div key={k} className="sunk rounded-2xl px-4 py-3"><p className="stat-label">{k}</p><p className="mt-1 text-[22px] font-extrabold tnum">{v}</p></div>)}</div>
+    </section>
+    <section className="mt-4 grid gap-3 sm:grid-cols-4">
+      {[['Coins launched', launches.toLocaleString('en-US'), 'rocket'], ['Paid to Earn creators', snap.isPending ? '…' : usd(paidUsd), 'coins'], ['Credited (incl. pending payout)', snap.isPending ? '…' : usd(creditedUsd), 'wallet'], ['X accounts earning', earners.toLocaleString('en-US'), 'chart']].map(([label, value, icon]) => <div key={label as string} className="raised rounded-[26px] p-5"><GlassIcon name={icon as GlassName} size={40}/><p className="stat-label mt-3">{label}</p><p className="mt-1 text-[24px] font-extrabold tnum">{value}</p></div>)}
     </section>
     <section className="mt-4 grid gap-4 md:grid-cols-[auto_1fr]">
       <div className="steel flex flex-col items-center rounded-[32px] p-6">{t.address ? <><div className="raised crop relative rounded-[26px] p-5"><i/><i/><i/><i/><QRCodeSVG value={t.address} size={184} level="M" marginSize={0} fgColor="#0C0D10" title="Treasury address"/></div><p className="mt-3 font-mono text-[11px] font-bold text-ink/65">Robinhood Chain · ETH · chain 4663</p><AndroidFeatureCard className="mt-4 w-full max-w-[260px]"/></> : <Loading label="Reading treasury…"/>}</div>
       <div className="raised rounded-[32px] p-6 sm:p-8">
         <h1 className="display text-[36px] sm:text-[44px]">Fund the treasury</h1>
         {t.address && <button onClick={() => void copyText(t.address ?? '').then(setCopied)} className="pill press mt-5 w-full !justify-between !pr-3 font-mono !text-[13px]"><span className="flex min-w-0 items-center gap-2.5"><span className="orb">{copied ? <Check size={16}/> : <Copy size={16}/>}</span><span className="truncate">{t.address}</span></span></button>}
-        <ol className="mt-6 space-y-2.5">{([['wallet', 'Send ETH on Robinhood Chain', 'Chain ID 4663 · any wallet'], ['chain', 'Or bridge in first', 'Bridge ETH, then send it here'], ['rocket', 'That’s it', 'Updates here within 30s · queued launches go out']] as [GlassName, string, string][]).map(([icon, h, d]) => <li key={h} className="sunk flex items-center gap-3 rounded-2xl p-2.5"><GlassIcon name={icon} size={44}/><div><p className="font-extrabold">{h}</p><p className="text-[13.5px] font-bold text-ink/60">{d}</p></div></li>)}</ol>
-        <a href={t.address ? `https://robinhoodchain.blockscout.com/address/${t.address}` : '#'} target="_blank" rel="noreferrer" className="btn-ghost press mt-6 min-h-11 px-4 text-sm">View on explorer<ArrowUpRight size={15}/></a>
+        <ol className="mt-6 space-y-2.5">{([['wallet', 'Send ETH on Robinhood Chain', 'Chain ID 4663 · any wallet'], ['chain', 'Or bridge in first', 'Bridge ETH, then send it here'], ['rocket', 'That’s it', 'Funds launches and Earn payouts within 30s']] as [GlassName, string, string][]).map(([icon, h, d]) => <li key={h} className="sunk flex items-center gap-3 rounded-2xl p-2.5"><GlassIcon name={icon} size={44}/><div><p className="font-extrabold">{h}</p><p className="text-[13.5px] font-bold text-ink/60">{d}</p></div></li>)}</ol>
+        <div className="mt-6 flex flex-wrap gap-2"><a href={t.address ? `https://robinhoodchain.blockscout.com/address/${t.address}` : '#'} target="_blank" rel="noreferrer" className="btn-ghost press min-h-11 px-4 text-sm">View on explorer<ArrowUpRight size={15}/></a><Link to="/earn" className="btn-ghost press min-h-11 px-4 text-sm">See the Earn leaderboard<ArrowUpRight size={15}/></Link></div>
       </div>
     </section>
   </div>;

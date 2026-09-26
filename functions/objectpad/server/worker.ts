@@ -142,6 +142,8 @@ export class ObjectPad extends DurableObject<Env> {
       if (method === 'GET' && path === '/earn/rules') return json(this.earn.rules());
       if (method === 'GET' && path === '/bounties') return json(this.bounties.list(null));
       if (method === 'GET' && path === '/earn/feed') return json(this.earn.feed(new URL(request.url).searchParams.get('filter') ?? 'all'));
+      if (method === 'GET' && path === '/earn/leaderboard') return json(this.earn.leaderboard());
+      if (method === 'GET' && path === '/treasury') return json({ sponsor: await this.sponsor.status(true).catch(() => null), launches: this.store.one('SELECT COUNT(*) AS n FROM op_launches')?.n ?? 0, earn: this.earn.leaderboard(1).totals });
       const earnProof = path.match(/^\/earn\/proof\/([0-9a-f-]{36})$/); if (method === 'GET' && earnProof) return json(this.earn.proof(earnProof[1]));
       if (method === 'GET' && path === '/house') { if (this.house.pending()) await this.schedule(1_000); return json({ coins: this.house.list() }); }
       const logo = path.match(/^\/logos\/(0x[a-f0-9]{40})$/); if (method === 'GET' && logo) return await this.market.logo(logo[1]);
