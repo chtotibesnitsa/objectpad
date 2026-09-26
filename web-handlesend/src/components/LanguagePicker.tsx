@@ -15,7 +15,7 @@ export const Flag = memo(function Flag({ emoji, size = 22 }: { emoji: string; si
 /** Compact flag button that opens the language sheet. */
 export function LanguageButton({ compact = false, className }: { compact?: boolean; className?: string }) {
   const { language, busy, openPicker } = useLanguage();
-  return <button onClick={openPicker} translate="no" aria-label={`Language: ${language.english}`} title="Language" className={cn('press notranslate flex items-center justify-center gap-1.5 font-extrabold', compact ? 'sunk min-h-10 rounded-[14px] px-2.5 text-[12px]' : 'raised min-h-[52px] rounded-[17px] px-3.5 text-[13px]', className)}>
+  return <button onClick={e => openPicker(e.currentTarget)} translate="no" aria-label={`Language: ${language.english}`} title="Language" className={cn('press notranslate flex items-center justify-center gap-1.5 font-extrabold', compact ? 'sunk min-h-10 rounded-[14px] px-2.5 text-[12px]' : 'raised min-h-[52px] rounded-[17px] px-3.5 text-[13px]', className)}>
     <Flag emoji={language.flag} size={compact ? 17 : 20}/>
     <span className="font-mono uppercase tracking-wide">{language.code.split('-')[0]}</span>
     {busy && <Loader2 size={12} className="animate-spin text-ink/50"/>}
@@ -40,9 +40,11 @@ const Row = memo(function Row({ lang, active, onPick }: { lang: Language; active
   </button>;
 });
 
-/** Searchable language sheet: popular languages first, then every other language A–Z. */
+/** Searchable language sheet: popular languages first, then every other language A–Z.
+ * When opened from a header button, the desktop panel drops directly under that button (right-aligned to it);
+ * without an anchor — or on phones, where it is a bottom sheet — it falls back to the default placement. */
 export function LanguagePicker() {
-  const { code, choose, pickerOpen, closePicker } = useLanguage();
+  const { code, choose, pickerOpen, anchor, closePicker } = useLanguage();
   const [query, setQuery] = useState<string>(''); const input = useRef<HTMLInputElement>(null);
   const all = languages();
   useEffect(() => { if (!pickerOpen) { setQuery(''); return; } const t = window.setTimeout(() => input.current?.focus({ preventScroll: true }), 250); const key = (e: KeyboardEvent) => { if (e.key === 'Escape') closePicker(); }; window.addEventListener('keydown', key); return () => { window.clearTimeout(t); window.removeEventListener('keydown', key); }; }, [pickerOpen, closePicker]);
@@ -53,7 +55,7 @@ export function LanguagePicker() {
   }, [all, query]);
   return <div translate="no" className={cn('notranslate fixed inset-0 z-[90] transition-[visibility] duration-300', pickerOpen ? 'visible' : 'invisible')} role="dialog" aria-modal="true" aria-label="Choose language" aria-hidden={!pickerOpen}>
     <button className={cn('absolute inset-0 bg-ink/25 backdrop-blur-[4px] transition-opacity duration-300', pickerOpen ? 'opacity-100' : 'opacity-0')} aria-label="Close" onClick={closePicker} tabIndex={-1}/>
-    <div className={cn('glass-nav absolute inset-x-2 bottom-2 flex max-h-[86dvh] flex-col overflow-hidden rounded-[30px] transition-all duration-300 ease-[cubic-bezier(.2,.9,.25,1.05)] sm:inset-x-auto sm:bottom-auto sm:right-6 sm:top-24 sm:max-h-[min(720px,calc(100dvh-120px))] sm:w-[420px]', pickerOpen ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 sm:-translate-y-3')}>
+    <div style={pickerOpen && anchor && (typeof window === 'undefined' || window.matchMedia('(min-width: 640px)').matches) ? { top: anchor.top + 10, right: anchor.right } : undefined} className={cn('glass-nav absolute inset-x-2 bottom-2 flex max-h-[86dvh] flex-col overflow-hidden rounded-[30px] transition-all duration-300 ease-[cubic-bezier(.2,.9,.25,1.05)] sm:inset-x-auto sm:bottom-auto sm:right-6 sm:top-24 sm:max-h-[min(720px,calc(100dvh-120px))] sm:w-[420px]', pickerOpen ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 sm:-translate-y-3')}>
       <div className="flex items-center justify-between gap-3 px-5 pt-5">
         <div><p className="lab">Language</p><h2 className="display mt-1 text-[26px] leading-none">Choose language</h2></div>
         <button onClick={closePicker} className="press raised flex size-11 items-center justify-center rounded-2xl" aria-label="Close" tabIndex={pickerOpen ? 0 : -1}><X size={18} strokeWidth={2.5}/></button>

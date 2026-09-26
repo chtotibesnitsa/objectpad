@@ -15,6 +15,7 @@ export const [LanguageProvider, useLanguage] = createContextHook(() => {
   const [code, setCode] = useState<string>(initial);
   const [busy, setBusy] = useState<boolean>(false);
   const [pickerOpen, setPickerOpen] = useState<boolean>(false);
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
   const language: Language = languageOf(code);
   useEffect(() => onBusy(setBusy), []);
   useEffect(() => {
@@ -25,7 +26,11 @@ export const [LanguageProvider, useLanguage] = createContextHook(() => {
     return () => window.clearTimeout(id);
   }, [code, language.rtl]);
   const choose = useCallback((next: string) => { setCode(next); setPickerOpen(false); try { localStorage.setItem(KEY, next); } catch { /* Choice still applies for this visit. */ } }, []);
-  const openPicker = useCallback(() => setPickerOpen(true), []);
+  const openPicker = useCallback((from?: HTMLElement | null) => {
+    // Remember where the picker was opened from so the desktop panel can drop directly under that button.
+    if (from) { const r = from.getBoundingClientRect(); setAnchor({ top: r.bottom, right: window.innerWidth - r.right }); } else setAnchor(null);
+    setPickerOpen(true);
+  }, []);
   const closePicker = useCallback(() => setPickerOpen(false), []);
-  return { code, language, busy, choose, pickerOpen, openPicker, closePicker };
+  return { code, language, busy, choose, pickerOpen, anchor, openPicker, closePicker };
 });
