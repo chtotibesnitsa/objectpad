@@ -325,3 +325,17 @@ html.touch-lite .btn::after, html.touch-lite .cta-hero::after, html.touch-lite .
 html.touch-lite .foil, html.touch-lite .float-y, html.touch-lite .bob, html.touch-lite .orbit-dash, html.touch-lite .spin-slow, html.touch-lite .lock-idle, html.touch-lite .orbit-spin, html.touch-lite .orbit-counter, html.touch-lite .orbit-spin-rev, html.touch-lite .orbit-counter-rev { animation: none; }
 html.touch-lite .marquee-run { will-change: transform; }
 @keyframes enter-lite { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* App download card: liquid glass with a slow light sweep and an app-store style icon tile. */
+.app-card { position: relative; isolation: isolate; overflow: hidden; background: linear-gradient(180deg, rgba(255,255,255,.86) 0%, rgba(255,255,255,.62) 100%); backdrop-filter: blur(28px) saturate(190%); -webkit-backdrop-filter: blur(28px) saturate(190%); border: 1.5px solid rgba(255,255,255,.98); box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(12,13,16,.05), 0 0 0 1px rgba(12,13,16,.09), 0 3px 6px rgba(12,13,16,.05), 0 30px 56px -30px rgba(20,24,40,.5); transition: transform .3s cubic-bezier(.2,.9,.3,1.2), box-shadow .3s ease; }
+.app-card::before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: radial-gradient(90% 80% at 0% 0%, rgba(255,255,255,.95), transparent 55%), radial-gradient(60% 90% at 100% 100%, rgba(200,206,216,.35), transparent 60%); }
+.app-card::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(110deg, transparent 38%, rgba(255,255,255,.75) 50%, transparent 62%); transform: translateX(-120%); animation: app-sheen 5.5s ease-in-out infinite; }
+.app-card:hover { transform: translateY(-2px); box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(12,13,16,.05), 0 0 0 1px rgba(12,13,16,.12), 0 6px 12px rgba(12,13,16,.06), 0 38px 64px -30px rgba(20,24,40,.55); }
+@keyframes app-sheen { 0%, 60% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+.app-tile { position: relative; flex-shrink: 0; overflow: hidden; border-radius: 23%; background: #0C0D10; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), 0 0 0 1px rgba(12,13,16,.14), 0 12px 24px -12px rgba(12,13,16,.7); }
+.app-tile > img { width: 100%; height: 100%; object-fit: cover; }
+.app-tile::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(180deg, rgba(255,255,255,.28) 0%, transparent 42%); }
+.app-well { background: linear-gradient(180deg, rgba(12,13,16,.045), rgba(12,13,16,.02)); box-shadow: inset 0 1px 3px rgba(12,13,16,.07), inset 0 0 0 1px rgba(12,13,16,.05), 0 1px 0 rgba(255,255,255,.9); }
+html.touch-lite .app-card { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: linear-gradient(180deg, #FFFFFF, #F4F5F7); }
+html.touch-lite .app-card::after { display: none; }
+@media (prefers-reduced-motion: reduce) { .app-card::after { animation: none; display: none; } }

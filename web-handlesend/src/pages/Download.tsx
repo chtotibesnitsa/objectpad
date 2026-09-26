@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Apple, Box, Camera, Check, Coins, Download as DownloadIcon, Rocket, ScanLine, ShieldCheck, Smartphone, UserRound, Wallet, Zap } from 'lucide-react';
+import { Box, Camera, Check, Coins, Download as DownloadIcon, Rocket, ScanLine, ShieldCheck, UserRound, Wallet, Zap } from 'lucide-react';
 import { GlassIcon } from '@/components/GlassIcon';
-import { LivePill } from '@/components/QrLink';
+import { AppTile, IosSoonLine, LivePill } from '@/components/QrLink';
 import { OBJECTPAD_APK_URL } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 
@@ -54,16 +54,13 @@ export default function Download() {
     <p className="enter mt-4 max-w-xl text-[16px] font-bold text-ink/65">Scan any real object, launch its coin for $0 and earn on every trade — straight from your phone. No account needed to start.</p>
 
     <div className="mt-8 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-      <section className="smoke card-pop relative overflow-hidden rounded-[32px] p-6 text-white sm:p-7">
-        <div className="pointer-events-none absolute -right-16 -top-20 size-72 rounded-full bg-white/10 blur-3xl" aria-hidden="true"/>
-        <div className="relative flex items-center gap-3"><span className="flex size-12 items-center justify-center rounded-full bg-white text-ink"><Smartphone size={22}/></span><LivePill badge="Android · Update #1"/></div>
-        <h2 className="display relative mt-4 text-[28px] leading-none sm:text-[34px]">ObjectPad for Android is live.</h2>
-        <p className="relative mt-2 text-[14px] font-bold text-white/60">Signed release · direct install · free. No Play Store, no waiting.</p>
-        <div className="relative mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
-          {apk ? <a href={apk} download className="btn press min-h-[56px] flex-1 justify-center text-[15.5px]"><DownloadIcon size={18}/>Download APK</a> : <span className="rounded-2xl border border-white/20 px-4 py-3 text-[13px] font-bold text-white/60">Download link coming online…</span>}
-          {apkAbsolute && <div className="hidden items-center gap-3 sm:flex"><div className="rounded-2xl bg-white p-2"><QRCodeSVG value={apkAbsolute} size={76} level="M" marginSize={0} fgColor="#0C0D10" title="Scan to download on Android"/></div><p className="max-w-[110px] font-mono text-[10.5px] font-bold uppercase text-white/55">On desktop? Scan to get it on your phone</p></div>}
+      <section className="app-card card-pop rounded-[32px] p-5 sm:p-7">
+        <div className="flex items-center gap-4"><AppTile size={76}/><div className="min-w-0"><LivePill badge="Android · Update #1" tone="light"/><h2 className="mt-2 text-[24px] font-extrabold leading-tight tracking-[-0.03em] sm:text-[30px]">ObjectPad for Android</h2><p className="mt-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.04em] text-ink/50">Free · Signed release · No sign-up</p></div></div>
+        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
+          {apk ? <a href={apk} download className="cta-hero press min-h-[58px] flex-1 justify-center py-1.5 pl-1.5 pr-6 text-[16px]"><span className="orb size-11"><DownloadIcon size={18} strokeWidth={2.6} className="text-ink"/></span>Get the app · APK</a> : <span className="app-well rounded-2xl px-4 py-3 text-[13px] font-bold text-ink/60">Download link coming online…</span>}
+          {apkAbsolute && <div className="app-well hidden items-center gap-3 rounded-[20px] p-2 pr-3 sm:flex"><div className="rounded-[14px] bg-white p-1.5 shadow-sm"><QRCodeSVG value={apkAbsolute} size={68} level="M" marginSize={0} fgColor="#0C0D10" title="Scan to download on Android"/></div><p className="max-w-[104px] font-mono text-[10px] font-bold uppercase leading-snug text-ink/55">On desktop? Scan with your phone</p></div>}
         </div>
-        <div className="relative mt-5 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3"><Apple size={20}/><p className="text-[13px] font-bold italic text-white/70"><span className="not-italic font-extrabold text-white">iOS</span> is in App Store review — out soon.</p></div>
+        <div className="app-well mt-4 rounded-[20px] px-4 py-3"><IosSoonLine tone="light" className="text-[13px]"/></div>
       </section>
 
       <section className="raised card-pop rounded-[32px] p-6" style={{ ['--delay' as string]: '120ms' }}>
