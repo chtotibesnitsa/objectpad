@@ -17,12 +17,12 @@
       "framework": "kotlin"
     },
     {
-      "name": "CasePad iOS",
+      "name": "ObjectPad iOS",
       "path": "ios-tagstock",
       "framework": "swift",
       "settings": {
-        "displayName": "CasePad",
-        "iosBundleId": "app.rork.1twehjy6mwk3snm9cdfyy"
+        "displayName": "ObjectPad",
+        "iosBundleId": "app.rork.objectpad.1twehjy6mwk3snm9cdfyy"
       }
     }
   ]
