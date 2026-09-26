@@ -22,7 +22,7 @@ import type { Runtime } from './types';
 import type { RecordService } from './record-service';
 
 export interface Identity { handle: string; name: string; avatar: string; }
-interface RewardRow { id: string; owner: string; title: string; object: string; brief: string; rules: string; category: string; adult: number; reward_usd: number; reward_wei: string; eth_usd: number; cover: string; cover_state: string; promo_url: string; state: string; funder: string | null; fund_tx: string | null; refund_tx: string | null; winner_sub: string | null; payout_tx: string | null; deadline: number; handle: string; name: string; avatar: string; wallet: string; created_at: number; updated_at: number; }
+interface RewardRow { cover_hint?: string; id: string; owner: string; title: string; object: string; brief: string; rules: string; category: string; adult: number; reward_usd: number; reward_wei: string; eth_usd: number; cover: string; cover_state: string; promo_url: string; state: string; funder: string | null; fund_tx: string | null; refund_tx: string | null; winner_sub: string | null; payout_tx: string | null; deadline: number; handle: string; name: string; avatar: string; wallet: string; created_at: number; updated_at: number; }
 interface SubRow { id: string; reward_id: string; owner: string; wallet: string; photo: string; photo_hash: string; record_id: string; token: string; coin_name: string; coin_symbol: string; coin_image: string; note: string; state: string; review_note: string; payout_tx: string | null; handle: string; name: string; avatar: string; created_at: number; updated_at: number; }
 
 export const REWARD_LIMITS = { minUsd: 5, maxUsd: 10_000, draftTtl: 24 * 3_600_000 } as const;
@@ -34,6 +34,7 @@ export class RewardService {
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly records: RecordService, private readonly identity: (owner: string) => Promise<Identity | null>, private readonly wallet: (owner: string) => Promise<string>) {
     store.run("CREATE TABLE IF NOT EXISTS op_rewards (id TEXT PRIMARY KEY, owner TEXT NOT NULL, title TEXT NOT NULL, object TEXT NOT NULL, brief TEXT NOT NULL, rules TEXT NOT NULL, category TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, reward_usd REAL NOT NULL, reward_wei TEXT NOT NULL, eth_usd REAL NOT NULL, cover TEXT NOT NULL DEFAULT '', cover_state TEXT NOT NULL DEFAULT 'none', promo_url TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, funder TEXT, fund_tx TEXT UNIQUE, refund_tx TEXT, winner_sub TEXT, payout_tx TEXT, deadline INTEGER NOT NULL DEFAULT 0, handle TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '', wallet TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
     store.run('CREATE INDEX IF NOT EXISTS op_rewards_state ON op_rewards(state, created_at)');
+    try { store.run("ALTER TABLE op_rewards ADD COLUMN cover_hint TEXT NOT NULL DEFAULT ''"); } catch { /* already added */ }
     store.run("CREATE TABLE IF NOT EXISTS op_reward_subs (id TEXT PRIMARY KEY, reward_id TEXT NOT NULL, owner TEXT NOT NULL, wallet TEXT NOT NULL, photo TEXT NOT NULL DEFAULT '', photo_hash TEXT NOT NULL DEFAULT '', record_id TEXT NOT NULL DEFAULT '', token TEXT NOT NULL DEFAULT '', coin_name TEXT NOT NULL DEFAULT '', coin_symbol TEXT NOT NULL DEFAULT '', coin_image TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, review_note TEXT NOT NULL DEFAULT '', payout_tx TEXT, handle TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
     store.run('CREATE INDEX IF NOT EXISTS op_reward_subs_r ON op_reward_subs(reward_id, created_at)');
     store.run('CREATE TABLE IF NOT EXISTS op_reward_audit (id TEXT PRIMARY KEY, reward_id TEXT NOT NULL, event TEXT NOT NULL, detail TEXT NOT NULL, tx TEXT, at INTEGER NOT NULL)');
@@ -123,12 +124,14 @@ export class RewardService {
     const promo = typeof input.promoUrl === 'string' && input.promoUrl.trim() ? safeHttpUrl(input.promoUrl.trim()) : ''; if (promo === null) throw new ApiError('REWARD_LINK_INVALID');
     const days = Number(input.days); const deadline = [3, 7, 14, 30].includes(days) ? Date.now() + days * 86_400_000 : 0;
     const cover = typeof input.cover === 'string' && PHOTO.test(input.cover) ? input.cover : '';
-    if (cover && !this.store.one("SELECT hash FROM op_artifacts WHERE hash=? AND kind='reward_photo'", cover)) throw new ApiError('REWARD_PHOTO_MISSING');
+    if (cover && !this.photoExists(cover)) throw new ApiError('REWARD_PHOTO_MISSING');
+    const inspire = !cover && typeof input.inspire === 'string' && PHOTO.test(input.inspire) && this.photoExists(input.inspire) ? input.inspire : '';
     const wallet = await this.wallet(owner).catch(() => ''); const who = await this.identity(owner).catch(() => null);
     const wei = BigInt(usd) * 10n ** 24n / BigInt(Math.round(ethUsd * 1e6));
     const id = crypto.randomUUID(); const now = Date.now();
     this.store.run('INSERT INTO op_rewards(id,owner,title,object,brief,rules,category,adult,reward_usd,reward_wei,eth_usd,cover,cover_state,promo_url,state,deadline,handle,name,avatar,wallet,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       id, owner, title, object, brief, JSON.stringify(rules.length ? rules : ['A real object, found and scanned in person', 'Clear photo proof', 'First approved proof wins']), category, input.adult === true ? 1 : 0, usd, wei.toString(), ethUsd, cover ? `${this.runtime.apiOrigin}/api/artifacts/${cover}` : '', cover ? 'upload' : 'generating', promo ?? '', 'draft', deadline, who?.handle ?? '', who?.name ?? '', who?.avatar ?? '', wallet, now, now);
+    if (inspire) this.store.run('UPDATE op_rewards SET cover_hint=? WHERE id=?', inspire, id);
     this.audit(id, 'created', `Bounty drafted: $${usd} (${formatEther(wei)} ETH at ETH $${ethUsd.toFixed(2)}).`);
     this.store.metric('reward_created');
     return this.communityView(this.reward(id), owner);
@@ -139,7 +142,30 @@ export class RewardService {
     const obj = r.object.replace(/[^\p{L}\p{N} '&-]/gu, '').slice(0, 40);
     return `Wide 16:9 promotional poster, hyperreal 3D render. Bright saturated blue sky with fluffy white cumulus clouds, a sun flare in the top-left corner, a few floating iridescent soap bubbles. On the right half: a realistic ${obj} standing on a glowing translucent blue glass pedestal disc; the back part of the ${obj} dissolves into a cloud of small glowing blue and white voxel cubes, some cubes carrying white digits 0 and 1 and # symbols. On the left half, huge bold white rounded sans-serif headline text with a soft shadow reading exactly: "FIRST ${obj.toUpperCase()} SCAN: $${r.reward_usd}". Under it smaller bold white caps: "REWARDS ONLY GO UP." Under that, large white text: "objectpad.fun". Crisp, clean, joyful, high contrast, no other text, no watermark.${r.adult ? ' Tasteful and non-explicit; depict the object abstractly as a smooth sculptural shape.' : ''}`;
   }
-  setCover(id: string, url: string | null): void { this.store.run("UPDATE op_rewards SET cover=?,cover_state=?,updated_at=? WHERE id=? AND cover_state='generating'", url ?? '', url ? 'ready' : 'failed', Date.now(), id); }
+  /** Inspiration photo for the AI cover (its hash), if the poster gave one. */
+  coverHint(id: string): string { return this.store.one<{ cover_hint: string }>('SELECT cover_hint FROM op_rewards WHERE id=?', id)?.cover_hint ?? ''; }
+  /** Stores a finished AI cover. A failed regeneration keeps the previous cover. */
+  setCover(id: string, url: string | null): void { this.store.run("UPDATE op_rewards SET cover=CASE WHEN ?='' THEN cover ELSE ? END,cover_state=CASE WHEN ?='' THEN (CASE WHEN cover='' THEN 'failed' ELSE 'ready' END) ELSE 'ready' END,updated_at=? WHERE id=? AND cover_state='generating'", url ?? '', url ?? '', url ?? '', Date.now(), id); }
+  private photoExists(hash: string): boolean { return Boolean(this.store.one("SELECT hash FROM op_artifacts WHERE hash=? AND kind='reward_photo'", hash)); }
+  /**
+   * Poster changes the cover: `upload` uses their own photo as is; `ai` repaints the sky poster, optionally inspired by
+   * a photo of the object. Allowed while the bounty is a draft or open. Returns true when an AI job must run.
+   */
+  recover(actor: string, operator: boolean, id: string, mode: string, photo: string): { reward: Record<string, unknown>; generate: boolean } {
+    const r = this.reward(id); this.canManage(r, actor, operator);
+    if (!['draft', 'open'].includes(r.state)) throw new ApiError('REWARD_NOT_OPEN', 409);
+    if (r.cover_state === 'generating' && Date.now() - r.updated_at < 180_000) throw new ApiError('COVER_BUSY', 409);
+    const hash = PHOTO.test(photo) ? photo : ''; if (hash && !this.photoExists(hash)) throw new ApiError('REWARD_PHOTO_MISSING');
+    if (mode === 'upload') {
+      if (!hash) throw new ApiError('REWARD_PHOTO_MISSING');
+      this.store.run("UPDATE op_rewards SET cover=?,cover_state='upload',updated_at=? WHERE id=?", `${this.runtime.apiOrigin}/api/artifacts/${hash}`, Date.now(), id);
+      this.audit(id, 'cover', 'Cover photo updated by the poster.');
+      return { reward: this.communityView(this.reward(id), actor), generate: false };
+    }
+    if (mode !== 'ai') throw new ApiError('INVALID_INPUT');
+    this.store.run("UPDATE op_rewards SET cover_state='generating',cover_hint=CASE WHEN ?<>'' THEN ? ELSE cover_hint END,updated_at=? WHERE id=?", hash, hash, Date.now(), id);
+    return { reward: this.communityView(this.reward(id), actor), generate: true };
+  }
 
   /** Verifies the escrow deposit on Robinhood Chain and opens the bounty. Any wallet may fund it; refunds go back to that wallet. */
   async fund(owner: string, id: string, hash: string): Promise<Record<string, unknown>> {

@@ -442,8 +442,17 @@ export class ObjectPad extends DurableObject<Env> {
   }
   /** AI cover art for a new community bounty in the ObjectPad Rewards poster style. Falls back to the designed card if it fails. */
   private async rewardCover(id: string): Promise<void> {
-    const prompt = this.rewards.coverPrompt(id); if (!prompt) return;
+    let prompt = this.rewards.coverPrompt(id); if (!prompt) return;
     try {
+      const hint = this.rewards.coverHint(id);
+      if (hint) {
+        const stored = await this.runtime.artifactBucket.get(`objectpad/v1/artifacts/${hint}`);
+        if (stored) {
+          const look = await visionJson(this.runtime, 'You describe the main physical object in a photo for an illustrator. Return {"look": string} with at most 40 words: shape, colours, materials, markings. No people, no text, no brand claims.', 'Describe the object.', [new Uint8Array(await stored.arrayBuffer())], 200).catch(() => null);
+          const text = typeof look?.look === 'string' ? look.look.replace(/[^\p{L}\p{N} ,.'&-]/gu, '').slice(0, 260) : '';
+          if (text) prompt += ` The object must closely match this reference description: ${text}.`;
+        }
+      }
       if (!this.runtime.toolkitKey) throw new Error('no toolkit key');
       const model = 'openai/gpt-image-2';
       const response = await fetch(`${this.runtime.toolkitUrl}/v2/vercel/v3/ai/image-model`, { method: 'POST', headers: { Authorization: `Bearer ${this.runtime.toolkitKey}`, 'Content-Type': 'application/json', 'ai-gateway-protocol-version': '0.0.1', 'ai-image-model-specification-version': '4', 'ai-model-id': model }, body: JSON.stringify({ model, prompt, n: 1, size: '1536x1024', providerOptions: {} }), signal: AbortSignal.timeout(150_000) });
@@ -597,6 +606,8 @@ export class ObjectPad extends DurableObject<Env> {
       await this.ensureProfile(owner); const op = this.isOperator(owner); const data = await body(request);
       const str = (v: unknown, max: number): string => typeof v === 'string' ? v.slice(0, max) : '';
       if (path === '/rewards') { this.store.rate(`reward-create:${owner}`, 10, 86_400_000); const result = await this.rewards.create(owner, data, await ethPrice()); const run = this.rewardCover(String(result.id)); try { this.ctx.waitUntil(run); } catch { void run; } return json(result); }
+      const coverAct = path.match(/^\/rewards\/([a-f0-9-]{36})\/cover$/);
+      if (coverAct) { this.store.rate(`reward-cover:${coverAct[1]}`, 8, 86_400_000); const result = this.rewards.recover(owner, op, coverAct[1], str(data.mode, 10), str(data.photo, 64)); if (result.generate) { const run = this.rewardCover(coverAct[1]); try { this.ctx.waitUntil(run); } catch { void run; } } return json(result.reward); }
       const act = path.match(/^\/rewards\/([a-z0-9-]{3,40})\/(fund|cancel|submissions)$/);
       if (act) {
         if (act[2] === 'fund') { this.store.rate(`reward-fund:${owner}`, 30, 3_600_000); return json(await this.rewards.fund(owner, act[1], str(data.hash, 66))); }

@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { parseEther, type Address } from 'viem';
-import { ArrowLeft, ArrowRight, Camera, Check, Coins, Crown, ExternalLink, ImagePlus, Loader2, Lock, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, Trash2, Trophy, Upload, Wallet, X as XIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, Coins, Crown, ExternalLink, ImagePlus, Loader2, Lock, Plus, ScanLine, Search, Share2, ShieldCheck, Sparkles, Timer, Trash2, Trophy, Upload, Wallet, X as XIcon } from 'lucide-react';
 import { useSession } from '@/lib/session';
 import { useSigner, sendEth } from '@/lib/wallet';
 import { copyText, shortAddress, timeAgo } from '@/lib/format';
@@ -10,10 +10,22 @@ import { Dialog } from '@/components/ui/dialog';
 import { EarnSwitch } from '@/components/EarnSwitch';
 import { RewardShare } from '@/components/RewardShare';
 import { Avatar, RewardStatusPill, Scramble, SkyPoster, Voxels } from '@/components/RewardArt';
-import { CATEGORY_LABEL, addressUrl, rewardError, txUrl, useCancelReward, useCreateReward, useFundReward, usePayout, useReviewProof, useReward, useRewardBoard, useSubmitProof, useUploadPhoto, type Reward, type RewardCategory, type RewardProof } from '@/lib/rewards';
+import { RewardCreate, CoverStudio } from '@/components/RewardCreate';
+import { CATEGORY_LABEL, SORT_LABEL, addressUrl, countdown, rewardError, sortRewards, txUrl, useCancelReward, type RewardSort, useFundReward, usePayout, useReviewProof, useReward, useRewardBoard, useSubmitProof, useUploadPhoto, type Reward, type RewardProof } from '@/lib/rewards';
 
-type Filter = 'all' | 'open' | 'objectpad' | 'community' | 'paid' | 'mine';
-const FILTERS: { id: Filter; label: string }[] = [{ id: 'all', label: 'All' }, { id: 'open', label: 'Open now' }, { id: 'objectpad', label: 'By ObjectPad' }, { id: 'community', label: 'Community' }, { id: 'paid', label: 'Paid out' }, { id: 'mine', label: 'Mine' }];
+type Filter = 'all' | 'open' | 'paid' | 'mine';
+type Source = 'all' | 'objectpad' | 'community';
+const FILTERS: { id: Filter; label: string }[] = [{ id: 'open', label: 'Open now' }, { id: 'all', label: 'All' }, { id: 'paid', label: 'Paid out' }, { id: 'mine', label: 'Mine' }];
+const SOURCES: { id: Source; label: string }[] = [{ id: 'all', label: 'Everyone' }, { id: 'objectpad', label: 'By ObjectPad' }, { id: 'community', label: 'By users' }];
+
+/** Ticks once a second so countdowns stay live. */
+function useNow(): number { const [now, setNow] = useState<number>(() => Date.now()); useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(t); }, []); return now; }
+
+/** Live deadline countdown pill; urgent (<24h) pulses red, soon (<3d) is amber. */
+export function Countdown({ deadline, className }: { deadline?: number | null; className?: string }) {
+  const now = useNow(); const c = countdown(deadline, now);
+  return <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] font-extrabold uppercase tracking-[0.04em] tnum backdrop-blur-md', c.tier === 'urgent' ? 'bg-down text-white shadow-[0_0_24px_rgba(229,72,77,.6)]' : c.tier === 'soon' ? 'bg-[#F59E0B] text-ink' : c.tier === 'ended' ? 'bg-ink/70 text-white/70' : 'bg-ink/75 text-white', className)}>{c.tier === 'urgent' ? <span className="pulse-dot size-1.5 rounded-full bg-white"/> : <Timer size={11}/>}{c.tier === 'none' ? 'Until won' : c.tier === 'ended' ? 'Ended' : c.label}</span>;
+}
 const money = (v: number): string => `$${Math.round(v).toLocaleString('en-US')}`;
 
 function useCount(target: number, ms = 1100): number {
@@ -57,6 +69,7 @@ const RewardCard = memo(function RewardCard({ reward, index }: { reward: Reward;
       <SkyPoster reward={reward} reveal={!reward.adult} className="aspect-[16/9] w-full"/>
       <RewardStatusPill reward={reward} className="absolute left-3 top-3"/>
       <span className="absolute right-3 top-3 rounded-2xl bg-ink/85 px-3 py-1.5 font-display text-[22px] font-black leading-none text-white backdrop-blur-md tnum">{money(reward.rewardUsd)}</span>
+      {reward.status === 'open' && <Countdown deadline={reward.deadline} className="absolute bottom-3 left-3"/>}
       {reward.kind === 'community' && reward.status === 'open' && <span className="absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-mono text-[10.5px] font-extrabold uppercase text-ink"><Lock size={11}/>Escrowed</span>}
     </div>
     <div className="p-4">
@@ -114,8 +127,8 @@ function EscrowExplainer({ onPost }: { onPost: () => void }) {
 
 // ---------------- Create + fund ----------------
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) { return <label className="block"><span className="flex items-baseline justify-between px-1 text-[12.5px] font-extrabold">{label}{hint && <span className="font-mono text-[10.5px] font-bold text-ink/45">{hint}</span>}</span><div className="mt-1">{children}</div></label>; }
-const input = 'sunk w-full rounded-2xl px-4 py-3 text-[14px] font-semibold outline-none placeholder:text-ink/40 focus:ring-2 focus:ring-ink/20';
+
+const input = 'w-full rounded-2xl border-2 border-ink/10 bg-white px-4 py-3 text-[14px] font-semibold outline-none placeholder:text-ink/40 focus:border-ink';
 
 /** Funds a draft: one-tap from the signed-in wallet, or paste a hash from any wallet (MetaMask etc.). */
 export function FundPanel({ reward, onDone }: { reward: Reward; onDone?: (r: Reward) => void }) {
@@ -150,58 +163,15 @@ export function FundPanel({ reward, onDone }: { reward: Reward; onDone?: (r: Rew
   </div>;
 }
 
-function CreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const session = useSession(); const create = useCreateReward(); const upload = useUploadPhoto(); const navigate = useNavigate();
-  const [object, setObject] = useState<string>(''); const [brief, setBrief] = useState<string>(''); const [usd, setUsd] = useState<number>(50); const [category, setCategory] = useState<RewardCategory>('find');
-  const [days, setDays] = useState<number>(14); const [promo, setPromo] = useState<string>(''); const [adult, setAdult] = useState<boolean>(false); const [cover, setCover] = useState<{ hash: string; url: string } | null>(null);
-  const [rules, setRules] = useState<string>('A real object, found and scanned in person\nClear photo proof of the object\nFirst approved proof wins');
-  const [draft, setDraft] = useState<Reward | null>(null);
-  const reset = () => { setDraft(null); create.reset(); };
-  const ready = object.trim().length >= 2 && brief.trim().length >= 10 && usd >= 5 && usd <= 10_000;
-  const submit = () => create.mutate({ object: object.trim(), title: `First ${object.trim()} scan`, brief: brief.trim(), rules: rules.split('\n').map(r => r.trim()).filter(Boolean), category, adult, rewardUsd: usd, promoUrl: promo.trim(), days, cover: cover?.hash ?? '' }, { onSuccess: r => setDraft(r) });
-  return <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) reset(); }} title={draft ? 'Lock the reward' : 'Post a bounty'} description={draft ? 'Step 2 of 2 · fund the escrow so hunters know the money is real.' : 'Step 1 of 2 · say what you want found, scanned or tokenized.'}>
-    {!session.authenticated ? <div className="space-y-3"><p className="text-[14px] font-semibold text-ink/70">Sign in with X, email or a wallet to post bounties and get paid for proofs.</p><button onClick={() => session.login()} className="btn press min-h-12 w-full">Sign in / Sign up</button></div>
-      : draft ? <div className="space-y-3">
-        <div className="overflow-hidden rounded-[20px]"><SkyPoster reward={draft} className="aspect-[16/9] w-full"/></div>
-        <FundPanel reward={draft} onDone={r => { onOpenChange(false); reset(); navigate(`/rewards/${r.id}?live=1`); }}/>
-        <button onClick={() => { onOpenChange(false); navigate(`/rewards/${draft.id}`); }} className="btn-ghost press min-h-11 w-full text-[13px]">Fund later from the bounty page</button>
-      </div>
-      : <form onSubmit={e => { e.preventDefault(); if (ready) submit(); }} className="space-y-3.5">
-        <Field label="What should hunters find?" hint={`${object.length}/60`}><input value={object} onChange={e => setObject(e.target.value.slice(0, 60))} placeholder="Rotary phone, Pepe plush, a $DOGE billboard…" className={input}/></Field>
-        <Field label="The ask" hint={`${brief.length}/280`}><textarea value={brief} onChange={e => setBrief(e.target.value.slice(0, 280))} rows={3} placeholder="Find a real one in the wild, scan it on ObjectPad and launch its coin." className={cn(input, 'resize-none')}/></Field>
-        <Field label="Reward" hint="$5 – $10,000 · paid in ETH">
-          <div className="flex flex-wrap gap-1.5">{[25, 50, 100, 250, 500].map(v => <button type="button" key={v} onClick={() => setUsd(v)} className={cn('press min-h-10 rounded-xl px-3.5 text-[13px] font-extrabold', usd === v ? 'btn' : 'btn-ghost')}>${v}</button>)}
-            <input type="number" min={5} max={10000} value={usd} onChange={e => setUsd(Math.max(0, Math.min(10000, Number(e.target.value) || 0)))} className="sunk min-h-10 w-24 rounded-xl px-3 font-mono text-[13px] font-bold outline-none" aria-label="Custom reward in USD"/></div>
-        </Field>
-        <Field label="Type"><div className="flex flex-wrap gap-1.5">{(Object.keys(CATEGORY_LABEL) as RewardCategory[]).map(c => <button type="button" key={c} onClick={() => setCategory(c)} className={cn('press min-h-10 rounded-xl px-3 text-[12.5px] font-extrabold', category === c ? 'btn' : 'btn-ghost')}>{CATEGORY_LABEL[c]}</button>)}</div></Field>
-        <Field label="Rules" hint="one per line · max 4"><textarea value={rules} onChange={e => setRules(e.target.value)} rows={3} className={cn(input, 'resize-none text-[13px]')}/></Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Runs for"><select value={days} onChange={e => setDays(Number(e.target.value))} className={input}>{[3, 7, 14, 30].map(d => <option key={d} value={d}>{d} days</option>)}<option value={0}>Until won</option></select></Field>
-          <Field label="Your link" hint="optional"><input value={promo} onChange={e => setPromo(e.target.value)} placeholder="https://x.com/…" className={input}/></Field>
-        </div>
-        <Field label="Cover" hint={cover ? 'your photo' : 'AI paints one if empty'}>
-          <label className="sunk press flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl px-3">
-            {cover ? <img src={cover.url} alt="" className="size-10 rounded-xl object-cover"/> : <span className="flex size-10 items-center justify-center rounded-xl bg-ink text-white">{upload.isPending ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>}</span>}
-            <span className="flex-1 text-[13px] font-bold text-ink/70">{upload.isPending ? 'Uploading…' : cover ? 'Replace photo' : 'Leave empty for an AI sky poster, or upload a photo'}</span>
-            <input type="file" accept="image/*" className="sr-only" onChange={e => { const f = e.target.files?.[0]; if (f) upload.mutate(f, { onSuccess: setCover }); e.target.value = ''; }}/>
-          </label>
-          {upload.isError && <p className="mt-1 px-1 text-[12px] font-bold text-down">{rewardError(upload.error)}</p>}
-        </Field>
-        <label className="flex min-h-10 items-center gap-2 px-1 text-[12.5px] font-bold text-ink/70"><input type="checkbox" checked={adult} onChange={e => setAdult(e.target.checked)} className="size-4 accent-ink"/>18+ object (cover is blurred until tapped)</label>
-        {create.isError && <p className="px-1 text-[12.5px] font-bold text-down">{rewardError(create.error)}</p>}
-        <button type="submit" disabled={!ready || create.isPending || upload.isPending} className="btn press min-h-13 w-full py-3.5 text-[14.5px] disabled:opacity-40">{create.isPending ? <Loader2 size={16} className="animate-spin"/> : <ArrowRight size={16}/>}Continue to escrow · {money(usd)}</button>
-        <p className="px-1 text-center text-[11px] font-semibold text-ink/45">Bounties must follow the Safety rules. ObjectPad can remove abusive bounties; funded ones are refunded.</p>
-      </form>}
-  </Dialog>;
-}
-
 // ---------------- Board page ----------------
 
 export default function Rewards() {
-  const board = useRewardBoard(); const session = useSession(); const [filter, setFilter] = useState<Filter>('all'); const [q, setQ] = useState<string>(''); const [creating, setCreating] = useState<boolean>(false);
+  const board = useRewardBoard(); const session = useSession(); const [filter, setFilter] = useState<Filter>('open'); const [source, setSource] = useState<Source>('all'); const [sort, setSort] = useState<RewardSort>('best'); const [now] = useState<number>(() => Date.now()); const [q, setQ] = useState<string>(''); const [creating, setCreating] = useState<boolean>(false);
   const all = useMemo(() => board.data?.bounties ?? [], [board.data]); const stats = board.data?.stats;
-  const list = useMemo(() => all.filter(b => filter === 'all' ? b.status !== 'cancelled' : filter === 'open' ? b.status === 'open' : filter === 'objectpad' ? b.kind === 'platform' : filter === 'community' ? b.kind === 'community' && b.status !== 'cancelled' : filter === 'paid' ? b.status === 'paid' : b.mine || b.submissions.some(s => s.mine))
-    .filter(b => !q.trim() || `${b.title} ${b.object} ${b.tagline} ${b.poster.handle}`.toLowerCase().includes(q.trim().toLowerCase())), [all, filter, q]);
+  const list = useMemo(() => sortRewards(all.filter(b => filter === 'all' ? b.status !== 'cancelled' : filter === 'open' ? b.status === 'open' : filter === 'paid' ? b.status === 'paid' : b.mine || b.submissions.some(s => s.mine))
+    .filter(b => source === 'all' || (source === 'objectpad' ? b.kind === 'platform' : b.kind === 'community'))
+    .filter(b => !q.trim() || `${b.title} ${b.object} ${b.tagline} ${b.poster.handle}`.toLowerCase().includes(q.trim().toLowerCase())), sort, now), [all, filter, source, sort, q, now]);
+  const counts = useMemo(() => ({ all: all.filter(b => b.status === 'open').length, objectpad: all.filter(b => b.kind === 'platform' && b.status === 'open').length, community: all.filter(b => b.kind === 'community' && b.status === 'open').length }), [all]);
   const post = () => { if (!session.authenticated) session.login(); else setCreating(true); };
   return <div className="page pb-24 pt-6 sm:pt-10">
     <EarnSwitch className="enter"/>
@@ -226,9 +196,16 @@ export default function Rewards() {
     <Ribbon bounties={all}/>
 
     <div className="sticky top-[62px] z-30 -mx-4 mt-8 bg-paper/80 px-4 py-2 backdrop-blur-xl lg:top-[92px]">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1">{FILTERS.map(f => <button key={f.id} onClick={() => setFilter(f.id)} className={cn('press min-h-10 shrink-0 rounded-full px-4 text-[13px] font-extrabold transition-colors', filter === f.id ? 'bg-ink text-white' : 'sunk text-ink/70 hover:text-ink')}>{f.label}</button>)}</div>
-        <label className="sunk flex min-h-10 flex-1 items-center gap-2 rounded-full px-4 sm:max-w-xs sm:ml-auto"><Search size={15} className="text-ink/45"/><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search objects" className="min-w-0 flex-1 bg-transparent text-[13.5px] font-semibold outline-none placeholder:text-ink/40"/></label>
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="grid grid-cols-3 gap-1 rounded-2xl bg-ink p-1 sm:w-[420px]">{SOURCES.map(o => <button key={o.id} onClick={() => setSource(o.id)} className={cn('press flex min-h-10 items-center justify-center gap-1.5 rounded-xl text-[12.5px] font-extrabold transition-all', source === o.id ? 'bg-white text-ink shadow-[0_6px_16px_-6px_rgba(255,255,255,.5)]' : 'text-white/70 hover:text-white')}>{o.label}<span className={cn('rounded-md px-1.5 font-mono text-[10.5px]', source === o.id ? 'bg-ink text-white' : 'bg-white/15')}>{counts[o.id]}</span></button>)}</div>
+          <label className="sunk flex min-h-11 flex-1 items-center gap-2 rounded-2xl px-4 sm:ml-auto sm:max-w-xs"><Search size={15} className="text-ink/45"/><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search objects" className="min-w-0 flex-1 bg-transparent text-[13.5px] font-semibold outline-none placeholder:text-ink/40"/></label>
+        </div>
+        <div className="no-scrollbar -mx-1 flex items-center gap-1.5 overflow-x-auto px-1">
+          {FILTERS.map(f => <button key={f.id} onClick={() => setFilter(f.id)} className={cn('press min-h-10 shrink-0 rounded-full px-4 text-[13px] font-extrabold transition-colors', filter === f.id ? 'bg-ink text-white' : 'bg-white text-ink/70 shadow-[0_1px_0_rgba(12,13,16,.08)] hover:text-ink')}>{f.label}</button>)}
+          <span className="mx-1 h-6 w-px shrink-0 bg-ink/15"/>
+          {(Object.keys(SORT_LABEL) as RewardSort[]).map(k => <button key={k} onClick={() => setSort(k)} className={cn('press min-h-10 shrink-0 rounded-full px-3.5 text-[12.5px] font-extrabold transition-colors', sort === k ? 'bg-[#2F7BF2] text-white shadow-[0_8px_20px_-8px_rgba(47,123,242,.8)]' : 'text-ink/60 hover:text-ink')}>{k === 'best' && <Sparkles size={12} className="mr-1 inline"/>}{k === 'ending' && <Timer size={12} className="mr-1 inline"/>}{SORT_LABEL[k]}</button>)}
+        </div>
       </div>
     </div>
 
@@ -245,7 +222,7 @@ export default function Rewards() {
     <WinnersWall bounties={all}/>
     <EscrowExplainer onPost={post}/>
     <p className="mt-6 text-[12px] font-semibold leading-relaxed text-ink/50">ObjectPad bounties are judged by the ObjectPad team and paid from the team wallet. Community bounties are posted by users; the reward is held in the ObjectPad Rewards escrow wallet and released by the poster (or ObjectPad) to the winner’s wallet, or refunded to the funder on cancel. Every deposit, payout and refund is linked to Robinhood Chain.</p>
-    <CreateDialog open={creating} onOpenChange={setCreating}/>
+    <RewardCreate open={creating} onOpenChange={setCreating} fund={(r, done) => <FundPanel reward={r} onDone={done}/>}/>
   </div>;
 }
 
@@ -343,6 +320,7 @@ export function RewardDetail() {
       <button onClick={() => setReveal(true)} className="block w-full text-left" disabled={!r.adult || reveal} aria-label={r.adult && !reveal ? 'Reveal 18+ cover' : r.title}><SkyPoster reward={r} big reveal={!r.adult || reveal} className="aspect-[16/9] w-full sm:aspect-[21/9]"/></button>
       <RewardStatusPill reward={r} className="absolute left-4 top-4"/>
       <span className="absolute right-4 top-4 rounded-2xl bg-ink/85 px-4 py-2 font-display text-[30px] font-black leading-none text-white backdrop-blur-md tnum">{money(r.rewardUsd)}</span>
+      {r.status === 'open' && <Countdown deadline={r.deadline} className="absolute bottom-4 left-4 px-3.5 py-1.5 text-[13px]"/>}
       {(justLive || r.status === 'paid') && <Confetti/>}
     </div>
     <div className="mt-6 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
@@ -367,6 +345,7 @@ export function RewardDetail() {
       <aside className="space-y-4 lg:sticky lg:top-28 lg:self-start">
         {r.kind === 'platform' && <PlatformWinner reward={r}/>}
         {winner && r.kind === 'community' && <div className="raised rounded-[24px] p-4 ring-2 ring-up"><p className="flex items-center gap-1.5 font-mono text-[11px] font-extrabold uppercase text-up"><Crown size={12}/>{r.status === 'paid' ? 'Winner paid · confirmed on-chain' : 'Payout sending…'}</p><div className="mt-2 flex items-center gap-3"><Avatar src={winner.avatar} name={winner.handle || winner.wallet} size={44}/><p className="text-[15px] font-extrabold">{winner.handle ? `@${winner.handle}` : winner.wallet}</p></div>{r.payoutTx && <a href={txUrl(r.payoutTx)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 font-mono text-[11.5px] font-bold text-up underline">View payout<ExternalLink size={11}/></a>}</div>}
+        {r.mine && r.kind === 'community' && (r.status === 'draft' || r.status === 'open') && <details className="raised group rounded-[24px] p-4" open={r.status === 'draft'}><summary className="flex cursor-pointer list-none items-center gap-2 text-[14px] font-extrabold"><Sparkles size={16}/>Cover studio<span className="ml-auto font-mono text-[11px] text-ink/45 group-open:hidden">edit</span></summary><div className="mt-3"><CoverStudio reward={r} compact/></div></details>}
         {r.status === 'draft' && r.mine && <div className="raised rounded-[24px] p-4"><p className="display text-[22px]">Fund to go live</p><p className="mb-3 mt-1 text-[13px] font-semibold text-ink/60">Only you can see this draft until the reward is locked.</p><FundPanel reward={r}/></div>}
         <ProofForm reward={r}/>
         {r.kind === 'community' && r.status !== 'draft' && <div className="raised rounded-[24px] p-4">

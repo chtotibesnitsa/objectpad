@@ -1,26 +1,22 @@
 import Testing
 @testable import Tagstock
 
-struct FormatTests {
-    @Test func weiToEthMatchesWebsite() {
-        #expect(Format.eth("64350000000000000", digits: 4) == "0.0643 ETH")
-        #expect(Format.eth("1000000000000000000") == "1 ETH")
-        #expect(Format.units("1847523414000000000000000") == "1.85M")
+struct CryptoTests {
+    @Test func keccakMatchesEthereum() {
+        #expect(Hex.string(Keccak.hash("")) == "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+        #expect(Keccak.selector("balanceOf(address)") == "0x70a08231")
+        #expect(Keccak.selector("claim()") == "0x4e71d92d")
     }
 
-    @Test func hexQuantities() {
-        #expect(Wei.hexToDouble("0xde0b6b3a7640000") == 1.0)
-        #expect(Wei.hexToDouble("0x1", decimals: 0) == 1)
-    }
-
-    @Test func addresses() {
-        #expect(Chain.isAddress("0x03de80661ac0766ad1da66e024b9e4cc91af407a"))
-        #expect(!Chain.isAddress("0x03de"))
-        #expect(Format.shortAddress("0x03de80661ac0766ad1da66e024b9e4cc91af407a") == "0x03de...407a")
+    @Test func bigUIntParsing() {
+        #expect(BigUInt.parse("1")?.decimalString == "1000000000000000000")
+        #expect(BigUInt.parse("0.015")?.formatUnits(digits: 6) == "0.015")
+        #expect(BigUInt(hex: "0xde0b6b3a7640000") == BigUInt.weiPerEth)
+        #expect(BigUInt.parse("abc") == nil)
     }
 
     @Test func deepLinks() {
-        #expect(Route.from(url: URL(string: "https://casepad.fun/token/0x03de80661ac0766ad1da66e024b9e4cc91af407a")!) == .token("0x03de80661ac0766ad1da66e024b9e4cc91af407a"))
-        #expect(Route.from(url: URL(string: "https://casepad.fun/transactions")!) == .transactions)
+        #expect(Route.from(url: URL(string: "https://objectpad.fun/rewards/payphone")!) == .reward("payphone"))
+        #expect(Route.from(url: URL(string: "https://www.objectpad.fun/burn")!) == .burn)
     }
 }

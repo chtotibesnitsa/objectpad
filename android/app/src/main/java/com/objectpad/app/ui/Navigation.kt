@@ -29,7 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -67,6 +67,9 @@ import com.objectpad.app.ui.screens.CraftScreen
 import com.objectpad.app.ui.screens.HomeScreen
 import com.objectpad.app.ui.screens.InfoScreen
 import com.objectpad.app.ui.screens.MeScreen
+import com.objectpad.app.ui.screens.RewardCreateScreen
+import com.objectpad.app.ui.screens.RewardDetailScreen
+import com.objectpad.app.ui.screens.RewardsScreen
 import com.objectpad.app.ui.screens.SignInScreen
 import com.objectpad.app.ui.screens.TreasuryScreen
 import com.objectpad.app.ui.studio.StudioScreen
@@ -75,7 +78,7 @@ import com.objectpad.app.ui.theme.Type
 import kotlinx.coroutines.delay
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
-private val TABS = listOf(Tab("home", "Home", Icons.Default.Home), Tab("coins", "Coins", Icons.Default.GridView), Tab("scan", "Scan", Icons.Default.ViewInAr), Tab("burn", "Burn", Icons.Default.LocalFireDepartment), Tab("me", "Me", Icons.Default.AccountCircle))
+private val TABS = listOf(Tab("home", "Home", Icons.Default.Home), Tab("coins", "Coins", Icons.Default.GridView), Tab("scan", "Scan", Icons.Default.ViewInAr), Tab("rewards", "Rewards", Icons.Default.EmojiEvents), Tab("me", "Me", Icons.Default.AccountCircle))
 
 /** Routes a deep link (objectpad.fun URL) to its native screen. */
 fun routeFor(uri: Uri?): String? {
@@ -86,6 +89,8 @@ fun routeFor(uri: Uri?): String? {
         path.startsWith("/launch/") -> path.removePrefix("/launch/").takeIf { Regex("^[a-f0-9-]{36}$").matches(it) }?.let { "studio/$it" }
         path.startsWith("/objects/") -> "coin/${path.removePrefix("/objects/")}"
         path.startsWith("/coin/") -> "coin/${path.removePrefix("/coin/")}"
+        path == "/rewards" -> "rewards"
+        path.startsWith("/rewards/") -> "reward/${path.removePrefix("/rewards/")}"
         else -> null
     }
 }
@@ -114,6 +119,9 @@ fun AppNavigation(link: Uri?) {
             composable("coins") { Box(Modifier.statusBarsPadding()) { CoinsScreen(app, ::openCoin) { vm.refreshAll() } } }
             composable("scan") { Box(Modifier.statusBarsPadding()) { ScanHub(app, ::startScan, { open("qr") }, ::openStudio) } }
             composable("burn") { Box(Modifier.statusBarsPadding()) { BurnScreen(app) } }
+            composable("rewards") { Box(Modifier.statusBarsPadding()) { RewardsScreen({ id -> open("reward/$id") }, { open("reward-new") }) } }
+            composable("reward/{id}", listOf(navArgument("id") { type = NavType.StringType })) { e -> RewardDetailScreen(e.arguments?.getString("id").orEmpty(), { nav.popBackStack() }) { open("signin") } }
+            composable("reward-new") { RewardCreateScreen({ nav.popBackStack() }, { open("signin") }) { id -> nav.navigate("reward/$id") { popUpTo("reward-new") { inclusive = true } } } }
             composable("me") { Box(Modifier.statusBarsPadding()) { MeScreen(app, ::openCoin, ::openStudio, { open("signin") }, { r -> open(if (r in setOf("treasury", "community", "craft")) r else "info/$r") }) { vm.refreshHoldings() } } }
             composable("coin/{id}", listOf(navArgument("id") { type = NavType.StringType })) { e ->
                 CoinScreen(e.arguments?.getString("id").orEmpty(), app, { nav.popBackStack() }, vm::toggleWatch, vm::refreshHoldings) { open("signin") }
@@ -133,7 +141,7 @@ fun AppNavigation(link: Uri?) {
             composable("craft") { CraftScreen { nav.popBackStack() } }
             composable("info/{kind}") { e -> InfoScreen(e.arguments?.getString("kind").orEmpty(), app, { nav.popBackStack() }, ::openCoin) }
         }
-        AnimatedVisibility(route in TABS.map { it.route }, Modifier.align(Alignment.BottomCenter), enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
+        AnimatedVisibility(route in TABS.map { it.route } || route == "burn", Modifier.align(Alignment.BottomCenter), enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
             TabBar(route) { r -> if (r == "scan" && route == "scan") startScan() else nav.tab(r) }
         }
         app.toast?.let { msg ->

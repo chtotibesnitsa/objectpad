@@ -1,188 +1,152 @@
 import Foundation
 
-/// Minimal JSON-RPC client for Robinhood Chain (id 4663). Values mirror
-/// `web-handlesend/src/lib/pons.ts`; selectors/topics were computed from the same ABI.
+/// Robinhood Chain + ObjectPad protocol constants (mirrors `web-handlesend/src/shared/pons.ts` and `economy.ts`).
 nonisolated enum Chain {
-    static let id = 4663
+    static let id: UInt64 = 4663
     static let name = "Robinhood Chain"
     static let rpc = URL(string: "https://rpc.mainnet.chain.robinhood.com")!
     static let explorer = "https://robinhoodchain.blockscout.com"
-    static let ponsFactory = "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e"
-    static let ponsRouter = "0xe33e9e479df8802cb0866d5d05258bec4cf62948"
-    static let casepadToken = "0x03de80661ac0766ad1da66e024b9e4cc91af407a"
-    static let burnAddress = "0x000000000000000000000000000000000000dead"
-    static let totalSupply: Double = 1_000_000_000
-    static let creatorTaxBps = 150
-    static let curveFeeBps = 100
+    static let feeEscrow = "0xd3afeb2a57f70ef218aa82451c51b2fb0416ac9e"
+    static let objectpadToken = "0x520541d03dec790ce51746da2a495dafa62e87f8"
+    static let quoteAccount = "0x1111111111111111111111111111111111111111"
+    /// The creator keeps 3,334 / 10,000 of the 1.5% creator tax; the rest goes to buyback-burn and holders.
+    static let creatorShareBps: UInt32 = 3_334
 
     static func txURL(_ hash: String) -> URL { URL(string: "\(explorer)/tx/\(hash)")! }
     static func addressURL(_ address: String) -> URL { URL(string: "\(explorer)/address/\(address)")! }
     static func tokenURL(_ address: String) -> URL { URL(string: "\(explorer)/token/\(address)")! }
-    static func isAddress(_ s: String) -> Bool {
-        s.count == 42 && s.hasPrefix("0x") && s.dropFirst(2).allSatisfy(\.isHexDigit)
-    }
-
-    enum Selector {
-        static let token = "0xfc0c546a"
-        static let quoteReserve = "0x9da771f4"
-        static let tokenReserve = "0xcbcb3171"
-        static let phantomQuote = "0xc57eadfc"
-        static let graduationThreshold = "0x8b0bc501"
-        static let graduated = "0xe7c2b772"
-        static let creatorTaxBps = "0xc1bb8901"
-        static let balanceOf = "0x70a08231"
-        static let totalSupply = "0x18160ddd"
-    }
-    static let curveBuyTopic = "0xec36bf571f136799e8dc0b0b8bea4b04d8bd3d43de838aab0d5fc21d4cbfc455"
-    static let curveSellTopic = "0x8113d738abdcb6b38357e9d53a54a7157861a09031b453651f0fe7fe151f59df"
+    static func isAddress(_ s: String) -> Bool { let t = s.trimmingCharacters(in: .whitespaces); return t.count == 42 && t.hasPrefix("0x") && t.dropFirst(2).allSatisfy(\.isHexDigit) }
+    static func isHash(_ s: String) -> Bool { s.count == 66 && s.hasPrefix("0x") && s.dropFirst(2).allSatisfy(\.isHexDigit) }
 }
 
-nonisolated struct RpcLog: Decodable {
-    let address: String
-    let data: String
-    let topics: [String]
-    let blockNumber: String
-    let transactionHash: String
-    let logIndex: String
+nonisolated enum Abi {
+    static let buy = Keccak.selector("buy(uint256,uint256,address)")
+    static let sell = Keccak.selector("sell(uint256,uint256,address)")
+    static let approve = Keccak.selector("approve(address,uint256)")
+    static let allowance = Keccak.selector("allowance(address,address)")
+    static let balanceOf = Keccak.selector("balanceOf(address)")
+    static let claim = Keccak.selector("claim()")
+    static let quoteReserve = Keccak.selector("quoteReserve()")
+    static let tokenReserve = Keccak.selector("tokenReserve()")
+    static let phantomQuote = Keccak.selector("phantomQuote()")
+    static let graduationThreshold = Keccak.selector("graduationThreshold()")
+    static let graduated = Keccak.selector("graduated()")
+
+    static func word(_ v: BigUInt) -> String { Hex.pad(v.hex) }
+    static func addr(_ a: String) -> String { Hex.pad(a) }
+    static func buyData(_ quoteIn: BigUInt, _ minOut: BigUInt, _ to: String) -> String { buy + word(quoteIn) + word(minOut) + addr(to) }
+    static func sellData(_ tokensIn: BigUInt, _ minOut: BigUInt, _ to: String) -> String { sell + word(tokensIn) + word(minOut) + addr(to) }
+    static func approveData(_ spender: String, _ amount: BigUInt) -> String { approve + addr(spender) + word(amount) }
 }
+
+nonisolated struct CurveState: Sendable { let priceEth: Double; let marketCapEth: Double; let realReserveEth: Double; let progress: Double; let graduated: Bool }
 
 nonisolated enum ChainError: LocalizedError {
-    case rpc(String)
-    var errorDescription: String? {
-        if case .rpc(let m) = self { return "Robinhood Chain RPC: \(m)" }
-        return nil
-    }
+    case message(String)
+    var errorDescription: String? { if case .message(let m) = self { return m }; return nil }
 }
 
+/// JSON-RPC client for Robinhood Chain. Every balance and quote shown in the app is read here or from the ObjectPad API.
 nonisolated struct ChainClient: Sendable {
     static let shared = ChainClient()
-    private let session = URLSession(configuration: .ephemeral)
+    private let session: URLSession = { let c = URLSessionConfiguration.ephemeral; c.timeoutIntervalForRequest = 15; return URLSession(configuration: c) }()
 
-    private struct RpcResponse<T: Decodable>: Decodable {
-        struct Err: Decodable { let message: String }
-        let result: T?
-        let error: Err?
+    private func friendly(_ raw: String) -> String {
+        let l = raw.lowercased()
+        if l.contains("insufficient funds") { return "Not enough ETH on Robinhood Chain for this amount plus gas." }
+        if l.contains("execution reverted") { return "The contract rejected this (price moved or amount too large). Nothing was sent." }
+        if l.contains("nonce") { return "Your wallet had a pending transaction. Wait a moment and retry." }
+        return "Robinhood Chain: \(raw.prefix(140))"
     }
 
-    func call<T: Decodable>(_ method: String, _ params: [Any]) async throws -> T {
-        var req = URLRequest(url: Chain.rpc)
-        req.httpMethod = "POST"
-        req.timeoutInterval = 12
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    func call(_ method: String, _ params: [Any]) async throws -> Any {
+        var req = URLRequest(url: Chain.rpc); req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": method, "params": params])
-        let (data, _) = try await session.data(for: req)
-        let decoded = try JSONDecoder().decode(RpcResponse<T>.self, from: data)
-        if let error = decoded.error { throw ChainError.rpc(error.message) }
-        guard let result = decoded.result else { throw ChainError.rpc("empty result") }
-        return result
+        let data: Data
+        do { (data, _) = try await session.data(for: req) } catch { throw ChainError.message("Robinhood Chain could not be reached. Check your connection.") }
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ChainError.message("Robinhood Chain sent an unreadable reply.") }
+        if let err = obj["error"] as? [String: Any] { throw ChainError.message(friendly(err["message"] as? String ?? "RPC error")) }
+        return obj["result"] ?? NSNull()
     }
 
-    func blockNumber() async throws -> Int {
-        let hex: String = try await call("eth_blockNumber", [])
-        return Int(hex.dropFirst(2), radix: 16) ?? 0
+    private func big(_ any: Any) -> BigUInt { BigUInt(hex: any as? String ?? "0x0") ?? .zero }
+
+    func ethCall(to: String, data: String, from: String? = nil, value: BigUInt? = nil, overrides: [String: Any]? = nil) async throws -> String {
+        var tx: [String: Any] = ["to": to, "data": data]
+        if let from { tx["from"] = from }
+        if let value { tx["value"] = value.hex }
+        var params: [Any] = [tx, "latest"]
+        if let overrides { params.append(overrides) }
+        return try await call("eth_call", params) as? String ?? "0x"
     }
 
-    func chainId() async throws -> Int {
-        let hex: String = try await call("eth_chainId", [])
-        return Int(hex.dropFirst(2), radix: 16) ?? 0
+    func balance(_ address: String) async throws -> BigUInt { big(try await call("eth_getBalance", [address, "latest"])) }
+    func tokenBalance(_ token: String, owner: String) async throws -> BigUInt { BigUInt(hex: try await ethCall(to: token, data: Abi.balanceOf + Abi.addr(owner))) ?? .zero }
+    func allowance(_ token: String, owner: String, spender: String) async throws -> BigUInt { BigUInt(hex: try await ethCall(to: token, data: Abi.allowance + Abi.addr(owner) + Abi.addr(spender))) ?? .zero }
+    /// Creator fees waiting for `owner` in the Pons fee escrow.
+    func escrowBalance(_ owner: String) async throws -> BigUInt { try await tokenBalance(Chain.feeEscrow, owner: owner) }
+    func gasPrice() async throws -> BigUInt { big(try await call("eth_gasPrice", [])) }
+    func nonce(_ address: String) async throws -> BigUInt { big(try await call("eth_getTransactionCount", [address, "pending"])) }
+    func sendRaw(_ raw: String) async throws -> String { try await call("eth_sendRawTransaction", [raw]) as? String ?? "" }
+
+    func estimateGas(from: String, _ tx: TxRequest) async throws -> BigUInt {
+        big(try await call("eth_estimateGas", [["from": from, "to": tx.to, "data": tx.data, "value": tx.value.hex]]))
     }
 
-    func ethCall(to: String, data: String) async throws -> String {
-        try await call("eth_call", [["to": to, "data": data], "latest"])
-    }
-
-    /// Native ETH balance for a wallet, in ETH.
-    func ethBalance(_ address: String) async throws -> Double {
-        let hex: String = try await call("eth_getBalance", [address, "latest"])
-        return Wei.hexToDouble(hex)
-    }
-
-    /// ERC-20 balance for a wallet, in whole tokens (18 decimals).
-    func tokenBalance(token: String, owner: String) async throws -> Double {
-        let padded = String(repeating: "0", count: 24) + owner.lowercased().dropFirst(2)
-        let hex = try await ethCall(to: token, data: Chain.Selector.balanceOf + padded)
-        return Wei.hexToDouble(hex)
-    }
-
-    /// Mirrors website `readCurveState`, including the phantom-reserve fix.
-    func curveState(curve: String) async throws -> CurveState {
-        async let q = ethCall(to: curve, data: Chain.Selector.quoteReserve)
-        async let r = ethCall(to: curve, data: Chain.Selector.tokenReserve)
-        async let p = ethCall(to: curve, data: Chain.Selector.phantomQuote)
-        async let g = ethCall(to: curve, data: Chain.Selector.graduationThreshold)
-        async let grad = ethCall(to: curve, data: Chain.Selector.graduated)
-        async let tax = ethCall(to: curve, data: Chain.Selector.creatorTaxBps)
-        let quote = Wei.hexToDouble(try await q)
-        let reserve = Wei.hexToDouble(try await r)
-        let phantom = Wei.hexToDouble(try await p)
-        let threshold = Wei.hexToDouble(try await g)
-        let graduated = Wei.hexToDouble(try await grad, decimals: 0) > 0
-        let creatorTax = Int(Wei.hexToDouble(try await tax, decimals: 0))
-        let virtualQuote = quote >= phantom ? quote : quote + phantom
-        let realQuote = max(0, virtualQuote - phantom)
-        let price = reserve > 0 ? virtualQuote / reserve : 0
-        return CurveState(
-            quoteReserve: quote, tokenReserve: reserve, phantomQuote: phantom, graduationThreshold: threshold,
-            graduated: graduated, creatorTaxBps: creatorTax, priceEth: price, mcapEth: price * Chain.totalSupply,
-            reserveEth: realQuote, sold: max(0, Chain.totalSupply - reserve),
-            progress: graduated ? 1 : (threshold > 0 ? min(1, realQuote / threshold) : 0)
-        )
-    }
-
-    /// Mirrors website `readCurveHistory`: CurveBuy/CurveSell logs since launch, timestamps per block.
-    func curveHistory(curve: String, fromBlock: Int) async throws -> [CurveTrade] {
-        let latest = try await blockNumber()
-        let window = 50_000
-        var start = fromBlock > 0 ? fromBlock : max(0, latest - window * 4)
-        var logs: [RpcLog] = []
-        var windows = 0
-        while start <= latest && windows < 40 {
-            let to = min(latest, start + window)
-            let batch: [RpcLog] = try await call("eth_getLogs", [["address": curve, "fromBlock": "0x" + String(start, radix: 16), "toBlock": "0x" + String(to, radix: 16)]])
-            logs.append(contentsOf: batch)
-            start = to + 1
-            windows += 1
-        }
-        var trades: [CurveTrade] = []
-        for log in logs {
-            guard let topic = log.topics.first?.lowercased(), topic == Chain.curveBuyTopic || topic == Chain.curveSellTopic else { continue }
-            let words = Self.words(log.data)
-            guard words.count >= 4 else { continue }
-            let isBuy = topic == Chain.curveBuyTopic
-            let a = Wei.hexToDouble(words[0]), b = Wei.hexToDouble(words[1]), fee = Wei.hexToDouble(words[3])
-            trades.append(CurveTrade(
-                txHash: log.transactionHash, logIndex: Int(log.logIndex.dropFirst(2), radix: 16) ?? 0,
-                blockNumber: Int(log.blockNumber.dropFirst(2), radix: 16) ?? 0, isBuy: isBuy,
-                sender: log.topics.count > 1 ? "0x" + String(log.topics[1].suffix(40)) : "",
-                eth: isBuy ? a : b, tokens: isBuy ? b : a, creatorFeeEth: fee, timestamp: 0
-            ))
-        }
-        let blocks = Array(Set(trades.map(\.blockNumber))).sorted().suffix(120)
-        var stamps: [Int: Int64] = [:]
-        struct Block: Decodable { let timestamp: String }
-        await withTaskGroup(of: (Int, Int64?).self) { group in
-            for bn in blocks {
-                group.addTask {
-                    let block: Block? = try? await self.call("eth_getBlockByNumber", ["0x" + String(bn, radix: 16), false])
-                    guard let ts = block?.timestamp, let v = Int64(ts.dropFirst(2), radix: 16) else { return (bn, nil) }
-                    return (bn, v * 1000)
-                }
-            }
-            for await (bn, ts) in group { if let ts { stamps[bn] = ts } }
-        }
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        return trades.map { var t = $0; t.timestamp = stamps[t.blockNumber] ?? now; return t }.sorted { $0.timestamp < $1.timestamp }
-    }
-
-    private static func words(_ data: String) -> [String] {
-        var hex = data.lowercased()
-        if hex.hasPrefix("0x") { hex.removeFirst(2) }
-        var out: [String] = []
-        var idx = hex.startIndex
-        while idx < hex.endIndex, let end = hex.index(idx, offsetBy: 64, limitedBy: hex.endIndex) {
-            out.append("0x" + hex[idx..<end])
-            idx = end
-        }
+    /// Fills gas (+25%), gas price (+10%) and nonce. A failing estimate means it would revert, so nothing is sent.
+    func prepare(from: String, _ tx: TxRequest) async throws -> TxRequest {
+        async let gas = estimateGas(from: from, tx)
+        async let price = gasPrice()
+        async let n = nonce(from)
+        let g = try await gas, gp = try await price, nn = try await n
+        var out = tx
+        out.gas = g.scaled(125, 100)
+        out.gasPrice = gp.scaled(110, 100)
+        out.nonce = nn
         return out
+    }
+
+    /// Waits for a receipt; throws if the transaction reverted.
+    func waitForReceipt(_ hash: String, timeout: TimeInterval = 90) async throws {
+        let until = Date().addingTimeInterval(timeout)
+        while Date() < until {
+            if let r = try? await call("eth_getTransactionReceipt", [hash]) as? [String: Any] {
+                if (r["status"] as? String) == "0x1" { return }
+                throw ChainError.message("The transaction reverted on-chain. No state changed.")
+            }
+            try await Task.sleep(for: .milliseconds(1500))
+        }
+        throw ChainError.message("Still waiting for confirmation. Check the receipt on Blockscout.")
+    }
+
+    /// Live bonding-curve state with the website's phantom-reserve rule.
+    func curve(_ curve: String) async throws -> CurveState {
+        async let q = ethCall(to: curve, data: Abi.quoteReserve)
+        async let r = ethCall(to: curve, data: Abi.tokenReserve)
+        async let p = ethCall(to: curve, data: Abi.phantomQuote)
+        async let g = ethCall(to: curve, data: Abi.graduationThreshold)
+        async let gr = ethCall(to: curve, data: Abi.graduated)
+        let qv = try await q, rv = try await r, pv = try await p, gv = try await g, grv = try await gr
+        let quote = BigUInt(hex: qv) ?? .zero, reserve = BigUInt(hex: rv) ?? .zero, phantom = BigUInt(hex: pv) ?? .zero
+        let threshold = BigUInt(hex: gv) ?? .zero, graduated = !(BigUInt(hex: grv) ?? .zero).isZero
+        let virtual = quote >= phantom ? quote : quote + phantom
+        let real = virtual - phantom
+        let price = reserve.isZero ? 0 : virtual.toDouble() / reserve.toDouble()
+        let progress = graduated ? 1 : threshold.isZero ? 0 : min(1, real.toDouble() / threshold.toDouble())
+        return CurveState(priceEth: price, marketCapEth: price * 1_000_000_000, realReserveEth: real.toDouble(), progress: progress, graduated: graduated)
+    }
+
+    /// Exact buy output simulated with a funded throwaway account (the website's `quoteBuy`).
+    func quoteBuy(curve: String, quoteIn: BigUInt) async throws -> BigUInt {
+        let funded = (quoteIn + quoteIn + BigUInt.weiPerEth).hex
+        let out = try await ethCall(to: curve, data: Abi.buyData(quoteIn, .zero, Chain.quoteAccount), from: Chain.quoteAccount, value: quoteIn, overrides: [Chain.quoteAccount: ["balance": funded]])
+        guard out.count >= 66 else { throw ChainError.message("The curve returned no quote.") }
+        return BigUInt(hex: String(out.prefix(66))) ?? .zero
+    }
+
+    func quoteSell(curve: String, seller: String, tokensIn: BigUInt) async throws -> BigUInt {
+        let out = try await ethCall(to: curve, data: Abi.sellData(tokensIn, .zero, seller), from: seller)
+        guard out.count >= 66 else { throw ChainError.message("The curve returned no quote.") }
+        return BigUInt(hex: String(out.prefix(66))) ?? .zero
     }
 }

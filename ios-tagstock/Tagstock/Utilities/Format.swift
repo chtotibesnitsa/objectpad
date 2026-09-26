@@ -1,138 +1,95 @@
 import Foundation
 
-/// Number formatting shared by every screen. Mirrors `web-handlesend/src/lib/format.ts`
-/// and `fmtEth` / `fmtUnits` so values match the website character for character.
-nonisolated enum Format {
-    private static let usdFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .currency
-        f.locale = Locale(identifier: "en_US")
-        f.maximumFractionDigits = 2
-        return f
-    }()
-
-    static func usd(_ value: Double, compact: Bool = false) -> String {
-        guard value.isFinite else { return "$0" }
-        let abs = Swift.abs(value)
-        if compact, abs >= 1_000 { return "$" + compactNumber(value, digits: abs >= 1_000_000 ? 2 : 1) }
-        if abs == 0 { return "$0.00" }
-        if abs < 0.000001 { return String(format: "$%.2e", value) }
-        if abs < 0.01 { return String(format: "$%.6f", value) }
-        if abs < 1 { return String(format: "$%.4f", value) }
-        return usdFormatter.string(from: NSNumber(value: value)) ?? "$\(value)"
+/// Number, money, address and time formatting shared by every screen.
+enum Fmt {
+    static func usd(_ v: Double?, digits: Int = 2) -> String {
+        guard let v, v.isFinite else { return "—" }
+        if abs(v) >= 1_000_000 { return "$" + String(format: "%.2fM", v / 1_000_000) }
+        if abs(v) >= 10_000 { return "$" + String(format: "%.1fK", v / 1_000) }
+        if abs(v) > 0 && abs(v) < 0.01 { return "$" + String(format: "%.6f", v) }
+        return v.formatted(.currency(code: "USD").precision(.fractionLength(abs(v) >= 1000 ? 0 : digits)))
     }
-
-    static func compactNumber(_ value: Double, digits: Int = 2) -> String {
-        let abs = Swift.abs(value)
-        let sign = value < 0 ? "-" : ""
-        if abs >= 1_000_000_000 { return sign + trim(String(format: "%.\(digits)f", abs / 1_000_000_000)) + "B" }
-        if abs >= 1_000_000 { return sign + trim(String(format: "%.\(digits)f", abs / 1_000_000)) + "M" }
-        if abs >= 1_000 { return sign + trim(String(format: "%.\(digits)f", abs / 1_000)) + "K" }
-        return sign + trim(String(format: "%.2f", abs))
+    static func money(_ v: Double) -> String { "$" + Int(v.rounded()).formatted(.number.grouping(.automatic)) }
+    static func eth(_ v: Double?, digits: Int = 4) -> String {
+        guard let v, v.isFinite else { return "—" }
+        if v == 0 { return "0 ETH" }
+        if v < pow(10, -Double(digits)) { return "<\(pow(10, -Double(digits))) ETH" }
+        return "\(v.formatted(.number.precision(.fractionLength(0...digits)))) ETH"
     }
-
-    /// Wei string -> ETH with `digits` decimals, trailing zeros trimmed (website `fmtEth`).
-    static func eth(_ wei: String?, digits: Int = 4) -> String {
-        guard let wei, let value = Wei.toDouble(wei) else { return "0 ETH" }
-        return trim(String(format: "%.\(digits)f", value)) + " ETH"
+    /// ETH value shown in USD when the live rate is known, else ETH.
+    static func value(_ ethValue: Double, _ ethUsd: Double?) -> String { ethUsd.map { usd(ethValue * $0) } ?? eth(ethValue) }
+    static func price(_ ethValue: Double, _ ethUsd: Double?) -> String {
+        guard ethValue > 0 else { return "—" }
+        if let r = ethUsd { let u = ethValue * r; return u >= 0.01 ? usd(u, digits: 4) : "$" + String(format: "%.2e", u) }
+        return String(format: "%.3g ETH", ethValue)
     }
-
-    /// 18-decimal token units -> display (website `fmtUnits`).
-    static func units(_ units: String?, digits: Int = 4) -> String {
-        guard let units, let value = Wei.toDouble(units) else { return "0" }
-        if value >= 1_000_000 { return String(format: "%.2fM", value / 1_000_000) }
-        if value >= 10_000 { return integerFormatter.string(from: NSNumber(value: floor(value))) ?? "\(Int(value))" }
-        return trim(String(format: "%.\(digits)f", value))
+    static func compact(_ v: Double) -> String { v.formatted(.number.notation(.compactName).precision(.fractionLength(0...2))) }
+    static func pct(_ v: Double) -> String { (v >= 0 ? "+" : "") + String(format: "%.1f%%", v) }
+    static func short(_ s: String?, lead: Int = 6, tail: Int = 4) -> String {
+        guard let s, s.count > lead + tail + 1 else { return s ?? "" }
+        return "\(s.prefix(lead))…\(s.suffix(tail))"
     }
-
-    static func tokens(_ amount: Double) -> String {
-        guard amount.isFinite else { return "0" }
-        if Swift.abs(amount) >= 1_000_000 { return compactNumber(amount) }
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = amount >= 1000 ? 0 : 2
-        return f.string(from: NSNumber(value: amount)) ?? "\(amount)"
-    }
-
-    static func pct(_ value: Double, digits: Int = 2) -> String {
-        guard value.isFinite else { return "0%" }
-        return (value > 0 ? "+" : "") + String(format: "%.\(digits)f", value) + "%"
-    }
-
-    /// Basis points -> "+9.84%".
-    static func bps(_ bps: Int?) -> String {
-        guard let bps else { return "—" }
-        return pct(Double(bps) / 100)
-    }
-
-    static func timeAgo(_ ms: Int64) -> String {
-        timeAgo(Date(timeIntervalSince1970: Double(ms) / 1000))
-    }
-
-    static func timeAgo(_ date: Date) -> String {
-        let s = max(0, Int(Date().timeIntervalSince(date)))
-        if s < 45 { return "just now" }
-        let m = s / 60
-        if m < 60 { return "\(m)m ago" }
-        let h = m / 60
-        if h < 24 { return "\(h)h ago" }
-        let d = h / 24
-        if d < 30 { return "\(d)d ago" }
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f.string(from: date)
-    }
-
-    static func shortAddress(_ address: String) -> String {
-        guard address.count >= 12 else { return address }
-        return "\(address.prefix(6))...\(address.suffix(4))"
-    }
-
-    private static let integerFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.locale = Locale(identifier: "en_US")
-        f.maximumFractionDigits = 0
-        return f
-    }()
-
-    private static func trim(_ fixed: String) -> String {
-        guard fixed.contains(".") else { return fixed }
-        var s = fixed
-        while s.hasSuffix("0") { s.removeLast() }
-        if s.hasSuffix(".") { s.removeLast() }
-        return s
+    static func ago(_ ms: Double) -> String {
+        guard ms > 0 else { return "" }
+        let s = max(0, Date().timeIntervalSince1970 - ms / 1000)
+        if s < 60 { return "just now" }
+        if s < 3600 { return "\(Int(s / 60))m ago" }
+        if s < 86_400 { return "\(Int(s / 3600))h ago" }
+        return "\(Int(s / 86_400))d ago"
     }
 }
 
-/// Decimal-string wei helpers. Amounts stay as strings end to end; conversion is display-only.
-nonisolated enum Wei {
-    static func toDouble(_ decimalString: String, decimals: Int = 18) -> Double? {
-        let s = decimalString.trimmingCharacters(in: .whitespaces)
-        guard !s.isEmpty, s.allSatisfy(\.isNumber) else { return nil }
-        if s.count <= decimals {
-            let padded = String(repeating: "0", count: decimals - s.count) + s
-            return Double("0." + padded)
-        }
-        let split = s.index(s.endIndex, offsetBy: -decimals)
-        return Double(String(s[..<split]) + "." + String(s[split...]))
+/// Deadline countdown with an urgency tier (urgent < 24h, soon < 3d).
+enum Countdown {
+    enum Tier { case none, calm, soon, urgent, ended }
+    static func of(_ deadline: Double?, now: Date) -> (label: String, tier: Tier) {
+        guard let deadline, deadline > 0 else { return ("Until won", .none) }
+        let ms = deadline - now.timeIntervalSince1970 * 1000
+        if ms <= 0 { return ("Ended", .ended) }
+        let d = Int(ms / 86_400_000), h = Int(ms.truncatingRemainder(dividingBy: 86_400_000) / 3_600_000)
+        let m = Int(ms.truncatingRemainder(dividingBy: 3_600_000) / 60_000), s = Int(ms.truncatingRemainder(dividingBy: 60_000) / 1000)
+        let label = d >= 1 ? String(format: "%dd %02dh %02dm", d, h, m) : String(format: "%02d:%02d:%02d", h, m, s)
+        return (label, ms < 86_400_000 ? .urgent : ms < 3 * 86_400_000 ? .soon : .calm)
+    }
+}
+
+enum RewardSort: String, CaseIterable, Identifiable {
+    case best = "Best right now", ending = "Ending soon", biggest = "Biggest", newest = "Newest"
+    var id: String { rawValue }
+}
+
+extension Reward {
+    /// Same opportunity score as the website: money, urgency, freshness and recent hunter activity.
+    func opportunity(now: Double) -> Double {
+        guard status == "open" else { return -1 }
+        let day = 86_400_000.0
+        let left = deadline.map { $0 - now }
+        if let left, left <= 0 { return -1 }
+        let money = log10(max(5, rewardUsd)) * 40
+        let urgency: Double = left == nil ? 6 : left! < day ? 34 : left! < 3 * day ? 22 : left! < 7 * day ? 12 : 4
+        let fresh = max(0, 14 - (now - createdAt) / day) * 1.4
+        let recent = Double(min(8, submissions.filter { now - $0.createdAt < 3 * day }.count)) * 2.5
+        return money + urgency + fresh + recent
     }
 
-    /// Hex quantity ("0x1a2b") -> Double ETH. Precision is fine for display.
-    static func hexToDouble(_ hex: String, decimals: Int = 18) -> Double {
-        var h = hex.lowercased()
-        if h.hasPrefix("0x") { h.removeFirst(2) }
-        guard !h.isEmpty else { return 0 }
-        var value: Double = 0
-        for ch in h {
-            guard let d = ch.hexDigitValue else { return 0 }
-            value = value * 16 + Double(d)
-        }
-        return value / pow(10, Double(decimals))
-    }
+    var categoryLabel: String { ["find": "Find it", "scan": "Scan it", "promo": "Promote", "meme": "Meme IRL", "art": "Art"][category] ?? "Other" }
+}
 
-    static func isPositive(_ decimalString: String?) -> Bool {
-        guard let s = decimalString else { return false }
-        return s.contains { $0 != "0" } && s.allSatisfy(\.isNumber)
+extension Array where Element == Reward {
+    func ranked(by sort: RewardSort) -> [Reward] {
+        let now = Date().timeIntervalSince1970 * 1000
+        func dl(_ r: Reward) -> Double { (r.deadline ?? 0) > now ? r.deadline! : .greatestFiniteMagnitude }
+        return self.sorted { a, b in
+            if (a.status == "open") != (b.status == "open") { return a.status == "open" }
+            let primary: (Double, Double)
+            switch sort {
+            case .best: primary = (b.opportunity(now: now), a.opportunity(now: now))
+            case .ending: primary = (dl(a), dl(b))
+            case .biggest: primary = (b.rewardUsd, a.rewardUsd)
+            case .newest: primary = (b.createdAt, a.createdAt)
+            }
+            if primary.0 != primary.1 { return primary.0 < primary.1 }
+            return a.rewardUsd > b.rewardUsd
+        }
     }
 }

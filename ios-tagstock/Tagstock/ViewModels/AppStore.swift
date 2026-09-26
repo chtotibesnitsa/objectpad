@@ -1,126 +1,94 @@
 import Foundation
+import Observation
 import SwiftUI
 
-/// Shared app state: the same public reads the website polls (terminal, tape,
-/// status, platform, open cases), plus a watched wallet whose balances are read
-/// straight from Robinhood Chain. Nothing here fabricates data; every field is
-/// nil/empty until a real response lands, and `lastError` surfaces failures.
+/// Live market state shared by every screen. Polls on the website's intervals and never invents numbers.
 @Observable
+@MainActor
 final class AppStore {
-    private(set) var terminal: Terminal?
-    private(set) var tape: [TickerItem] = []
-    private(set) var status: PlatformStatus?
-    private(set) var openCases: OpenCasesFeed?
-    private(set) var ethUsd: Double = 0
-    private(set) var isRefreshing: Bool = false
-    private(set) var lastError: String?
-    private(set) var lastUpdated: Date?
-
-    /// Wallet the user chose to watch (address only, never keys). Persisted locally.
-    var watchedWallet: String? {
-        didSet {
-            UserDefaults.standard.set(watchedWallet, forKey: "casepad.watchedWallet")
-            Task { await refreshBalances() }
-        }
-    }
-    private(set) var ethBalance: Double?
-    private(set) var casepadBalance: Double?
-    private(set) var coinBalances: [String: Double] = [:]
-    private(set) var balancesUpdated: Date?
-
+    var coins: [ObjectCoin] = []
+    var recent: [CoinTrade] = []
+    var market: MarketSnapshot?
+    var status: Readiness?
+    var burns: BurnFeed?
+    var building: [BuildingCoin] = []
+    var rewards: RewardBoard?
+    var coinsError: String?
+    var loaded: Bool = false
+    var ethBalance: BigUInt?
+    var balances: [String: BigUInt] = [:]
+    var balanceWallet: String?
     var toast: String?
+    var watchlist: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "watchlist") ?? [])
 
-    private var loop: Task<Void, Never>?
+    private var started = false
+    let account: AccountStore
 
-    init() {
-        watchedWallet = UserDefaults.standard.string(forKey: "casepad.watchedWallet")
+    init(account: AccountStore) { self.account = account }
+
+    var ethUsd: Double? { market?.ethUsd }
+
+    /// Free-launch treasury: how many sponsored launches are left today.
+    var launchesLeft: Int {
+        guard let s = status?.sponsor else { return 0 }
+        return max(0, min(s.launchesAffordable, s.perPersonDaily ?? 5, s.dailyLimit - s.usedToday))
     }
+    var treasuryOpen: Bool { (status?.sponsor?.launchesAffordable ?? 0) >= 1 && (status?.sponsor.map { $0.usedToday < $0.dailyLimit } ?? false) }
 
-    var coins: [Coin] { terminal?.coins ?? [] }
-    var platform: PlatformConfig? { terminal?.platform }
-    var casepadCA: String { platform?.ecosystemToken ?? Chain.casepadToken }
-    var xURL: URL? { platform?.xUrl.flatMap(URL.init(string:)) }
-
-    /// Website tape filter: confirmed real-mode chain events with a tx hash.
-    var chainActivity: [TickerItem] {
-        let kinds: Set<String> = ["token.launched", "trade.buy", "trade.sell", "creator.buy", "creator.sell", "payout.confirmed", "vault.funded", "buyback.confirmed"]
-        return tape.filter { $0.tokenInfo?.mode == "real" && $0.txHash != nil && kinds.contains($0.kind) }
-    }
-
-    /// Trending = the website's "Gainers" sort: observed move (bps since first snapshot in 24h), real coins only.
-    var trending: [Coin] {
-        coins.filter { $0.isReal && ($0.market?.changeBps ?? 0) > 0 && !($0.market?.stale ?? true) }
-            .sorted { ($0.market?.changeBps ?? 0) > ($1.market?.changeBps ?? 0) }
-    }
-
-    func coin(_ token: String) -> Coin? { coins.first { $0.token.lowercased() == token.lowercased() } }
+    func coin(_ id: String) -> ObjectCoin? { coins.first { $0.id == id || $0.token.lowercased() == id.lowercased() } }
 
     func start() {
-        guard loop == nil else { return }
-        loop = Task { [weak self] in
-            var tick = 0
-            while !Task.isCancelled {
-                await self?.refresh(fast: tick % 2 == 0)
-                tick += 1
-                try? await Task.sleep(for: .seconds(10))
-            }
+        guard !started else { return }
+        started = true
+        poll(10) { await self.refreshCoins() }
+        poll(15) { await self.refreshMarket() }
+        poll(30) { await self.refreshStatus() }
+        poll(30) { await self.refreshBurns() }
+        poll(20) { await self.refreshRewards() }
+        poll(6) { if let b = try? await ObjectPadApi.building() { self.building = b.items } }
+    }
+
+    private func poll(_ seconds: Double, _ block: @escaping @MainActor () async -> Void) {
+        Task { while !Task.isCancelled { await block(); try? await Task.sleep(for: .seconds(seconds)) } }
+    }
+
+    func refreshCoins() async {
+        do { let f = try await ObjectPadApi.coins(); coins = f.items; recent = f.recent; coinsError = nil; loaded = true; if balanceWallet != account.activeWallet { await refreshHoldings() } }
+        catch { if coins.isEmpty { coinsError = error.localizedDescription }; loaded = true }
+    }
+    func refreshMarket() async { if let m = try? await ObjectPadApi.market() { market = m } }
+    func refreshStatus() async { if let s = try? await ObjectPadApi.status() { status = s } }
+    func refreshBurns() async { if let b = try? await ObjectPadApi.burns() { burns = b } }
+    func refreshRewards() async { if let r = try? await RewardsApi(account: account).board() { rewards = r } }
+
+    func refreshAll() async {
+        async let a: Void = refreshCoins(); async let b: Void = refreshMarket(); async let c: Void = refreshStatus(); async let d: Void = refreshBurns(); async let e: Void = refreshRewards()
+        _ = await (a, b, c, d, e)
+        await refreshHoldings()
+    }
+
+    /// Live ETH and coin balances of the active wallet, read straight from Robinhood Chain.
+    func refreshHoldings() async {
+        guard let wallet = account.activeWallet else { return }
+        balanceWallet = wallet
+        ethBalance = try? await ChainClient.shared.balance(wallet)
+        let tokens = coins.map(\.token)
+        var out: [String: BigUInt] = [:]
+        await withTaskGroup(of: (String, BigUInt?).self) { group in
+            for t in tokens { group.addTask { (t, try? await ChainClient.shared.tokenBalance(t, owner: wallet)) } }
+            for await (t, b) in group { if let b, !b.isZero { out[t.lowercased()] = b } }
         }
+        balances = out
     }
 
-    func stop() { loop?.cancel(); loop = nil }
-
-    /// Fast tick refreshes the tape; every other tick refreshes markets/status too (matches web 10s/20s cadence).
-    func refresh(fast: Bool = false) async {
-        isRefreshing = true
-        defer { isRefreshing = false }
-        let api = CasepadApi.shared
-        async let tapeTask = api.ticker()
-        do { tape = try await tapeTask; lastError = nil } catch { lastError = error.localizedDescription }
-        guard !fast || terminal == nil else { return }
-        async let terminalTask = api.terminal()
-        async let statusTask = api.status()
-        async let casesTask = api.openCases()
-        async let priceTask = api.ethPrice()
-        do {
-            terminal = try await terminalTask
-            lastUpdated = Date()
-            lastError = nil
-        } catch { lastError = error.localizedDescription }
-        status = try? await statusTask
-        openCases = try? await casesTask
-        if let price = try? await priceTask, price > 0 { ethUsd = price }
-        if watchedWallet != nil, balancesUpdated == nil || Date().timeIntervalSince(balancesUpdated!) > 30 { await refreshBalances() }
+    func toggleWatch(_ id: String) {
+        if watchlist.contains(id) { watchlist.remove(id); show("Removed from watchlist") } else { watchlist.insert(id); show("Added to watchlist") }
+        UserDefaults.standard.set(Array(watchlist), forKey: "watchlist")
+        Feedback.selection()
     }
 
-    func refreshBalances() async {
-        guard let wallet = watchedWallet, Chain.isAddress(wallet) else {
-            ethBalance = nil; casepadBalance = nil; coinBalances = [:]; balancesUpdated = nil
-            return
-        }
-        let chain = ChainClient.shared
-        ethBalance = try? await chain.ethBalance(wallet)
-        casepadBalance = try? await chain.tokenBalance(token: casepadCA, owner: wallet)
-        var balances: [String: Double] = [:]
-        await withTaskGroup(of: (String, Double?).self) { group in
-            for coin in coins where coin.isReal {
-                group.addTask { (coin.token, try? await chain.tokenBalance(token: coin.token, owner: wallet)) }
-            }
-            for await (token, bal) in group { if let bal, bal > 0 { balances[token] = bal } }
-        }
-        coinBalances = balances
-        balancesUpdated = Date()
+    func show(_ message: String) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { toast = message }
+        Task { try? await Task.sleep(for: .seconds(2)); withAnimation(.easeOut(duration: 0.25)) { if toast == message { toast = nil } } }
     }
-
-    func copy(_ value: String, label: String) {
-        UIPasteboard.general.string = value
-        Haptics.light()
-        toast = "\(label) copied"
-        Task { try? await Task.sleep(for: .seconds(1.6)); if toast == "\(label) copied" { toast = nil } }
-    }
-}
-
-enum Haptics {
-    static func light() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
 }

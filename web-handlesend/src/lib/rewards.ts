@@ -42,7 +42,39 @@ function useRewardMutation<I, O>(fn: (token: string | null, input: I) => Promise
   const session = useSession(); const qc = useQueryClient();
   return useMutation({ mutationFn: async (input: I) => fn(await session.token(), input), onSettled: () => { void qc.invalidateQueries({ queryKey: REWARDS_KEY }); } });
 }
-export interface CreateRewardInput { object: string; title: string; brief: string; rules: string[]; category: RewardCategory; adult: boolean; rewardUsd: number; promoUrl: string; days: number; cover: string; }
+export interface CreateRewardInput { object: string; title: string; brief: string; rules: string[]; category: RewardCategory; adult: boolean; rewardUsd: number; promoUrl: string; days: number; cover: string; inspire?: string; }
+/** Swap the cover: `upload` uses the photo as is, `ai` repaints the sky poster (optionally inspired by the photo). */
+export const useRecoverReward = () => useRewardMutation<{ id: string; mode: 'ai' | 'upload'; photo: string }, Reward>((token, { id, ...body }) => api<Reward>(`/rewards/${id}/cover`, { token, method: 'POST', body, timeout: 30_000 }));
+
+export type RewardSort = 'best' | 'ending' | 'biggest' | 'newest';
+export const SORT_LABEL: Record<RewardSort, string> = { best: 'Best right now', ending: 'Ending soon', biggest: 'Biggest', newest: 'Newest' };
+const DAY = 86_400_000;
+/**
+ * Opportunity score for open bounties: money (log-scaled), urgency (closer deadline ranks higher, expired never),
+ * freshness and hunter activity. Finished bounties always sort below open ones.
+ */
+export function opportunity(r: Reward, now: number): number {
+  if (r.status !== 'open') return -1;
+  const left = r.deadline ? r.deadline - now : null; if (left !== null && left <= 0) return -1;
+  const money = Math.log10(Math.max(5, r.rewardUsd)) * 40;
+  const urgency = left === null ? 6 : left < DAY ? 34 : left < 3 * DAY ? 22 : left < 7 * DAY ? 12 : 4;
+  const fresh = Math.max(0, 14 - (now - r.createdAt) / DAY) * 1.4;
+  const recent = r.submissions.filter(s => now - s.createdAt < 3 * DAY).length;
+  return money + urgency + fresh + Math.min(recent, 8) * 2.5;
+}
+export function sortRewards(list: Reward[], sort: RewardSort, now: number): Reward[] {
+  const openFirst = (a: Reward, b: Reward): number => Number(b.status === 'open') - Number(a.status === 'open');
+  const deadline = (r: Reward): number => (r.deadline && r.deadline > now ? r.deadline : Number.MAX_SAFE_INTEGER);
+  return [...list].sort((a, b) => openFirst(a, b) || (sort === 'best' ? opportunity(b, now) - opportunity(a, now) : sort === 'ending' ? deadline(a) - deadline(b) : sort === 'biggest' ? b.rewardUsd - a.rewardUsd : b.createdAt - a.createdAt) || b.rewardUsd - a.rewardUsd);
+}
+/** Countdown label and urgency tier for a deadline. */
+export function countdown(deadline: number | null | undefined, now: number): { label: string; tier: 'none' | 'calm' | 'soon' | 'urgent' | 'ended' } {
+  if (!deadline) return { label: 'No deadline', tier: 'none' };
+  const ms = deadline - now; if (ms <= 0) return { label: 'Ended', tier: 'ended' };
+  const d = Math.floor(ms / DAY); const h = Math.floor((ms % DAY) / 3_600_000); const m = Math.floor((ms % 3_600_000) / 60_000); const s = Math.floor((ms % 60_000) / 1000);
+  const label = d >= 1 ? `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m` : `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return { label, tier: ms < DAY ? 'urgent' : ms < 3 * DAY ? 'soon' : 'calm' };
+}
 export const useCreateReward = () => useRewardMutation<CreateRewardInput, Reward>((token, body) => api<Reward>('/rewards', { token, method: 'POST', body, timeout: 30_000 }));
 export const useFundReward = () => useRewardMutation<{ id: string; hash: string }, Reward>((token, { id, hash }) => api<Reward>(`/rewards/${id}/fund`, { token, method: 'POST', body: { hash }, timeout: 45_000 }));
 export const useCancelReward = () => useRewardMutation<{ id: string; reason: string }, Reward>((token, { id, reason }) => api<Reward>(`/rewards/${id}/cancel`, { token, method: 'POST', body: { reason }, timeout: 60_000 }));
@@ -76,6 +108,6 @@ export const REWARD_ERRORS: Record<string, string> = {
   REWARD_HAS_PENDING: 'Proofs are waiting for your decision. Pick a winner or reject them before cancelling.', REVIEW_REASON_REQUIRED: 'Add a short public reason.', REWARD_OWN_BOUNTY: 'You can’t claim your own bounty.', REWARD_EXPIRED: 'This bounty has ended.',
   REWARD_PROOF_REQUIRED: 'Add a photo of the object, or the coin you launched for it.', REWARD_TOO_MANY: 'You already have 3 proofs waiting on this bounty.', BOUNTY_CLOSED: 'This bounty already has a winner.', BOUNTY_ALREADY_SUBMITTED: 'That proof was already submitted.',
   BOUNTY_COIN_NOT_FOUND: 'We couldn’t find that coin. Paste its 0x address or objectpad.fun link.', BOUNTY_NOT_YOUR_COIN: 'That coin was launched by another account.', BOUNTY_COIN_NOT_LIVE: 'That coin isn’t live yet.', BOUNTY_ALREADY_WON: 'Another proof is already the winner.',
-  PAYOUT_TX_REQUIRED: 'Paste the payout transaction hash.', WALLET_REQUIRED: 'Your account needs a wallet to get paid. Open My wallet once, then retry.', SIGN_IN_REQUIRED: 'Sign in first.', UNSUPPORTED_IMAGE: 'Use a JPG or PNG photo.', ICON_INVALID: 'That photo is too small or oddly shaped.', RATE_LIMITED: 'Slow down a little and try again.', FORBIDDEN: 'Only the poster or ObjectPad can do that.', NOT_FOUND: 'That bounty wasn’t found.',
+  PAYOUT_TX_REQUIRED: 'Paste the payout transaction hash.', WALLET_REQUIRED: 'Your account needs a wallet to get paid. Open My wallet once, then retry.', SIGN_IN_REQUIRED: 'Sign in first.', COVER_BUSY: 'The AI is still painting the current cover. Give it a minute.', UNSUPPORTED_IMAGE: 'Use a JPG or PNG photo.', ICON_INVALID: 'That photo is too small or oddly shaped.', RATE_LIMITED: 'Slow down a little and try again.', FORBIDDEN: 'Only the poster or ObjectPad can do that.', NOT_FOUND: 'That bounty wasn’t found.',
 };
 export const rewardError = (e: unknown): string => e instanceof RequestError ? (REWARD_ERRORS[e.code] ?? e.message) : e instanceof Error ? e.message : 'Something went wrong. Try again.';

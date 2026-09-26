@@ -1,109 +1,135 @@
 import SwiftUI
+import UIKit
+import CoreText
 
-/// CasePad palette, lifted from the website's CSS variables: near-black canvas,
-/// charcoal cards, bone-white type, a single warm gold accent, mint "up", rose "down".
-enum Theme {
-    static let background = Color(hue: 240 / 360, saturation: 0.05, brightness: 0.04)
-    static let surface = Color(hue: 240 / 360, saturation: 0.04, brightness: 0.06)
-    static let card = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255)
-    static let cardRaised = Color(red: 0x1b / 255, green: 0x1b / 255, blue: 0x1e / 255)
-    static let secondary = Color(hue: 240 / 360, saturation: 0.04, brightness: 0.14)
-    static let border = Color.white.opacity(0.06)
-    static let foreground = Color(hue: 40 / 360, saturation: 0.10, brightness: 0.96)
-    static let muted = Color(hue: 240 / 360, saturation: 0.04, brightness: 0.63)
-    static let gold = Color(hue: 30 / 360, saturation: 0.92, brightness: 0.61)
-    static let goldDeep = Color(hue: 28 / 360, saturation: 0.77, brightness: 0.48)
-    static let up = Color(hue: 150 / 360, saturation: 0.60, brightness: 0.58)
-    static let down = Color(hue: 355 / 360, saturation: 0.75, brightness: 0.64)
-    static let cobalt = Color(hue: 215 / 360, saturation: 0.72, brightness: 0.64)
+/// ObjectPad's pearl-and-ink palette (1:1 with the website) plus the sky blue of the Paid Rewards posters.
+enum Pad {
+    static let paper = Color(hex: 0xECEEF1)
+    static let pearl = Color(hex: 0xF8F9FA)
+    static let ink = Color(hex: 0x0C0D10)
+    static let graphite = Color(hex: 0x1B1D22)
+    static let obsidian = Color(hex: 0x0B0C0F)
+    static let muted = Color(hex: 0x6A6E78)
+    static let line = Color(hex: 0xDADDE3)
+    static let up = Color(hex: 0x12A150)
+    static let down = Color(hex: 0xE5484D)
+    static let sky = Color(hex: 0x2F7BF2)
+    static let skyLight = Color(hex: 0x6FB2FF)
+    static let amber = Color(hex: 0xF59E0B)
+    static let gold = Color(hex: 0xF5C542)
 
-    static func rarity(_ name: String) -> Color {
-        switch name {
-        case "uncommon": return Color(hue: 150 / 360, saturation: 0.55, brightness: 0.54)
-        case "rare": return cobalt
-        case "epic": return Color(hue: 270 / 360, saturation: 0.63, brightness: 0.68)
-        case "legendary": return Color(hue: 40 / 360, saturation: 0.72, brightness: 0.60)
-        case "mythic": return Color(hue: 348 / 360, saturation: 0.74, brightness: 0.68)
-        default: return Color(hue: 230 / 360, saturation: 0.06, brightness: 0.68)
+    static let page = LinearGradient(colors: [Color(hex: 0xF3F4F6), paper, Color(hex: 0xE3E6EB)], startPoint: .top, endPoint: .bottom)
+    static let night = LinearGradient(colors: [Color(hex: 0x2C2F36), Color(hex: 0x17191E), Color(hex: 0x111216)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let skyGradient = LinearGradient(colors: [sky, skyLight, Color(hex: 0xBFE0FF)], startPoint: .top, endPoint: .bottom)
+}
+
+extension Color {
+    init(hex: UInt32, alpha: Double = 1) {
+        self.init(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255, opacity: alpha)
+    }
+}
+
+/// The website's three faces (Anybody display, Geist, Geist Mono), driven through their variable axes.
+enum Typeface {
+    private static var cache: [String: UIFont] = [:]
+    private static var registered = false
+
+    static func register() {
+        guard !registered else { return }
+        registered = true
+        for name in ["anybody", "geist", "geistmono"] {
+            if let url = Bundle.main.url(forResource: name, withExtension: "ttf") { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
         }
     }
-}
 
-/// Small mono uppercase label used across the site ("eyebrow").
-struct Eyebrow: View {
-    let text: String
-    var color: Color = Theme.muted
-    init(_ text: String, color: Color = Theme.muted) { self.text = text; self.color = color }
-    var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .tracking(1.4)
-            .foregroundStyle(color)
+    private static func variable(_ postScript: String, size: CGFloat, weight: CGFloat, width: CGFloat? = nil) -> UIFont {
+        let key = "\(postScript)-\(size)-\(weight)-\(width ?? 0)"
+        if let hit = cache[key] { return hit }
+        register()
+        var axes: [NSNumber: NSNumber] = [NSNumber(value: 0x77676874): NSNumber(value: Double(weight))]
+        if let width { axes[NSNumber(value: 0x77647468)] = NSNumber(value: Double(width)) }
+        let base = UIFontDescriptor(fontAttributes: [.name: postScript])
+        let desc = base.addingAttributes([UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String): axes])
+        let font = UIFont(descriptor: desc, size: size)
+        let resolved = font.familyName.lowercased().contains(postScript.prefix(4).lowercased()) ? font : UIFont.systemFont(ofSize: size, weight: .heavy)
+        cache[key] = resolved
+        return resolved
     }
-}
 
-/// Charcoal card matching `.coin-card` / `.card-raised`.
-struct CardBackground: ViewModifier {
-    var padding: CGFloat = 14
-    var radius: CGFloat = 14
-    var raised: Bool = false
-    func body(content: Content) -> some View {
-        content
-            .padding(padding)
-            .background(raised ? Theme.cardRaised : Theme.card, in: .rect(cornerRadius: radius, style: .continuous))
-    }
+    static func display(_ size: CGFloat, weight: CGFloat = 820) -> Font { Font(variable("Anybody-Thin", size: size, weight: weight, width: 116)) }
+    static func sans(_ size: CGFloat, _ weight: CGFloat = 600) -> Font { Font(variable("Geist-Regular", size: size, weight: weight)) }
+    static func mono(_ size: CGFloat, _ weight: CGFloat = 700) -> Font { Font(variable("GeistMono-Regular", size: size, weight: weight)) }
 }
 
 extension View {
-    func card(padding: CGFloat = 14, radius: CGFloat = 14, raised: Bool = false) -> some View {
-        modifier(CardBackground(padding: padding, radius: radius, raised: raised))
-    }
-}
-
-struct PressableStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.975 : 1)
-            .opacity(configuration.isPressed ? 0.9 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.75), value: configuration.isPressed)
-    }
-}
-
-/// Primary CTA: bone-white pill with black text, as on the website.
-struct PrimaryButtonStyle: ButtonStyle {
-    var tint: Color = Theme.foreground
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(Theme.background)
-            .padding(.horizontal, 18)
-            .frame(minHeight: 44)
-            .background(tint.opacity(configuration.isPressed ? 0.8 : 1), in: .rect(cornerRadius: 10, style: .continuous))
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
-    }
-}
-
-struct SecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(Theme.foreground)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 40)
-            .background(Theme.secondary.opacity(configuration.isPressed ? 0.7 : 1), in: .rect(cornerRadius: 10, style: .continuous))
-    }
-}
-
-/// "casepad." wordmark with the warm gold dot.
-struct Wordmark: View {
-    var size: CGFloat = 22
-    var body: some View {
-        HStack(spacing: 8) {
-            Image("case_mark").resizable().scaledToFit().frame(width: size * 1.5, height: size * 1.5)
-            (Text("casepad").foregroundStyle(Theme.foreground) + Text(".").foregroundStyle(Theme.gold))
-                .font(.system(size: size, weight: .heavy, design: .default))
-                .tracking(-1.2)
+    /// Liquid Glass on iOS 26, a frosted material fallback before that.
+    @ViewBuilder func glass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            let base: Glass = tint.map { Glass.regular.tint($0) } ?? .regular
+            self.glassEffect(interactive ? base.interactive() : base, in: shape)
+        } else {
+            self.background(.ultraThinMaterial, in: shape)
+                .background(tint?.opacity(0.35) ?? .clear, in: shape)
+                .overlay(shape.stroke(.white.opacity(0.55), lineWidth: 0.8))
         }
-        .accessibilityLabel("CasePad")
     }
+
+    /// Pearl card: white-to-pearl surface with a hairline and soft drop shadow (the website's `.raised`).
+    func raised(_ radius: CGFloat = 26) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(LinearGradient(colors: [.white, Pad.pearl], startPoint: .top, endPoint: .bottom))
+                .shadow(color: Pad.ink.opacity(0.08), radius: 18, y: 10)
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(Pad.ink.opacity(0.07), lineWidth: 1))
+        )
+    }
+
+    /// Dark smoked-glass panel (the website's `.smoke`).
+    func smoke(_ radius: CGFloat = 26) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Pad.night)
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(RadialGradient(colors: [.white.opacity(0.14), .clear], center: .topLeading, startRadius: 0, endRadius: 260)))
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(.white.opacity(0.14), lineWidth: 1.2))
+                .shadow(color: Pad.ink.opacity(0.35), radius: 24, y: 16)
+        )
+    }
+
+    func sunk(_ radius: CGFloat = 18) -> some View {
+        background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Pad.ink.opacity(0.05)))
+    }
+
+    /// Staggered entrance: fades and lifts in with a spring after `delay`.
+    func enter(_ delay: Double = 0) -> some View { modifier(EnterModifier(delay: delay)) }
+}
+
+private struct EnterModifier: ViewModifier {
+    let delay: Double
+    @State private var shown: Bool = false
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : 18)
+            .scaleEffect(shown ? 1 : 0.97)
+            .onAppear { withAnimation(.spring(response: 0.55, dampingFraction: 0.82).delay(delay)) { shown = true } }
+    }
+}
+
+/// Springy press with a tick sound and a light haptic.
+struct PressStyle: ButtonStyle {
+    var scale: CGFloat = 0.955
+    var sound: Bool = true
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .brightness(configuration.isPressed ? -0.03 : 0)
+            .animation(.spring(response: 0.28, dampingFraction: 0.6), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { Feedback.tap(sound: sound) }
+            }
+    }
+}
+
+extension ButtonStyle where Self == PressStyle {
+    static var press: PressStyle { PressStyle() }
+    static var quiet: PressStyle { PressStyle(scale: 0.97, sound: false) }
 }
