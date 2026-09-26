@@ -5,13 +5,13 @@ import { robinhoodChain } from '@/shared/pons';
 import { PRIVY_APP_ID, useSession, type LoginMethod } from './session';
 
 function Bridge({ children }: { children: ReactNode }) {
-  const { ready, authenticated, login, logout, getAccessToken } = usePrivy(); const { wallets, ready: walletReady } = useWallets(); const { setAdapter } = useSession();
+  const { ready, authenticated, login, logout, getAccessToken, linkTwitter } = usePrivy(); const { wallets, ready: walletReady } = useWallets(); const { setAdapter } = useSession();
   // Prefer an external wallet the creator connected (MetaMask etc.); fall back to the embedded wallet.
   const wallet = wallets.find(w => w.walletClientType !== 'privy') ?? wallets[0];
-  useEffect(() => { setAdapter({ ready: ready && walletReady, authenticated, wallet: wallet?.address as Address ?? null, login: (methods?: LoginMethod[]) => login(methods?.length ? { loginMethods: methods } : undefined), logout: () => { void logout(); }, token: getAccessToken,
+  useEffect(() => { setAdapter({ ready: ready && walletReady, authenticated, wallet: wallet?.address as Address ?? null, login: (methods?: LoginMethod[]) => login(methods?.length ? { loginMethods: methods } : undefined), logout: () => { void logout(); }, token: getAccessToken, linkX: () => { linkTwitter(); },
     sign: async message => { if (!wallet) throw new Error('Connect a wallet.'); const client = createWalletClient({ account: wallet.address as Address, transport: custom(await wallet.getEthereumProvider()) }); return client.signMessage({ message }); },
     send: async input => { if (!wallet) throw new Error('Connect a wallet.'); await wallet.switchChain(4663); const client = createWalletClient({ account: wallet.address as Address, chain: robinhoodChain, transport: custom(await wallet.getEthereumProvider()) }); return client.sendTransaction({ ...input, chain: robinhoodChain }); },
-  }); }, [ready, walletReady, authenticated, wallet, login, logout, getAccessToken, setAdapter]);
+  }); }, [ready, walletReady, authenticated, wallet, login, logout, getAccessToken, linkTwitter, setAdapter]);
   return children;
 }
 export default function ConnectedAuth({ children }: { children: ReactNode }) {

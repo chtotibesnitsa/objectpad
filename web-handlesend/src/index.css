@@ -326,6 +326,30 @@ html.touch-lite .foil, html.touch-lite .float-y, html.touch-lite .bob, html.touc
 html.touch-lite .marquee-run { will-change: transform; }
 @keyframes enter-lite { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
+/* ObjectPad Earn: blue-sky glass, electric blue light, honest status motion. */
+.earn-sky { position: relative; isolation: isolate; overflow: hidden; color: #fff; background: radial-gradient(120% 90% at 15% 0%, rgba(160,205,255,.55), transparent 55%), radial-gradient(80% 70% at 100% 100%, rgba(40,110,255,.55), transparent 60%), linear-gradient(165deg, #1B5BFF 0%, #0B3BD6 45%, #07195E 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 0 0 1px rgba(7,25,94,.4), 0 40px 80px -40px rgba(11,59,214,.75); }
+.earn-sky::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px); background-size: 22px 22px; mask-image: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 75%); }
+.earn-glass { background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,.08)); border: 1px solid rgba(255,255,255,.28); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); box-shadow: inset 0 1px 0 rgba(255,255,255,.35); }
+.earn-pixel { position: absolute; width: 4px; height: 4px; background: #fff; border-radius: 1px; opacity: 0; animation: earn-pixel var(--d, 6s) linear infinite; animation-delay: var(--delay, 0s); pointer-events: none; }
+@keyframes earn-pixel { 0% { opacity: 0; transform: translateY(0); } 15% { opacity: .9; } 100% { opacity: 0; transform: translateY(-160px); } }
+.earn-meter > span { transition: width 1.2s cubic-bezier(.2,.9,.25,1); }
+.earn-scan { position: absolute; left: 0; right: 0; height: 2px; pointer-events: none; background: linear-gradient(90deg, transparent, #7FB2FF 20%, #fff 50%, #7FB2FF 80%, transparent); box-shadow: 0 0 18px 4px rgba(90,150,255,.55); animation: earn-scan 1.6s cubic-bezier(.5,0,.5,1) infinite; }
+@keyframes earn-scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+.earn-lift { animation: earn-lift .5s cubic-bezier(.2,1.2,.35,1) both; }
+@keyframes earn-lift { 0% { transform: translateY(0); background: transparent; } 40% { transform: translateY(-2px) scale(1.01); background: rgba(31,107,255,.12); } 100% { transform: none; background: transparent; } }
+.earn-sweep-ok::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: linear-gradient(100deg, transparent 30%, rgba(18,161,80,.35) 50%, transparent 70%); animation: earn-sweep 1s ease-out both; }
+@keyframes earn-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.earn-cut { animation: earn-cut .45s steps(2, end) both; }
+@keyframes earn-cut { 0%, 100% { transform: none; clip-path: none; } 20% { transform: translateX(-6px); clip-path: inset(10% 0 55% 0); } 40% { transform: translateX(5px); clip-path: inset(50% 0 12% 0); } 60% { transform: translateX(-3px); } }
+.earn-tick { animation: earn-tick .45s cubic-bezier(.2,1.4,.35,1) both; }
+@keyframes earn-tick { 0% { transform: scale(.4); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.earn-float-up { animation: earn-float .9s cubic-bezier(.2,.9,.25,1) both; }
+@keyframes earn-float { 0% { opacity: 0; transform: translateY(18px) scale(.9); } 100% { opacity: 1; transform: none; } }
+.earn-shimmer { background: linear-gradient(90deg, rgba(12,13,16,.06) 25%, rgba(12,13,16,.12) 50%, rgba(12,13,16,.06) 75%); background-size: 200% 100%; animation: holo-shift 1.4s linear infinite; }
+html.touch-lite .earn-glass { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: rgba(255,255,255,.14); }
+html.touch-lite .earn-pixel { display: none; }
+@media (prefers-reduced-motion: reduce) { .earn-pixel, .earn-scan { display: none; } }
+
 /* App download card: liquid glass with a slow light sweep and an app-store style icon tile. */
 .app-card { position: relative; isolation: isolate; overflow: hidden; background: linear-gradient(180deg, rgba(255,255,255,.86) 0%, rgba(255,255,255,.62) 100%); backdrop-filter: blur(28px) saturate(190%); -webkit-backdrop-filter: blur(28px) saturate(190%); border: 1.5px solid rgba(255,255,255,.98); box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(12,13,16,.05), 0 0 0 1px rgba(12,13,16,.09), 0 3px 6px rgba(12,13,16,.05), 0 30px 56px -30px rgba(20,24,40,.5); transition: transform .3s cubic-bezier(.2,.9,.3,1.2), box-shadow .3s ease; }
 .app-card::before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: radial-gradient(90% 80% at 0% 0%, rgba(255,255,255,.95), transparent 55%), radial-gradient(60% 90% at 100% 100%, rgba(200,206,216,.35), transparent 60%); }

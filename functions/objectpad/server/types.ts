@@ -27,6 +27,10 @@ export interface Env {
   /** Server-side Privy secret, used only to read the verified account's own wallet address. */
   PRIVY_APP_SECRET?: string; OBJECTPAD_PRIVY_APP_SECRET?: string;
   ROBINHOOD_RPC_URL?: string;
+  /** X API v2 app bearer token (server-only) used to fetch posts for ObjectPad Earn. */
+  X_API_BEARER_TOKEN?: string;
+  /** Set to 'false' to hard-pause every Earn payout regardless of the operator switch. */
+  OBJECTPAD_EARN_PAYOUTS?: string;
   /** Optional operator-supplied sponsor key; otherwise one is generated once and kept in durable storage. */
   OBJECTPAD_SPONSOR_PRIVATE_KEY?: string; OBJECTPAD_DAILY_LAUNCHES?: string; OBJECTPAD_HOUSE_LAUNCHES?: string; OBJECTPAD_UNIQUENESS_MODEL?: string;
 }

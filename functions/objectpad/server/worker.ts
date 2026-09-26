@@ -16,6 +16,7 @@ import { UniquenessService } from './uniqueness';
 import { MarketService } from './market';
 import { TradeIndexer } from './indexer';
 import { AccountService } from './accounts';
+import { EarnService } from './earn';
 import { normalizeIcon, normalizeImage } from './media';
 import { visionJson } from './ai';
 
@@ -112,13 +113,13 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
     this.runtime = { env, origin: canonicalOrigin(env), apiOrigin: publicBase(env.OBJECTPAD_API_ORIGIN), privyAppId: (env.OBJECTPAD_PRIVY_APP_ID || env.VITE_PRIVY_APP_ID || '').trim(), toolkitUrl: clean(env.EXPO_PUBLIC_TOOLKIT_URL) || 'https://toolkit.rork.com', toolkitKey: (env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY ?? '').trim(), privateBucket: this.store.bucket('private'), artifactBucket: this.store.bucket('artifacts') };
     this.captures = new CaptureService(this.store, this.runtime); this.sponsor = new SponsorService(this.store, this.runtime); this.records = new RecordService(this.store, this.runtime, this.captures, this.sponsor);
-    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime); this.accounts = new AccountService(this.store, this.runtime, this.sponsor, this.records);
+    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime); this.accounts = new AccountService(this.store, this.runtime, this.sponsor, this.records); this.earn = new EarnService(this.store, this.runtime, this.sponsor, this.accounts);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
   }
   private exclusive<T>(action: () => Promise<T>): Promise<T> { const run = this.queue.then(action, action); this.queue = run.then(() => {}, () => {}); return run; }
@@ -135,6 +136,11 @@ export class ObjectPad extends DurableObject<Env> {
       if (method === 'GET' && /^\/artifacts\/[a-f0-9]{64}$/.test(path)) return await this.artifact(request, path.slice(11));
       if (method === 'GET' && path === '/status') return json(readiness(this.runtime, await probeToolkit(this.runtime), await this.sponsor.status().catch(() => null)));
       if (method === 'GET' && path === '/market') return json(await this.market.snapshot());
+      // ObjectPad Earn public reads: validated live market + reward tier, rules, genuine activity feed, proof records.
+      if (method === 'GET' && path === '/earn/market') return json(await this.earn.market());
+      if (method === 'GET' && path === '/earn/rules') return json(this.earn.rules());
+      if (method === 'GET' && path === '/earn/feed') return json(this.earn.feed(new URL(request.url).searchParams.get('filter') ?? 'all'));
+      const earnProof = path.match(/^\/earn\/proof\/([0-9a-f-]{36})$/); if (method === 'GET' && earnProof) return json(this.earn.proof(earnProof[1]));
       if (method === 'GET' && path === '/house') { if (this.house.pending()) await this.schedule(1_000); return json({ coins: this.house.list() }); }
       const logo = path.match(/^\/logos\/(0x[a-f0-9]{40})$/); if (method === 'GET' && logo) return await this.market.logo(logo[1]);
       // Every ObjectPad coin with exact, indexed on-chain stats. Creator coins rank above ObjectPad originals.
@@ -537,7 +543,21 @@ export class ObjectPad extends DurableObject<Env> {
     if (path === '/watchlist' && method === 'GET') return json({ ids: this.store.all<{ object_id: string }>('SELECT object_id FROM op_watchlist WHERE owner=?', owner).map(r => r.object_id) });
     if (path === '/watchlist' && method === 'POST') { const data = await body(request); const id = string(data.objectId, 64); this.records.publicRecord(id); if (data.saved === true) this.store.run('INSERT OR IGNORE INTO op_watchlist(owner,object_id) VALUES (?,?)', owner, id); else this.store.run('DELETE FROM op_watchlist WHERE owner=? AND object_id=?', owner, id); return json({ saved: data.saved === true }); }
     if (path === '/reports' && method === 'POST') { this.store.rate(`report:${owner}`, 8, 86_400_000); const data = await body(request); const id = string(data.objectId, 64); this.records.publicRecord(id); const reason = string(data.reason, 1500).trim(); if (reason.length < 10) throw new ApiError('REPORT_REASON_REQUIRED'); const reportId = crypto.randomUUID(); this.store.run('INSERT INTO op_reports(id,owner,record_id,reason,created_at) VALUES (?,?,?,?,?)', reportId, owner, id, reason, Date.now()); this.store.metric('report_received'); return json({ id: reportId, status: 'received' }); }
+    // ObjectPad Earn: signed-in only. X identity, submissions, balances and claims are all resolved server-side.
+    if (path.startsWith('/earn/')) {
+      if (path === '/earn/event' && method === 'POST') { const data = await body(request); this.earn.track(string(data.name, 40)); return json({ ok: true }); }
+      if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
+      await this.ensureProfile(owner);
+      if (path === '/earn/me' && method === 'GET') { try { await this.records.creatorWallet(owner); } catch { /* wallet links by signature */ } return json(await this.earn.me(owner)); }
+      if (path === '/earn/submissions' && method === 'POST') { this.store.rate(`earn-ip:${await this.visitor(request)}`, 40, 3_600_000); const data = await body(request); return json(await this.earn.submit(owner, string(data.url, 300))); }
+      if (path === '/earn/claims' && method === 'POST') { this.store.rate(`earn-claim-ip:${await this.visitor(request)}`, 20, 3_600_000); const data = await body(request); return json(await this.earn.claim(owner, data)); }
+      throw new ApiError('NOT_FOUND', 404);
+    }
     if (path.startsWith('/ops/')) { this.operator(owner);
+      if (method === 'GET' && path === '/ops/earn') return json(await this.earn.overview());
+      if (method === 'POST' && path === '/ops/earn/settings') { const data = await body(request); const result = this.earn.updateSettings(data); await this.store.audit(await sha256(owner), 'earn', 'settings', JSON.stringify(result).slice(0, 900)); return json(result); }
+      if (method === 'POST' && path === '/ops/earn/review') { const data = await body(request); return json(this.earn.review(string(data.id, 36), string(data.decision, 10), string(data.reason, 500), owner)); }
+      if (method === 'POST' && path === '/ops/earn/block') { const data = await body(request); this.earn.block(string(data.subject, 200), data.blocked === true, string(data.reason ?? '', 300)); await this.store.audit(await sha256(owner), 'earn', data.blocked === true ? 'block' : 'unblock', string(data.subject, 200)); return json({ ok: true }); }
       if (method === 'GET' && path === '/ops/overview') return json({ toolkit: toolkitProbeStatus(), sponsor: await this.sponsor.status(true).catch(() => ({ address: this.sponsor.address })), metrics: this.store.all('SELECT name,value FROM op_metrics ORDER BY name'), storage: this.store.one("SELECT COUNT(DISTINCT key) AS objects, COALESCE(SUM(length(data)),0) AS bytes FROM op_blobs"), captures: this.store.all("SELECT id,state,created_at FROM op_capture_sessions WHERE state IN ('review','screening','reconstructing','validating','model_review','blocked','failed') ORDER BY created_at DESC LIMIT 50"), reports: this.store.all('SELECT id,record_id,reason,created_at FROM op_reports ORDER BY created_at DESC LIMIT 50'), transactions: this.store.all("SELECT id,record_id,kind,state,tx_hash FROM op_transactions WHERE state IN ('unknown','reorg_review','submitted','confirming')"), audit: this.store.all('SELECT target,decision,reason,hash,previous_hash,created_at FROM op_moderation ORDER BY created_at DESC LIMIT 50') });
       if (method === 'GET' && path === '/ops/house/fees') return json(await this.accounts.house());
       if (method === 'POST' && path === '/ops/house/claim') { const result = await this.accounts.claimHouse(); await this.store.audit(await sha256(owner), 'house_fees', 'claim', `Claimed house-coin creator fees ${result.hash}`); return json(result); }

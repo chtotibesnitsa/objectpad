@@ -4,7 +4,7 @@ import type { Address, Hex } from 'viem';
 
 /** Sign-in routes offered on ObjectPad. Launching never requires one of them. */
 export type LoginMethod = 'twitter' | 'wallet' | 'email';
-export interface SessionAdapter { ready: boolean; authenticated: boolean; wallet: Address | null; login: (methods?: LoginMethod[]) => void; logout: () => void; token: () => Promise<string | null>; sign: (message: string) => Promise<Hex>; send: (input: { to: Address; data: Hex; value: bigint; gas: bigint }) => Promise<Hex>; }
+export interface SessionAdapter { ready: boolean; authenticated: boolean; wallet: Address | null; login: (methods?: LoginMethod[]) => void; logout: () => void; token: () => Promise<string | null>; sign: (message: string) => Promise<Hex>; linkX?: () => void; send: (input: { to: Address; data: Hex; value: bigint; gas: bigint }) => Promise<Hex>; }
 
 /** Privy application used by ObjectPad. Configure in the project environment as VITE_PRIVY_APP_ID. */
 export const PRIVY_APP_ID = ((import.meta.env.VITE_OBJECTPAD_PRIVY_APP_ID as string | undefined) || (import.meta.env.VITE_PRIVY_APP_ID as string | undefined) || '').trim();
