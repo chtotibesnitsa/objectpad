@@ -1,108 +1,172 @@
-import { useMemo, useState } from 'react';
+import { memo, useDeferredValue, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, ArrowUpRight, Check, CircleDashed, Clock, Copy } from 'lucide-react';
-import { usePairs } from '@/lib/pairs';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowRight, ArrowUpRight, Search } from 'lucide-react';
+import { PAIR_KINDS, usePairs, type PairQuote } from '@/lib/pairs';
+import { chain } from '@/lib/chain';
 import { PairLogo } from '@/components/PairBadge';
-import { MergeExplainer } from '@/components/MergeExplainer';
+import { FusionStage, useCombos, type ComboView } from '@/components/FusionStage';
+import { SpinSprite } from '@/components/SpinSprite';
+import { Reveal } from '@/components/Reveal';
 import { OBJECTPAD_X_URL } from '@/lib/brand';
-import { copyText, pct, usd } from '@/lib/format';
+import { pct, usd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-/** V2.0 release notes: each line is something that shipped and can be used today. */
-const NOTES: { tag: string; title: string; body: string }[] = [
-  { tag: 'New', title: 'ObjectPad for iPhone, as a web app', body: 'Add ObjectPad to your iPhone home screen from objectpad.fun/app: the full iOS app with every screen, animation, sound effect, wallet and launch feature, free and without the App Store. It is our workaround while the native app is in App Store review. Phone visitors get an “Add App” prompt automatically.' },
-  { tag: 'Improved', title: 'Launch from your phone, no QR code', body: 'The downloads page and every desktop QR page now offer the iPhone web app next to the Android app, so you can install once and scan, pair and launch straight from your phone.' },
-  { tag: 'New', title: 'Stock pairing at launch', body: 'Every coin can now be paired with a tokenized stock, ETF, commodity or asset approved on Pons V2, including NVDA, TSLA, AAPL, SPCX, GME, SPY, GLD, USDG and cbBTC. ETH is still the default.' },
-  { tag: 'New', title: 'AI pair suggestion', body: 'After your scan, the AI reads the object and suggests the stock whose story fits it best, with a one-line reason. It is a one-tap suggestion only, and nothing is paired unless you choose it.' },
-  { tag: 'New', title: 'Pay with ETH for paired coins', body: 'Buying a stock-paired coin routes your ETH through Uniswap V3 on Robinhood Chain into the pair asset, then into the curve. Every step is quoted on-chain and signed in your wallet.' },
-  { tag: 'New', title: 'Pairs across the market', body: 'Market cards and rows now show what each coin is paired with, including the company logo and the asset’s live 24h move. You can filter the market by pair.' },
-  { tag: 'New', title: 'Live pair board', body: 'Every approved pair asset is priced from its deepest on-chain pool on Robinhood Chain and refreshed every 30 seconds. No off-chain quote feeds are used.' },
-  { tag: 'Improved', title: 'Cleaner navigation', body: 'Pixel-glyph navigation, a gold V2 marker next to the logo on every page, and this release log.' },
-  { tag: 'Shipped', title: 'ObjectPad for iPhone', body: 'The native iOS app is in TestFlight and has been submitted for App Store review. It includes scan to launch, the market, rewards and a device wallet.' },
-];
-const STATUS: { name: string; state: 'live' | 'review' | 'next'; note: string }[] = [
-  { name: 'Web app', state: 'live', note: 'objectpad.fun · V2 live' },
-  { name: 'Android', state: 'live', note: 'APK available · V2 pairing' },
-  { name: 'iPhone web app', state: 'live', note: 'objectpad.fun/app · Add to Home Screen' },
-  { name: 'iOS', state: 'review', note: 'TestFlight live · App Store review' },
-  { name: 'Launch engine', state: 'live', note: 'Pons V2 · ETH & stock pairs' },
-];
-const ROADMAP: { when: string; title: string; body: string }[] = [
-  { when: 'Next', title: 'iOS on the App Store', body: 'Public release once Apple review clears.' },
-  { when: 'Next', title: 'One-signature paired buys', body: 'Collapse swap + approve + buy into a single confirmation.' },
-  { when: 'Soon', title: 'Pair performance leaderboard', body: 'Which stocks carry the strongest object coins, ranked from on-chain volume.' },
-  { when: 'Soon', title: 'Crafting Table', body: 'Combine object coins into new, rarer objects.' },
-];
-const SHOTS: { src: string; caption: string }[] = [
-  { src: '/v2/duck_stock_chart_collision.webp', caption: 'Object meets market' },
-  { src: '/v2/duck_stock_coin_fusion.webp', caption: 'Object + stock = paired coin' },
-  { src: '/v2/duck_coin_chart_pedestal.webp', caption: 'Pair any object with any stock' },
-];
 export const V2_POSTS: string[] = [
   'ObjectPad V2 is live.\n\nScan any real object, pair it with a tokenized stock, and launch it as a coin on Robinhood Chain. Free.\n\nNVDA. TSLA. AAPL. SPCX. GME. SPY. GLD. 70+ assets.\n\nobjectpad.fun',
   'New in V2: the AI now suggests a stock for your object.\n\nScan a sneaker and it may point you to a footwear name. Scan a console and it may point to gaming. One tap to accept, or keep ETH.\n\nYour coin gets a story, not just a picture.',
-  'Stock-paired coins, bought with ETH.\n\nV2 routes your ETH through Uniswap V3 on Robinhood Chain into the pair asset, then into the curve. Quoted on-chain, signed in your wallet, no custody.\n\nEvery coin card now shows its pair and the pair’s live move.',
-  'Build log, day 1 of V2:\n\n✅ Stock pairing live (web + Android)\n✅ iOS in TestFlight, submitted to the App Store\n✅ AI pair suggestions\n✅ Pair filter on the market\n\nNext: one-signature paired buys.\n\nTap the gold V2 pill on objectpad.fun for the full log.',
-  'On iPhone? You don’t have to wait for the App Store.\n\nOpen objectpad.fun/app in Safari → Share → Add to Home Screen.\n\nThe full ObjectPad iOS app, on your home screen, free. Scan, pair with a stock, launch and claim right from your phone.',
+  'Stock-paired coins, bought with ETH.\n\nV2 routes your ETH through Uniswap V3 on Robinhood Chain into the pair asset, then into the curve. Quoted on-chain, signed in your wallet, no custody.',
+  'On iPhone? You don’t have to wait for the App Store.\n\nOpen objectpad.fun/app in Safari → Share → Add to Home Screen.\n\nThe full ObjectPad iOS app, on your home screen, free.',
 ];
 
-function StatusDot({ state }: { state: 'live' | 'review' | 'next' }) { return <span className={cn('size-2 shrink-0 rounded-full', state === 'live' ? 'pulse-dot bg-up' : state === 'review' ? 'bg-[#D9A521]' : 'bg-ink/30')}/>; }
+const FACTORY = '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e';
+const short = (a: string): string => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const KIND_LABEL: Record<string, string> = { native: 'Native', stock: 'Stock', etf: 'ETF', commodity: 'Commodity', stable: 'Stable', crypto: 'Crypto', community: 'Community' };
 
-function PostCard({ text, index }: { text: string; index: number }) {
-  const [copied, setCopied] = useState<boolean>(false);
-  return <div className="raised flex flex-col rounded-[22px] p-4">
-    <div className="flex items-center justify-between"><span className="font-mono text-[11px] font-extrabold uppercase text-ink/55">Post {index + 1} / {V2_POSTS.length}</span><button onClick={async () => { if (await copyText(text)) { setCopied(true); setTimeout(() => setCopied(false), 1600); } }} className="press flex min-h-9 items-center gap-1 rounded-full bg-ink/[0.06] px-3 text-[12px] font-extrabold">{copied ? <><Check size={13}/>Copied</> : <><Copy size={13}/>Copy</>}</button></div>
-    <p className="mt-3 flex-1 whitespace-pre-line text-[14px] font-semibold leading-6">{text}</p>
-    <a href={`https://x.com/intent/post?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" className="btn press mt-3 min-h-11 text-[13px]">Post on X<ArrowUpRight size={14}/></a>
-  </div>;
+/** What shipped in V2.0, as a release log. Every entry is live today. */
+const LOG: { tag: 'NEW' | 'IMP' | 'SHIP'; id: string; text: string }[] = [
+  { tag: 'NEW', id: 'stock-pairing', text: 'launchToken(pairToken) on Pons V2: pair any coin with a stock, ETF, commodity or crypto' },
+  { tag: 'NEW', id: 'ai-pair-pick', text: 'object → best-fit stock with a one-line reason · opt-in, ETH stays default' },
+  { tag: 'NEW', id: 'eth-paired-buy', text: 'ETH → Uniswap V3 SwapRouter02 → pair asset → curve · quoted by QuoterV2' },
+  { tag: 'NEW', id: 'pair-board', text: 'every asset priced from its deepest V3 pool · 30s refresh · no off-chain feeds' },
+  { tag: 'NEW', id: 'market-pairs', text: 'pair badge + live 24h on every coin · filter the market by pair' },
+  { tag: 'NEW', id: 'iphone-web-app', text: 'objectpad.fun/app · the full iOS app via Add to Home Screen' },
+  { tag: 'IMP', id: 'qr-free-launch', text: 'launch from your phone without scanning a desktop QR code' },
+  { tag: 'SHIP', id: 'android', text: 'APK updated with pairing, paired buys and the V2 log' },
+  { tag: 'SHIP', id: 'ios-native', text: 'TestFlight live · submitted for App Store review' },
+];
+const STATUS: [string, 'live' | 'review'][] = [['web', 'live'], ['android', 'live'], ['iphone-web', 'live'], ['ios', 'review'], ['engine', 'live']];
+const NEXT: [string, string][] = [['next', 'one-signature paired buys (swap + approve + buy)'], ['next', 'iOS public release on the App Store'], ['soon', 'pair performance leaderboard'], ['soon', 'crafting table: combine object coins']];
+
+function useBlock() {
+  return useQuery({ queryKey: ['objectpad', 'block'], queryFn: () => chain.getBlockNumber(), refetchInterval: 4_000, staleTime: 2_000, retry: 1 });
 }
 
-/** ObjectPad V2: release notes, trailer, live pairs, platform status and the developer roadmap. Opened from the gold V2 pill. */
+function TermLine({ i, children, className }: { i: number; children: ReactNode; className?: string }) {
+  return <div className={cn('term-line whitespace-pre-wrap break-words', className)} style={{ '--delay': `${180 + i * 70}ms` } as CSSProperties}>{children}</div>;
+}
+const Prompt = () => <span className="text-[#1BD56A]">objectpad@robinhood<span className="text-white/40">:</span><span className="text-[#7FB2FF]">~</span><span className="text-white/40">$</span> </span>;
+
+/** V2.0 release notes as a live terminal session, with the chain head ticking in the title bar. */
+const ReleaseTerminal = memo(function ReleaseTerminal({ assets }: { assets: number }) {
+  const block = useBlock(); let n = 0;
+  return <div className="relative overflow-hidden rounded-[28px] bg-[#0B0C0F] text-[12.5px] leading-[1.65] text-white/85 shadow-[0_0_0_1px_rgba(12,13,16,.9),0_40px_80px_-30px_rgba(12,13,16,.7)] sm:text-[13px]" style={{ fontFamily: '"Geist Mono", ui-monospace, monospace' }}>
+    <div className="term-scan pointer-events-none absolute inset-0" aria-hidden="true"/>
+    <div className="flex items-center gap-3 border-b border-white/[0.07] bg-white/[0.03] px-4 py-3">
+      <span className="flex gap-1.5" aria-hidden="true"><span className="size-3 rounded-full bg-[#E5484D]"/><span className="size-3 rounded-full bg-[#F2C94C]"/><span className="size-3 rounded-full bg-[#12A150]"/></span>
+      <span className="flex-1 truncate text-[11.5px] font-bold text-white/55">release-notes · v2.0.0 · 26 sep 2026</span>
+      <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-bold text-white/55"><span className="pulse-dot size-1.5 rounded-full bg-[#1BD56A]"/>chain 4663 · #{block.data ? block.data.toString() : '…'}</span>
+    </div>
+    <div className="relative px-4 py-4 sm:px-5">
+      <TermLine i={n++}><Prompt/><span className="text-white">objectpad release --version 2.0.0</span></TermLine>
+      <TermLine i={n++} className="text-white/55">✓ factory {short(FACTORY)} · pair assets approved: <span className="text-[#F2C94C]">{assets || 71}</span></TermLine>
+      <div className="mt-1.5">{LOG.map(l => <TermLine key={l.id} i={n++} className="grid grid-cols-[52px_1fr] gap-x-2 sm:grid-cols-[52px_150px_1fr]"><span className={cn('font-black', l.tag === 'NEW' ? 'text-[#F2C94C]' : l.tag === 'IMP' ? 'text-[#7FB2FF]' : 'term-glow text-[#1BD56A]')}>[{l.tag}]</span><span className="font-bold text-white">{l.id}</span><span className="col-span-2 text-white/60 sm:col-span-1">{l.text}</span></TermLine>)}</div>
+      <TermLine i={n++} className="mt-3"><Prompt/><span className="text-white">objectpad status</span></TermLine>
+      <TermLine i={n++} className="flex flex-wrap gap-x-4">{STATUS.map(([k, s]) => <span key={k}><span className={s === 'live' ? 'term-glow text-[#1BD56A]' : 'text-[#F2C94C]'}>{s === 'live' ? '●' : '◐'}</span> {k} <span className="text-white/45">{s}</span></span>)}</TermLine>
+      <TermLine i={n++} className="mt-3"><Prompt/><span className="text-white">objectpad roadmap</span></TermLine>
+      {NEXT.map(([w, t]) => <TermLine key={t} i={n++}><span className={w === 'next' ? 'text-[#7FB2FF]' : 'text-white/40'}>{w.padEnd(5, ' ')}</span> {t}</TermLine>)}
+      <TermLine i={n++} className="mt-3"><Prompt/><span className="blink text-white">▍</span></TermLine>
+    </div>
+  </div>;
+});
+
+/** Every asset the Pons V2 factory approves, grouped by kind, each priced from its Robinhood Chain pool. */
+function PairBoard() {
+  const pairs = usePairs(); const [kind, setKind] = useState<string>('all'); const [q, setQ] = useState<string>(''); const query = useDeferredValue(q);
+  const assets = useMemo(() => (pairs.data?.assets ?? []).filter(a => a.approved), [pairs.data]);
+  const counts = useMemo(() => { const m = new Map<string, number>(); for (const a of assets) m.set(a.kind, (m.get(a.kind) ?? 0) + 1); return m; }, [assets]);
+  const shown = useMemo(() => { const s = query.trim().toLowerCase(); return assets.filter(a => (kind === 'all' || a.kind === kind) && (!s || `${a.symbol} ${a.name} ${a.sector ?? ''}`.toLowerCase().includes(s))); }, [assets, kind, query]);
+  const tabs = PAIR_KINDS.filter(k => k.id === 'all' || (k.id !== 'popular' && counts.has(k.id)));
+  return <div className="raised flex flex-col rounded-[28px] p-3 sm:p-4">
+    <div className="flex flex-wrap items-end justify-between gap-3 px-1.5 pt-1">
+      <div><p className="lab"><span className="pulse-dot size-1.5 rounded-full bg-up"/>Live on Robinhood Chain</p><h2 className="display mt-2 text-[28px] leading-none sm:text-[34px]"><span className="tnum">{assets.length || 71}</span> pair assets, priced on-chain.</h2></div>
+      <p className="font-mono text-[11px] font-extrabold uppercase text-ink/55">{pairs.data ? `ETH ${usd(pairs.data.ethUsd ?? 0)} · refreshed 30s` : 'Reading pools…'}</p>
+    </div>
+    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="no-scrollbar flex flex-1 gap-1 overflow-x-auto">{tabs.map(t => <button key={t.id} onClick={() => setKind(t.id)} className={cn('press min-h-9 shrink-0 rounded-full px-3 text-[12.5px] font-extrabold', kind === t.id ? 'bg-ink text-white' : 'bg-ink/[0.05] text-ink/70 hover:text-ink')}>{t.label}<span className="ml-1 font-mono text-[11px] opacity-60">{t.id === 'all' ? assets.length : counts.get(t.id)}</span></button>)}</div>
+      <label className="sunk flex min-h-10 items-center gap-2 rounded-full px-3.5 sm:w-52"><Search size={15} className="text-ink/50"/><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search NVDA, gold…" aria-label="Search pair assets" className="w-full bg-transparent text-[13.5px] font-bold outline-none placeholder:text-ink/40"/></label>
+    </div>
+    <div className="no-scrollbar mt-3 grid max-h-[520px] grid-cols-2 gap-1.5 overflow-y-auto pr-0.5 sm:grid-cols-3">
+      {shown.map(a => <AssetTile key={a.address} a={a}/>)}
+      {!shown.length && <p className="col-span-full px-2 py-6 text-center text-[13.5px] font-bold text-ink/55">{pairs.isError ? 'Pair prices are unavailable right now.' : pairs.isLoading ? 'Reading every pool on Robinhood Chain…' : 'No asset matches that search.'}</p>}
+    </div>
+  </div>;
+}
+const AssetTile = memo(function AssetTile({ a }: { a: PairQuote }) {
+  return <Link to="/launch" className="group flex items-center gap-2.5 rounded-2xl bg-ink/[0.03] p-2.5 transition-colors hover:bg-ink/[0.06]" title={`${a.name}${a.pool ? ` · pool fee ${(a.pool.fee / 10_000).toFixed(2)}%` : ''}`}>
+    <PairLogo src={a.logo} symbol={a.symbol} size={34} className="transition-transform group-hover:scale-110"/>
+    <span className="min-w-0 flex-1"><span className="flex items-baseline justify-between gap-1"><span className="truncate text-[14px] font-extrabold">{a.symbol}</span>{a.change24h !== null && <span className={cn('font-mono text-[11px] font-bold', a.change24h >= 0 ? 'text-up' : 'text-down')}>{pct(a.change24h)}</span>}</span>
+      <span className="flex items-baseline justify-between gap-1"><span className="truncate text-[11.5px] font-semibold text-ink/55">{a.sector ?? KIND_LABEL[a.kind]}</span><span className="font-mono text-[11.5px] font-bold tnum">{a.priceUsd ? usd(a.priceUsd) : '—'}</span></span></span>
+  </Link>;
+});
+
+/** Scrolling logo wall of every supported asset. */
+function LogoWall() {
+  const pairs = usePairs(); const list = useMemo(() => (pairs.data?.assets ?? []).filter(a => a.approved && a.kind !== 'native'), [pairs.data]);
+  const rows = [list.filter((_, i) => i % 2 === 0), list.filter((_, i) => i % 2 === 1)];
+  if (!list.length) return null;
+  return <div className="marquee-mask mt-8 flex flex-col gap-2 overflow-hidden" aria-hidden="true">{rows.map((row, r) => <div key={r} className="flex w-max gap-2" style={{ animation: `marquee ${r ? 80 : 95}s linear infinite${r ? ' reverse' : ''}` }}>{[...row, ...row].map((a, i) => <span key={`${a.address}${i}`} className="raised flex shrink-0 items-center gap-2 rounded-full py-1 pl-1 pr-3.5"><PairLogo src={a.logo} symbol={a.symbol} size={26}/><span className="text-[13px] font-extrabold">{a.symbol}</span>{a.change24h !== null && <span className={cn('font-mono text-[11px] font-bold', a.change24h >= 0 ? 'text-up' : 'text-down')}>{pct(a.change24h)}</span>}</span>)}</div>)}</div>;
+}
+
+/** Four-step pipeline, each step with a working visual rather than a paragraph. */
+function Pipeline({ combo }: { combo: ComboView | undefined }) {
+  const ticker = combo?.exhibit.ticker ?? 'QUACK'; const sym = combo?.symbol ?? 'NVDA'; const logo = combo?.quote?.logo;
+  const steps: { n: string; title: string; body: string; spec: string; visual: ReactNode }[] = [
+    { n: '01', title: 'Scan it', body: 'Six photos from your phone become a real 3D mesh. AI checks it is one of one.', spec: '~90k triangles · fingerprinted', visual: combo ? <SpinSprite src={combo.exhibit.spin} className="h-full" duration={6}/> : null },
+    { n: '02', title: 'Pair it', body: 'Pick any of 71 assets, or take the AI’s pick for your object. ETH stays the default.', spec: 'stocks · ETFs · gold · BTC', visual: <div className="flex items-center justify-center gap-2"><img src={combo?.exhibit.coin ?? '/assets/objects/coin-duck.webp'} alt="" className="size-16 rounded-full object-cover shadow-[0_10px_24px_-10px_rgba(12,13,16,.4)]"/><span className="display text-[26px] text-ink/40">×</span><PairLogo src={logo} symbol={sym} size={64} className="shadow-[0_10px_24px_-10px_rgba(12,13,16,.4)]"/></div> },
+    { n: '03', title: 'Launch it', body: 'One transaction on the Pons V2 factory. The treasury pays the gas, so you pay nothing.', spec: '$0 · Robinhood Chain 4663', visual: <code className="block rounded-2xl bg-[#0B0C0F] px-3 py-2.5 font-mono text-[11.5px] leading-5 text-white/80"><span className="text-[#7FB2FF]">launchToken</span>(<br/>&nbsp;&nbsp;<span className="text-[#F2C94C]">"${ticker}"</span>,<br/>&nbsp;&nbsp;pairToken: <span className="text-[#1BD56A]">{sym}</span><br/>)</code> },
+    { n: '04', title: 'Trade it', body: 'Buyers pay in ETH. It routes on-chain into the pair asset, then into your coin’s curve.', spec: 'Uniswap V3 → Pons curve', visual: <div className="flex flex-wrap items-center justify-center gap-1 font-mono text-[11.5px] font-extrabold">{['ETH', 'V3', sym, 'curve', `$${ticker}`].map((s, i) => <span key={s} className="flex items-center gap-1"><span className={cn('rounded-full px-2 py-1', i === 4 ? 'v2-pill text-[#3A2A05]' : i % 2 ? 'bg-ink/[0.06]' : 'bg-ink text-white')}>{s}</span>{i < 4 && <ArrowRight size={12} className="text-ink/40"/>}</span>)}</div> },
+  ];
+  return <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{steps.map((s, i) => <Reveal key={s.n} delay={i * 80}><div className="raised lift flex h-full flex-col rounded-[26px] p-4">
+    <div className="steel flex h-[150px] items-center justify-center overflow-hidden rounded-[20px] p-3">{s.visual}</div>
+    <div className="mt-4 flex items-baseline gap-2.5"><span className="display text-[34px] leading-none text-ink/20">{s.n}</span><h3 className="display text-[26px] leading-none">{s.title}</h3></div>
+    <p className="mt-2.5 text-[14.5px] font-semibold leading-snug text-ink/75">{s.body}</p>
+    <p className="mt-auto pt-3 font-mono text-[11px] font-extrabold uppercase text-ink/50">{s.spec}</p>
+  </div></Reveal>)}</div>;
+}
+
+/** Object × stock pairings with a story: the meta a paired launch gives a coin. */
+function Narratives({ combos }: { combos: ComboView[] }) {
+  return <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{combos.map((c, i) => <Reveal key={c.exhibit.id} delay={i * 50}><Link to="/launch" className="raised lift group flex h-full flex-col rounded-[26px] p-3">
+    <div className="steel relative aspect-square overflow-hidden rounded-[20px]"><SpinSprite src={c.exhibit.spin} className="absolute inset-[8%]" duration={7} delay={i * 0.6}/><span className="absolute right-2.5 top-2.5"><PairLogo src={c.quote?.logo} symbol={c.symbol} size={40} className="shadow-[0_8px_20px_-8px_rgba(12,13,16,.45)]"/></span></div>
+    <p className="display mt-3 text-[22px] leading-none">${c.exhibit.ticker} <span className="text-ink/35">×</span> {c.symbol}</p>
+    <p className="mt-1.5 flex-1 text-[13px] font-semibold leading-snug text-ink/65">{c.story}</p>
+    <p className="mt-2 flex items-center justify-between font-mono text-[11.5px] font-extrabold"><span className="tnum">{c.quote?.priceUsd ? usd(c.quote.priceUsd) : '—'}</span>{c.quote?.change24h !== null && c.quote?.change24h !== undefined && <span className={c.quote.change24h >= 0 ? 'text-up' : 'text-down'}>{pct(c.quote.change24h)}</span>}</p>
+  </Link></Reveal>)}</div>;
+}
+
+/** ObjectPad V2 launch page: the fusion in 3D, the release log, and every asset you can pair with, live. */
 export default function V2() {
-  const pairs = usePairs();
-  const movers = useMemo(() => (pairs.data?.assets ?? []).filter(a => a.kind !== 'native' && a.priceUsd && a.kind !== 'community').sort((a, b) => Math.abs(b.change24h ?? 0) - Math.abs(a.change24h ?? 0)).slice(0, 12), [pairs.data]);
+  const pairs = usePairs(); const combos = useCombos();
   const count = (pairs.data?.assets ?? []).filter(a => a.approved).length;
-  return <div className="page py-6 sm:py-10">
-    <section className="grid items-center gap-8 lg:grid-cols-[1fr_1.1fr]">
-      <div>
-        <p className="lab">Release · 26 Sep 2026 · ObjectPad V2.0</p>
-        <h1 className="display mt-4 text-[clamp(44px,8vw,84px)] leading-[0.92]">ObjectPad <span className="v2-gold-text">V2</span><br/>is live.</h1>
-        <p className="mt-5 max-w-xl text-[20px] font-extrabold leading-[1.35] text-ink/75">Real objects, now backed by real markets. Pair any scanned object with a tokenized stock and launch it on Robinhood Chain.</p>
-        <div className="mt-6 flex flex-wrap gap-3"><Link to="/launch" className="cta-hero group min-h-[64px] px-6 text-[16px]">Launch a paired coin<ArrowRight size={18} className="ml-1 transition-transform group-hover:translate-x-1"/></Link><Link to="/explore?pair=stocks" className="btn-ghost press min-h-[56px] px-5 text-[15px]">Browse paired coins<ArrowUpRight size={15}/></Link></div>
-        <div className="mt-6 grid max-w-md grid-cols-3 gap-2">{[[`${count || 71}`, 'pair assets'], ['3', 'platforms'], ['$0', 'to launch']].map(([v, l]) => <div key={l} className="sunk rounded-2xl px-3 py-2.5"><p className="display text-[26px] leading-none tnum">{v}</p><p className="mt-1 font-mono text-[11px] font-extrabold uppercase text-ink/60">{l}</p></div>)}</div>
-      </div>
-      <div className="steel overflow-hidden rounded-[30px] p-2"><video src="/trailers/objectpad-v2-launch.mp4" poster="/v2/trailer-poster.webp" controls playsInline preload="metadata" className="aspect-video w-full rounded-[24px] bg-ink object-cover"/><p className="px-3 py-2 font-mono text-[11px] font-extrabold uppercase text-ink/60">V2 launch trailer · 36s</p></div>
-    </section>
-
-    <section className="mt-12"><p className="lab">How pairing works</p><h2 className="display mt-3 text-[34px] sm:text-[48px]">Object + stock = one coin.</h2><div className="mt-6"><MergeExplainer/></div></section>
-
-    <section className="mt-12 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-      <div className="raised rounded-[28px] p-5 sm:p-6">
-        <div className="flex items-center justify-between"><h2 className="text-[20px] font-extrabold">Release notes · V2.0</h2><span className="chip">26 Sep 2026</span></div>
-        <ul className="mt-4 divide-y divide-ink/[0.07]">{NOTES.map(n => <li key={n.title} className="flex gap-3 py-3.5"><span className={cn('mt-0.5 h-fit shrink-0 rounded-md px-2 py-0.5 font-mono text-[10.5px] font-black uppercase', n.tag === 'New' ? 'v2-pill text-[#3A2A05]' : n.tag === 'Shipped' ? 'bg-up/12 text-up' : 'bg-ink/[0.07] text-ink/70')}>{n.tag}</span><div><p className="text-[15.5px] font-extrabold">{n.title}</p><p className="mt-1 text-[14px] font-medium leading-6 text-ink/70">{n.body}</p></div></li>)}</ul>
-      </div>
-      <div className="space-y-4">
-        <div className="raised rounded-[28px] p-5"><h2 className="text-[18px] font-extrabold">Platform status</h2><ul className="mt-3 space-y-2">{STATUS.map(s => <li key={s.name} className="sunk flex items-center gap-3 rounded-2xl px-3.5 py-3"><StatusDot state={s.state}/><span className="flex-1 font-extrabold">{s.name}</span><span className="font-mono text-[11.5px] font-bold text-ink/60">{s.note}</span></li>)}</ul></div>
-        <div className="raised rounded-[28px] p-5"><h2 className="text-[18px] font-extrabold">Next few days</h2><ul className="mt-3 space-y-3">{ROADMAP.map(r => <li key={r.title} className="flex gap-3">{r.when === 'Next' ? <Clock size={16} className="mt-1 shrink-0"/> : <CircleDashed size={16} className="mt-1 shrink-0 text-ink/50"/>}<div><p className="font-extrabold">{r.title} <span className="font-mono text-[10.5px] uppercase text-ink/50">· {r.when}</span></p><p className="text-[13.5px] font-medium text-ink/65">{r.body}</p></div></li>)}</ul></div>
+  return <div className="pb-12">
+    <section className="page pt-6 sm:pt-10">
+      <div className="grid items-center gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:gap-12">
+        <div>
+          <p className="enter lab">Release v2.0 · 26 Sep 2026</p>
+          <h1 className="enter display mt-4 text-[clamp(46px,11vw,64px)] leading-[0.92] lg:text-[clamp(56px,4.6vw,80px)]" style={{ '--delay': '60ms' } as CSSProperties}>ObjectPad <span className="v2-gold-text">V2</span><br/>is live.</h1>
+          <p className="enter mt-5 max-w-md text-[19px] font-extrabold leading-snug text-ink/75 sm:text-[21px]" style={{ '--delay': '120ms' } as CSSProperties}>Pair your object’s coin with a real stock. Launch it free.</p>
+          <div className="enter mt-6 flex flex-wrap gap-3" style={{ '--delay': '180ms' } as CSSProperties}><Link to="/launch" className="cta-hero group min-h-[64px] px-6 text-[16px]">Launch a paired coin<ArrowRight size={18} className="ml-1 transition-transform group-hover:translate-x-1"/></Link><Link to="/explore?pair=stocks" className="btn-ghost press min-h-[56px] px-5 text-[15px]">Paired coins<ArrowUpRight size={15}/></Link></div>
+          <div className="enter mt-6 flex flex-wrap gap-2" style={{ '--delay': '240ms' } as CSSProperties}>{[[`${count || 71}`, 'pair assets'], ['$0', 'to launch'], ['4663', 'Robinhood Chain']].map(([v, l]) => <span key={l} className="sunk flex items-baseline gap-1.5 rounded-full px-3.5 py-2"><span className="display text-[20px] leading-none tnum">{v}</span><span className="font-mono text-[11px] font-extrabold uppercase text-ink/55">{l}</span></span>)}</div>
+        </div>
+        <div className="enter" style={{ '--delay': '100ms' } as CSSProperties}><FusionStage className="h-[460px] sm:h-[540px]"/></div>
       </div>
     </section>
+    <LogoWall/>
 
-    <section className="mt-12"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab">Live on Robinhood Chain</p><h2 className="display mt-3 text-[30px] sm:text-[42px]">Pair assets, priced on-chain.</h2></div><Link to="/launch" className="pill press !pr-5">Pair yours<ArrowRight size={15}/></Link></div>
-      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{movers.map(a => <div key={a.address} className="raised flex items-center gap-2.5 rounded-2xl p-3"><PairLogo src={a.logo} symbol={a.symbol} size={32}/><div className="min-w-0"><p className="font-extrabold">{a.symbol}</p><p className="font-mono text-[12px] font-bold tnum">{usd(a.priceUsd ?? 0)} <span className={(a.change24h ?? 0) >= 0 ? 'text-up' : 'text-down'}>{a.change24h === null ? '' : pct(a.change24h)}</span></p></div></div>)}{!movers.length && <p className="col-span-full text-sm font-bold text-ink/60">{pairs.isError ? 'Pair prices are unavailable right now.' : 'Reading pair prices from chain…'}</p>}</div>
+    <section className="page mt-10 grid gap-4 lg:grid-cols-[1.08fr_1fr]">
+      <ReleaseTerminal assets={count}/>
+      <PairBoard/>
     </section>
 
-    <section className="mt-12"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab">New · iPhone web app</p><h2 className="display mt-3 text-[30px] sm:text-[42px]">The iOS app, on any iPhone today.</h2><p className="mt-3 max-w-2xl text-[15px] font-semibold text-ink/65">While the App Store review runs, open objectpad.fun/app on your iPhone and tap Share › Add to Home Screen. Same screens, animations and sounds as the native app, with no App Store needed.</p></div><div className="flex flex-wrap gap-2"><Link to="/app/?install=1" className="cta-hero min-h-[56px] px-5 text-[15px]">Get the iPhone app<ArrowRight size={16}/></Link><Link to="/download" className="btn-ghost press min-h-[56px] px-5 text-[14px]">All downloads<ArrowUpRight size={14}/></Link></div></div>
-      <div className="no-scrollbar mt-5 flex gap-3 overflow-x-auto pb-2">{['home', 'market', 'coin', 'scan', 'rewards', 'wallet'].map(s => <figure key={s} className="raised shrink-0 overflow-hidden rounded-[26px] p-1.5"><img src={`/v2/app-${s}.webp`} alt={`ObjectPad iPhone app: ${s} screen`} loading="lazy" className="h-[420px] w-auto rounded-[21px]"/><figcaption className="flex items-center justify-between px-2 py-2 font-mono text-[11px] font-extrabold uppercase text-ink/60"><span>{s}</span><a href={`/v2/app-${s}.webp`} download className="underline">Download</a></figcaption></figure>)}</div>
-    </section>
+    <section className="page mt-16"><Reveal><p className="lab">How a paired launch works</p><h2 className="display mt-3 text-[36px] leading-none sm:text-[52px]">Object <span className="text-ink/35">+</span> stock <span className="text-ink/35">=</span> <span className="v2-gold-text">one coin.</span></h2></Reveal><div className="mt-7"><Pipeline combo={combos[0]}/></div></section>
 
-    <section className="mt-12"><p className="lab">From the build</p><h2 className="display mt-3 text-[30px] sm:text-[42px]">Screens & stills.</h2>
-      <div className="mt-5 grid gap-3 md:grid-cols-3">{SHOTS.map(s => <figure key={s.src} className="raised overflow-hidden rounded-[24px] p-1.5"><img src={s.src} alt={s.caption} loading="lazy" className="aspect-[3/2] w-full rounded-[19px] object-cover"/><figcaption className="px-2 py-2 font-mono text-[11.5px] font-extrabold uppercase text-ink/60">{s.caption}</figcaption></figure>)}</div>
-      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_2fr]"><video src="/v2/v2-reel-vertical.mp4" autoPlay muted loop playsInline className="mx-auto aspect-[9/16] max-h-[520px] rounded-[24px] bg-ink object-cover"/><video src="/v2/v2-merge-explainer.mp4" autoPlay muted loop playsInline className="aspect-video w-full rounded-[24px] bg-ink object-cover"/></div>
-    </section>
+    <section className="page mt-16"><Reveal><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="lab">Give your coin a story</p><h2 className="display mt-3 text-[36px] leading-none sm:text-[52px]">Pick the market it rides.</h2></div><Link to="/launch" className="pill press !pr-5">Pair yours<ArrowRight size={15}/></Link></div></Reveal><div className="mt-7"><Narratives combos={combos}/></div></section>
 
-    <section className="mt-12"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="lab">Announcements</p><h2 className="display mt-3 text-[30px] sm:text-[42px]">The V2 thread.</h2></div><a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" className="pill press !pr-5">@ObjectPadFun<ArrowUpRight size={15}/></a></div>
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{V2_POSTS.map((p, i) => <PostCard key={i} text={p} index={i}/>)}</div>
-    </section>
-    <p className="mt-10 text-[11.5px] font-medium leading-5 text-ink/55">Tokenized stocks on Robinhood Chain are issued by third parties. Pairing a coin with an asset does not give holders any claim on that asset or company. Not affiliated with Robinhood Markets, Inc., Pons, or any listed company. Nothing here is financial advice.</p>
+    <section className="page mt-16"><Reveal><div className="steel relative flex flex-col items-start justify-between gap-5 overflow-hidden rounded-[34px] p-6 sm:flex-row sm:items-center sm:p-9">
+      <div><p className="lab">Free on web, Android and iPhone</p><h2 className="display mt-2 text-[32px] leading-none sm:text-[44px]">Scan. Pair. Launch.</h2></div>
+      <div className="flex flex-wrap gap-2.5"><Link to="/launch" className="cta-hero min-h-[60px] px-6 text-[15.5px]">Launch a paired coin<ArrowRight size={17}/></Link><a href={`https://x.com/intent/post?text=${encodeURIComponent(V2_POSTS[0])}`} target="_blank" rel="noreferrer" className="btn-ghost press min-h-[56px] px-5 text-[14px]">Share on X<ArrowUpRight size={14}/></a><a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" className="btn-ghost press min-h-[56px] px-5 text-[14px]">@ObjectPadFun<ArrowUpRight size={14}/></a></div>
+    </div></Reveal></section>
+    <p className="page mt-8 text-[11.5px] font-medium leading-5 text-ink/55">Tokenized stocks on Robinhood Chain are issued by third parties. Pairing a coin with an asset does not give holders any claim on that asset or company. Not affiliated with Robinhood Markets, Inc., Pons, or any listed company. Nothing here is financial advice.</p>
   </div>;
 }

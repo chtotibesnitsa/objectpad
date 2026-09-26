@@ -1,11 +1,15 @@
-import { Suspense, useEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { CANVAS_DPR, IS_TOUCH } from '@/lib/perf';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls, RoundedBox, useGLTF, useTexture } from '@react-three/drei';
-import { AdditiveBlending, Box3, CanvasTexture, Color, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Plane, PointLight, SRGBColorSpace, Vector3, type Material } from 'three';
+import { AdditiveBlending, Box3, CanvasTexture, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Plane, PointLight, SRGBColorSpace, Vector3, type Material } from 'three';
 import { VIEWS } from '@/shared/domain';
 
 import { PHASE_MS, SHOT_AT, type ScanClock } from './scanClock';
+import { FUSE_AT, GlassChart, PairCoin, Sparks, clamp01, fusionPose, useRoomEnv } from './fusion';
+
+/** The stock the object is paired with in the last step. */
+export interface StagePair { symbol: string; price: string; change: number | null; }
 
 const clamp = (v: number): number => Math.min(1, Math.max(0, v));
 const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -69,34 +73,37 @@ function Phone({ phoneRef, flashRef, coneRef, lightRef, reach }: { phoneRef: Mut
   </group></group>;
 }
 
-const COIN_COLORS = ['#C9CED8', '#1B1D22', '#E6E8EC', '#9AA3B2', '#C9CED8', '#1B1D22', '#E6E8EC', '#9AA3B2', '#C9CED8', '#1B1D22'];
-
-/** A fountain of glossy, coloured coins stamped with the object's coin art. */
-function CoinFountain({ coin, clock, radius, height }: { coin: string; clock: MutableRefObject<ScanClock>; radius: number; height: number }) {
-  const art = useTexture(coin);
-  const materials = useMemo(() => { art.colorSpace = SRGBColorSpace; const cap = new MeshStandardMaterial({ map: art, metalness: 0.25, roughness: 0.35 }); return { cap, sides: COIN_COLORS.map(color => new MeshStandardMaterial({ color: new Color(color), metalness: 0.7, roughness: 0.22, emissive: new Color(color), emissiveIntensity: 0.06 })) }; }, [art]);
-  useEffect(() => () => { materials.cap.dispose(); materials.sides.forEach(m => m.dispose()); }, [materials]);
-  const coins = useRef<(Group | null)[]>([]);
-  const seeds = useMemo(() => COIN_COLORS.map((_, i) => ({ angle: (i / COIN_COLORS.length) * Math.PI * 2, orbit: radius * 0.9 + 0.35 + (i % 3) * 0.18, offset: i / COIN_COLORS.length, tilt: (i % 2 ? 1 : -1) * 0.4 })), [radius]);
-  useFrame((_, delta) => {
-    const { phase, startedAt } = clock.current; const t = (performance.now() - startedAt) / PHASE_MS[4];
-    coins.current.forEach((group, i) => {
-      if (!group) return; const seed = seeds[i]; const on = phase === 4 && t > 0.04; group.visible = on; if (!on) return;
-      const p = ((t - 0.04) * 1.35 + seed.offset) % 1; const angle = seed.angle + p * 2.4;
-      group.position.set(Math.cos(angle) * seed.orbit, -height / 2 + p * (height + 1.9), Math.sin(angle) * seed.orbit);
-      group.scale.setScalar(Math.max(0.001, Math.sin(p * Math.PI) * 1.15)); group.rotation.y += delta * 4.2; group.rotation.z = seed.tilt;
-    });
+/**
+ * Step 5: the scanned object shrinks aside, a liquid-glass chart of the paired stock flies in, both collide in a burst
+ * of green sparks and one gold-rimmed coin spins up in the centre.
+ */
+function Fusion({ coin, pair, clock, fuse, shadow }: { coin: string; pair: StagePair; clock: MutableRefObject<ScanClock>; fuse: MutableRefObject<Group | null>; shadow: MutableRefObject<Group | null> }) {
+  const env = useRoomEnv(); const chart = useRef<Group | null>(null); const minted = useRef<Group | null>(null);
+  const vw = useThree(s => s.viewport.width); const spread = Math.min(1.12, vw * 0.25); const size = Math.min(1, vw / 4.3);
+  const ageOf = useCallback(() => { const { phase, startedAt } = clock.current; return phase === 4 ? (performance.now() - startedAt - FUSE_AT * PHASE_MS[4]) / 1000 : -1; }, [clock]);
+  useFrame(() => {
+    const { phase, startedAt } = clock.current; const now = performance.now(); const f = fuse.current;
+    if (phase !== 4) { if (f) { f.position.set(0, 0, 0); f.scale.setScalar(1); f.visible = true; } if (chart.current) chart.current.visible = false; if (minted.current) minted.current.visible = false; if (shadow.current) shadow.current.visible = true; return; }
+    const p = fusionPose(clamp01((now - startedAt) / PHASE_MS[4]), spread);
+    if (f) { f.position.set(p.objX, p.merge * 0.5, 0); f.scale.setScalar(p.objScale * (1 + (size - 1) * p.split)); f.visible = p.objVisible; }
+    if (shadow.current) shadow.current.visible = p.split < 0.2;
+    const c = chart.current; if (c) { c.visible = p.chartVisible; c.position.set(p.chartX, 0.22 + p.merge * 0.3, 0.1); c.scale.setScalar(p.chartScale * size); c.rotation.set(0.05, p.chartTilt + Math.sin(now / 900) * 0.05, 0); }
+    const m = minted.current; if (m) { m.visible = p.coinScale > 0.01; m.position.set(0, 0.55 + Math.sin(now / 700) * 0.04, 0.2); m.scale.setScalar(p.coinScale * 1.12 * size); m.rotation.set(0, p.coinSpin + Math.sin(now / 1100) * 0.38, 0); }
   });
-  return <>{seeds.map((_, i) => <group key={i} ref={g => { coins.current[i] = g; }} visible={false}><mesh rotation={[Math.PI / 2, 0, 0]} material={[materials.sides[i], materials.cap, materials.cap]}><cylinderGeometry args={[0.2, 0.2, 0.045, 48]}/></mesh></group>)}</>;
+  return <>
+    <GlassChart symbol={pair.symbol} price={pair.price} change={pair.change} env={env} innerRef={chart}/>
+    <PairCoin art={coin} env={env} innerRef={minted}/>
+    <Sparks ageOf={ageOf} y={0.55}/>
+  </>;
 }
 
 const SHARDS = 30;
 
-function Specimen({ src, coin, clock, onReady }: { src: string; coin: string; clock: MutableRefObject<ScanClock>; onReady: () => void }) {
+function Specimen({ src, coin, pair, clock, onReady }: { src: string; coin: string; pair: StagePair; clock: MutableRefObject<ScanClock>; onReady: () => void }) {
   const built = useSpecimen(src); const { solid, wire, ghost, wireMat, ghostMat, solidPlane, bandLow, bandHigh, ghostPlane, scale, center, height, radius } = built;
   const spin = useRef<Group>(null); const ring = useRef<Mesh>(null); const halo = useRef<Mesh>(null); const halo2 = useRef<Mesh>(null);
   const phone = useRef<Group | null>(null); const flash = useRef<Mesh | null>(null); const cone = useRef<Mesh | null>(null); const light = useRef<PointLight | null>(null);
-  const shards = useRef<(Mesh | null)[]>([]);
+  const shards = useRef<(Mesh | null)[]>([]); const fuse = useRef<Group | null>(null); const shadow = useRef<Group | null>(null);
   const reach = Math.max(1.9, radius + 1.2);
   const shardSeeds = useMemo(() => Array.from({ length: SHARDS }, (_, i) => ({ angle: (i / SHARDS) * Math.PI * 2 + (i % 3) * 0.4, r: radius * (0.35 + ((i * 37) % 10) / 12), offset: ((i * 53) % SHARDS) / SHARDS, spin: 1 + (i % 4) })), [radius]);
   const shardMats = useMemo(() => [new MeshBasicMaterial({ color: PINK, side: DoubleSide }), new MeshBasicMaterial({ color: '#1B1D22', side: DoubleSide }), new MeshBasicMaterial({ color: AMBER, side: DoubleSide })], []);
@@ -140,15 +147,15 @@ function Specimen({ src, coin, clock, onReady }: { src: string; coin: string; cl
   });
 
   return <group>
-    <group ref={spin}>
+    <group ref={fuse}><group ref={spin}>
       <group scale={scale}><group position={[-center.x, -center.y, -center.z]}><primitive object={solid}/><primitive object={wire}/><primitive object={ghost}/></group></group>
-    </group>
+    </group></group>
     <mesh ref={ring} rotation={[Math.PI / 2, 0, 0]} visible={false}><torusGeometry args={[radius * 1.12 + 0.06, 0.008, 8, 120]}/><meshBasicMaterial color={PINK} toneMapped={false}/></mesh>
     {shardSeeds.map((_, i) => <mesh key={i} ref={m => { shards.current[i] = m; }} material={shardMats[i % 3]} visible={false}><circleGeometry args={[1, 3]}/></mesh>)}
     {[halo, halo2].map((ref, i) => <mesh key={i} ref={ref} rotation={[-Math.PI / 2, 0, 0]} position={[0, -height / 2 + 0.01, 0]} visible={false}><ringGeometry args={[radius * 0.95, radius * 0.95 + 0.035, 96]}/><meshBasicMaterial color={i ? '#1B1D22' : PINK} transparent depthWrite={false}/></mesh>)}
     <Phone phoneRef={phone} flashRef={flash} coneRef={cone} lightRef={light} reach={reach}/>
-    <Suspense fallback={null}><CoinFountain coin={coin} clock={clock} radius={radius} height={height}/></Suspense>
-    <ContactShadows position={[0, -height / 2 - 0.02, 0]} opacity={0.32} scale={7} blur={2.6} far={3.5} frames={1}/>
+    <Suspense fallback={null}><Fusion coin={coin} pair={pair} clock={clock} fuse={fuse} shadow={shadow}/></Suspense>
+    <group ref={shadow}><ContactShadows position={[0, -height / 2 - 0.02, 0]} opacity={0.32} scale={7} blur={2.6} far={3.5} frames={1}/></group>
   </group>;
 }
 
@@ -157,12 +164,12 @@ function Preload({ src, coin }: { src: string; coin: string }) { useEffect(() =>
 
 /**
  * Auto-playing capture-to-coin stage. The model is always centred and can be orbited 360° by dragging (no pan, no
- * zoom) while the five steps play: spin, phone scan, bottom-up rebuild, one-of-one check and the coin launch.
+ * zoom) while the five steps play: spin, phone scan, bottom-up rebuild, one-of-one check and the stock-paired coin.
  */
-export default function ScanScene({ src, coin, next, nextCoin, clock, active, onReady }: { src: string; coin: string; next: string; nextCoin: string; clock: MutableRefObject<ScanClock>; active: boolean; onReady: () => void }) {
+export default function ScanScene({ src, coin, pair, next, nextCoin, clock, active, onReady }: { src: string; coin: string; pair: StagePair; next: string; nextCoin: string; clock: MutableRefObject<ScanClock>; active: boolean; onReady: () => void }) {
   return <Canvas dpr={CANVAS_DPR} camera={{ position: [0, 0.45, 6.3], fov: 32 }} gl={{ antialias: !IS_TOUCH, alpha: true, powerPreference: 'default' }} frameloop={active ? 'always' : 'demand'} onCreated={({ gl }) => { gl.localClippingEnabled = true; }} className="touch-pan-y cursor-grab active:cursor-grabbing">
     <ambientLight intensity={1.25}/><hemisphereLight args={['#ffffff', '#d9d7cf', 0.9]}/><directionalLight position={[3.5, 5, 4]} intensity={2.3}/><directionalLight position={[-4, 1.5, -3]} intensity={0.9} color="#e6ecff"/>
-    <Suspense fallback={null}><Specimen key={src} src={src} coin={coin} clock={clock} onReady={onReady}/></Suspense>
+    <Suspense fallback={null}><Specimen key={src} src={src} coin={coin} pair={pair} clock={clock} onReady={onReady}/></Suspense>
     <Preload src={next} coin={nextCoin}/>
     <OrbitControls makeDefault enablePan={false} enableZoom={false} enableDamping dampingFactor={0.08} rotateSpeed={0.85} minPolarAngle={0.35} maxPolarAngle={1.95} target={[0, 0, 0]}/>
   </Canvas>;

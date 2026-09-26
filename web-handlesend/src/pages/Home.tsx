@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { ArrowRight, ArrowUpRight, Check, Copy, LoaderCircle, MousePointer2, RefreshCw, Smartphone, X } from 'lucide-react';
-import { V2HeroCard } from '@/components/V2HeroCard';
+import { ScanHero } from '@/components/ScanHero';
 import { CaPill } from '@/components/CaPill';
 import { MarketBoard } from '@/components/MarketBoard';
 import { Reveal, CountUp } from '@/components/Reveal';
@@ -77,14 +77,15 @@ function Hero() {
       <div className="relative z-10">
         <p className="enter lab">ObjectPad · Robinhood Chain · the real-world object launchpad</p>
         <Link to="/v2" className="enter slide-in group mt-4 inline-flex max-w-full items-center gap-2.5 rounded-full bg-ink py-1.5 pl-1.5 pr-4 text-[12.5px] font-extrabold text-white transition-transform hover:scale-[1.02]" style={delay(30)}><span className="v2-pill relative inline-flex h-[24px] shrink-0 items-center rounded-full px-2.5 font-mono text-[11px] font-black text-[#3A2A05]">V2 LIVE</span><span className="truncate">Pair any object with a tokenized stock · NVDA, TSLA, SPY + 60 more</span><ArrowRight size={14} className="shrink-0 transition-transform group-hover:translate-x-0.5"/></Link>
-        <h1 className="enter display mt-5 text-[clamp(38px,9.5vw,60px)] leading-[0.94] lg:text-[clamp(48px,3.8vw,70px)]" style={delay(60)}>The launchpad for real-world objects, <span className="v2-gold-text">now backed by real markets.</span></h1>
-        <p className="enter mt-6 max-w-xl text-[20px] font-extrabold leading-[1.35] tracking-[-0.015em] text-ink/80 sm:text-[23px]" style={delay(120)}>Scan your <RotatingWord/>, pair it with a stock, and launch its coin on Robinhood Chain. <span className="whitespace-nowrap">You pay $0.</span></p>
+        <h1 className="enter display mt-5 text-[clamp(30px,8.2vw,46px)] leading-[0.96] lg:text-[clamp(38px,3.05vw,52px)]" style={delay(60)}><span className="block whitespace-nowrap">The launchpad for</span><span className="block whitespace-nowrap">real-world objects.</span></h1>
+        <p className="enter display v2-gold-text mt-2.5 text-[clamp(19px,5vw,26px)] leading-tight lg:text-[clamp(21px,1.7vw,28px)]" style={delay(90)}>Now backed by real markets.</p>
+        <p className="enter mt-5 max-w-xl text-[20px] font-extrabold leading-[1.35] tracking-[-0.015em] text-ink/80 sm:text-[23px]" style={delay(120)}>Scan your <RotatingWord/>, pair it with a stock, and launch its coin on Robinhood Chain. <span className="whitespace-nowrap">You pay $0.</span></p>
         <div className="enter mt-7 flex flex-col gap-3 sm:flex-row sm:items-center" style={delay(180)}><HeroCta/><Link to="/explore" className="btn-ghost press min-h-[56px] px-6 text-[15px]">See the coins<ArrowUpRight size={16}/></Link></div>
         <div className="enter mt-4 max-w-[560px]" style={delay(210)}><CaPill/></div>
         <div className="enter mt-3 max-w-[560px]" style={delay(225)}><AndroidFeatureCard layout="wide"/></div>
         <div className="enter mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[14.5px] font-extrabold text-ink/70" style={delay(240)}>{['$0 launch', 'Stock pairing', 'Full 3D scan', '1 object = 1 coin'].map(t => <span key={t} className="flex items-center gap-1.5"><Check size={16} strokeWidth={3} className="text-ink"/>{t}</span>)}</div>
       </div>
-      <div className="enter" style={delay(100)}><V2HeroCard/></div>
+      <div className="enter" style={delay(100)}><ScanHero/></div>
     </div>
     <div className="enter mt-6" style={delay(300)}><LiveStrip/></div>
   </section>;
