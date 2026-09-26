@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import Home from './pages/Home';
 import { AuthBoundary } from './lib/session';
 import { PreferencesProvider } from './hooks/use-preferences';
+import { SocialProvider } from './lib/social';
 import { Loading } from './components/Feedback';
 const Explore = lazy(() => import('./pages/Explore'));
 const LaunchStart = lazy(() => import('./pages/LaunchStart'));
@@ -35,7 +36,9 @@ const Safety = lazy(() => import('./pages/Information').then(module => ({ defaul
 const Status = lazy(() => import('./pages/Information').then(module => ({ default: module.Status })));
 const Provenance = lazy(() => import('./pages/Information').then(module => ({ default: module.Provenance })));
 const Activity = lazy(() => import('./pages/Information').then(module => ({ default: module.Activity })));
-const Settings = lazy(() => import('./pages/Account').then(module => ({ default: module.Settings })));
+const Settings = lazy(() => import('./pages/Settings'));
+const Profile = lazy(() => import('./pages/Profile'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const Portfolio = lazy(() => import('./pages/Account').then(module => ({ default: module.Portfolio })));
 const Creator = lazy(() => import('./pages/Account').then(module => ({ default: module.Creator })));
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: false, retry: 1 }, mutations: { retry: false } } });
@@ -44,7 +47,7 @@ function NavigationEffects() { const { pathname } = useLocation(); useEffect(() 
 /** /launch/<session uuid> is the live studio; /launch/<64-hex record id> is the launch status of a sealed record. */
 function LaunchRoute() { const { id = '' } = useParams(); return /^[a-f0-9]{64}$/.test(id) ? <LaunchReview/> : <Studio/>; }
 function Legacy({ to }: { to: string }) { const { id = '' } = useParams(); return <Navigate to={to.replace(':id', id)} replace/>; }
-export default function App() { return <QueryClientProvider client={queryClient}><AuthBoundary><PreferencesProvider><BrowserRouter><Boundary><NavigationEffects/><Suspense fallback={<Loading label="Opening ObjectPad…"/>}><Routes><Route path="capture/claim" element={<MobileCapture/>}/><Route path="app/*" element={<AppShell/>}/><Route element={<Layout/>}>
+export default function App() { return <QueryClientProvider client={queryClient}><AuthBoundary><SocialProvider><PreferencesProvider><BrowserRouter><Boundary><NavigationEffects/><Suspense fallback={<Loading label="Opening ObjectPad…"/>}><Routes><Route path="capture/claim" element={<MobileCapture/>}/><Route path="app/*" element={<AppShell/>}/><Route element={<Layout/>}>
   <Route index element={<Home/>}/>
   <Route path="explore" element={<Explore/>}/>
   <Route path="objects/:id" element={<ObjectDetail/>}/>
@@ -78,8 +81,10 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="safety" element={<Safety/>}/>
   <Route path="status" element={<Status/>}/>
   <Route path="settings" element={<Settings/>}/>
+  <Route path="u/:username" element={<Profile/>}/>
+  <Route path="notifications" element={<NotificationsPage/>}/>
   <Route path="operator" element={<Operator/>}/>
   <Route path="v2" element={<V2/>}/>
   <Route path="changelog" element={<Navigate to="/v2" replace/>}/>
   <Route path="*" element={<div className="page py-24"><h1 className="display text-5xl">Nothing here.</h1><p className="mt-4 text-muted">This page doesn’t exist, or the coin isn’t live yet.</p><Link to="/explore" className="mt-6 inline-flex min-h-11 items-center btn px-6 font-semibold ">Explore coins</Link></div>}/>
-</Route></Routes></Suspense></Boundary></BrowserRouter></PreferencesProvider></AuthBoundary><Analytics/></QueryClientProvider>; }
+</Route></Routes></Suspense></Boundary></BrowserRouter></PreferencesProvider></SocialProvider></AuthBoundary><Analytics/></QueryClientProvider>; }

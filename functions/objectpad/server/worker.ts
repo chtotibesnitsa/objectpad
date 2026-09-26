@@ -23,6 +23,7 @@ import { ethPrice } from './market';
 import { normalizeIcon, normalizeImage } from './media';
 import { visionJson } from './ai';
 import { PairService } from './pairs';
+import { SocialService } from './social';
 import { isEthPair, pairAsset } from '../shared/pairs';
 
 export const OBJECTPAD_CLASS = 'ObjectPad';
@@ -120,7 +121,7 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
@@ -129,6 +130,7 @@ export class ObjectPad extends DurableObject<Env> {
     this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime); this.accounts = new AccountService(this.store, this.runtime, this.sponsor, this.records); this.earn = new EarnService(this.store, this.runtime, this.sponsor, this.accounts); this.bounties = new BountyService(this.store, this.records);
     this.rewards = new RewardService(this.store, this.runtime, this.records, async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { handle: x.handle, name: x.name, avatar: x.avatar } : null; }, owner => this.records.creatorWallet(owner));
     this.pairs = new PairService(this.store, this.runtime); this.indexer.setPairs(this.pairs);
+    this.social = new SocialService(this.store, this.runtime, this.sponsor, this.accounts, this.indexer, this.burns, async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { handle: x.handle, avatar: x.avatar } : null; }, async owner => { try { await this.ensureProfile(owner); return await this.records.creatorWallet(owner); } catch { return null; } });
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
   }
   private exclusive<T>(action: () => Promise<T>): Promise<T> { const run = this.queue.then(action, action); this.queue = run.then(() => {}, () => {}); return run; }
@@ -170,14 +172,15 @@ export class ObjectPad extends DurableObject<Env> {
       const reconstruct = path.match(/^\/sessions\/([a-f0-9-]{36})\/reconstruct$/); if (method === 'POST' && reconstruct) return await this.reconstruct(request, reconstruct[1]);
       const regenerate = path.match(/^\/sessions\/([a-f0-9-]{36})\/regenerate$/); if (method === 'POST' && regenerate) return await this.regenerate(request, regenerate[1]);
       const checkin = path.match(/^\/records\/([a-f0-9]{64})\/checkin$/); if (method === 'PUT' && checkin) return await this.checkin(request, checkin[1]);
+      if (path.startsWith('/social/')) { const handled = await this.socialRoute(request, path, method); if (handled) return handled; }
     } catch (error) { return this.failure(error); }
     return this.exclusive(async () => { try { return await this.route(request, path); } catch (error) { return this.failure(error); } });
   }
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
     await this.exclusive(async () => {
-      try { this.launchSoon = false; await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); const idx = this.indexer.sync(true); try { this.ctx.waitUntil(idx); } catch { /* next request syncs */ } const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
-      finally { if (this.launchSoon) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
+      try { this.launchSoon = false; await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); await this.social.run().catch(error => console.warn('objectpad.social', error instanceof Error ? error.message.slice(0, 160) : '')); const idx = this.indexer.sync(true); try { this.ctx.waitUntil(idx); } catch { /* next request syncs */ } const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
+      finally { const social = this.social.nextDelay(); if (social !== null && social <= 12_000) await this.schedule(social); else if (this.launchSoon) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
     });
   }
   private async schedule(delay: number): Promise<void> { try { await this.env.DO?.setAlarm(OBJECTPAD_CLASS, OBJECTPAD_INSTANCE, Date.now() + delay); } catch (error) { console.warn('objectpad.alarm.unavailable', error instanceof Error ? error.message.slice(0, 120) : ''); } }
@@ -482,6 +485,38 @@ export class ObjectPad extends DurableObject<Env> {
     await this.captures.poll(); await this.autoLaunch(); if (this.records.hasPending()) await this.records.poll();
     if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(12_000);
   }
+  /** Social layer (profiles, chat, notifications, tips, rains, live activity). Returns null when the path isn't social. */
+  private async socialRoute(request: Request, path: string, method: string): Promise<Response | null> {
+    const url = new URL(request.url);
+    if (method === 'GET') {
+      if (path === '/social/chat') { const viewer = await this.identity(request).catch(() => null); const after = Number(url.searchParams.get('after') ?? 0); return json(this.social.chat(Number.isSafeInteger(after) && after > 0 ? after : 0, viewer && !viewer.startsWith('guest:') ? viewer : null)); }
+      if (path === '/social/activity') return json({ items: this.social.activity(), updatedAt: Date.now() });
+      if (path === '/social/users') return json({ items: this.social.search(url.searchParams.get('q') ?? '') });
+      const user = path.match(/^\/social\/users\/@?([A-Za-z0-9_]{3,20})$/); if (user) return json(await this.social.profile(user[1]));
+      const hold = path.match(/^\/social\/holdings\/(0x[a-fA-F0-9]{40})$/); if (hold) return json({ items: await this.social.holdings(hold[1]) });
+      if (path === '/social/rains') { const viewer = await this.identity(request).catch(() => null); return json({ items: this.social.rains(viewer && !viewer.startsWith('guest:') ? viewer : null) }); }
+    }
+    const owner = await this.identity(request); if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
+    if (method !== 'GET') { this.assertOrigin(request); this.store.rate(`mutation:${owner}`, 120, 60_000); }
+    if (method === 'GET' && path === '/social/me') { await this.ensureProfile(owner); return json(await this.social.me(owner, this.isOperator(owner))); }
+    if (method === 'GET' && path === '/social/notifications') return json(this.social.notifications(owner));
+    if (method === 'GET' && path === '/social/tips') return json(this.social.tips(owner));
+    if (method === 'PUT' && path === '/social/avatar') { const type = request.headers.get('content-type') ?? ''; if (!['image/png', 'image/jpeg'].includes(type)) throw new ApiError('UNSUPPORTED_IMAGE', 415); this.store.rate(`avatar:${owner}`, 12, 86_400_000); return json(await this.social.setAvatar(owner, await boundedBody(request, 4_000_000))); }
+    if (method === 'DELETE' && path === '/social/avatar') return json(await this.social.setAvatar(owner, null));
+    if (method !== 'POST') return null;
+    const data = await body(request);
+    if (path === '/social/profile') { await this.ensureProfile(owner); return json(this.social.setProfile(owner, data)); }
+    if (path === '/social/chat') return json(this.social.sendChat(owner, string(data.text, 800)));
+    if (path === '/social/notifications/read') { this.social.markRead(owner, typeof data.id === 'string' ? data.id.slice(0, 36) : undefined); return json({ ok: true }); }
+    if (path === '/social/tips') { this.store.rate(`tip:${owner}`, 40, 3_600_000); return json(await this.social.createTip(owner, { to: string(data.to, 21), hash: string(data.hash, 66), note: typeof data.note === 'string' ? data.note.slice(0, 200) : '', public: data.public === true })); }
+    const tipAct = path.match(/^\/social\/tips\/([a-f0-9-]{36})\/(accept|decline|cancel)$/);
+    if (tipAct) { const result = tipAct[2] === 'accept' ? await this.social.acceptTip(owner, tipAct[1], string(data.wallet, 42)) : tipAct[2] === 'decline' ? this.social.declineTip(owner, tipAct[1]) : this.social.cancelTip(owner, tipAct[1]); await this.schedule(1_000); return json(result); }
+    if (path === '/social/rains') { const result = await this.social.createRain(owner, { hash: string(data.hash, 66), slots: Number(data.slots), message: typeof data.message === 'string' ? data.message.slice(0, 200) : '' }); await this.schedule(this.social.nextDelay() ?? 60_000); return json(result); }
+    const join = path.match(/^\/social\/rains\/([a-f0-9-]{36})\/join$/);
+    if (join) { this.store.rate(`rain-join:${owner}`, 30, 3_600_000); const result = await this.social.joinRain(owner, join[1], await this.visitor(request)); const delay = this.social.nextDelay(); if (delay !== null) await this.schedule(delay); return json(result); }
+    if (path === '/social/ops/rain') { this.operator(owner); const result = await this.social.operatorRain(owner, { amountEth: string(data.amountEth, 24), slots: Number(data.slots), message: typeof data.message === 'string' ? data.message.slice(0, 200) : '' }); await this.store.audit(await sha256(owner), 'rain', 'treasury_rain', String(data.amountEth)); await this.schedule(this.social.nextDelay() ?? 60_000); return json(result); }
+    return null;
+  }
   private async route(request: Request, path: string): Promise<Response> {
     const url = new URL(request.url); const method = request.method;
     if (method === 'GET' && (path === '/objects' || path === '/activity')) {
@@ -642,7 +677,7 @@ export class ObjectPad extends DurableObject<Env> {
       if (method === 'GET' && path === '/ops/house/fees') return json(await this.accounts.house());
       if (method === 'POST' && path === '/ops/house/claim') { const result = await this.accounts.claimHouse(); await this.store.audit(await sha256(owner), 'house_fees', 'claim', `Claimed house-coin creator fees ${result.hash}`); return json(result); }
       if (method === 'POST' && path === '/ops/sponsor/sweep') { const data = await body(request); const hash = await this.sponsor.sweep(string(data.to, 42)); await this.store.audit(await sha256(owner), 'sponsor', 'sweep', `Swept sponsor balance in ${hash}`); return json({ hash }); }
-      if (method === 'POST' && path === '/ops/moderation') { const data = await body(request); const target = string(data.target, 64); const reason = string(data.reason, 1000); const decision = string(data.decision, 30); if (reason.length < 10 || !['reject_capture', 'hide_record', 'hide_message'].includes(decision)) throw new ApiError('MODERATION_INVALID'); this.store.atomic(() => { if (decision === 'reject_capture') { const { session } = this.captures.load(target); session.moderation = 'rejected'; session.approvedManifestHash = undefined; session.state = 'blocked'; session.autoLaunch = false; this.captures.save(session); } if (decision === 'hide_record') { const { row } = this.records.load(target); this.store.run("UPDATE op_records SET state='hidden',moderation_state='hidden' WHERE id=?", target); this.store.run('UPDATE op_artifacts SET public=0 WHERE session_id=?', row.session_id); } if (decision === 'hide_message') this.store.run('UPDATE op_messages SET hidden=1 WHERE id=?', target); }); return json({ hash: await this.store.audit(await sha256(owner), target, decision, reason) }); }
+      if (method === 'POST' && path === '/ops/moderation') { const data = await body(request); const target = string(data.target, 64); const reason = string(data.reason, 1000); const decision = string(data.decision, 30); if (reason.length < 10 || !['reject_capture', 'hide_record', 'hide_message', 'hide_chat'].includes(decision)) throw new ApiError('MODERATION_INVALID'); this.store.atomic(() => { if (decision === 'reject_capture') { const { session } = this.captures.load(target); session.moderation = 'rejected'; session.approvedManifestHash = undefined; session.state = 'blocked'; session.autoLaunch = false; this.captures.save(session); } if (decision === 'hide_record') { const { row } = this.records.load(target); this.store.run("UPDATE op_records SET state='hidden',moderation_state='hidden' WHERE id=?", target); this.store.run('UPDATE op_artifacts SET public=0 WHERE session_id=?', row.session_id); } if (decision === 'hide_message') this.store.run('UPDATE op_messages SET hidden=1 WHERE id=?', target); if (decision === 'hide_chat') this.social.hide(target); }); return json({ hash: await this.store.audit(await sha256(owner), target, decision, reason) }); }
       const frame = path.match(/^\/ops\/captures\/([a-f0-9-]{36})\/([a-z-]+)$/); if (method === 'GET' && frame) { const image = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', frame[1], frame[2]); const file = image ? await this.runtime.privateBucket.get(image.storage_key) : null; if (!file) throw new ApiError('NOT_FOUND', 404); return new Response(file.body, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private,no-store', 'X-Content-Type-Options': 'nosniff' } }); }
     }
     void requireOwner; void coinUrlFor;

@@ -8,6 +8,9 @@ import { BurnToasts } from './BurnToasts';
 import { InstallBanner } from './InstallBanner';
 import { registerAppWorker } from '@/lib/install';
 import { AccountButton } from './AccountButton';
+import { ChatDock } from './social/ChatDock';
+import { NotificationBell } from './social/Notifications';
+import { RainDialog, TipDialog, UsernameGate } from './social/SocialDialogs';
 import { CryptoBackdrop, AsciiObject } from './AsciiField';
 import { GlassIcon, type GlassName } from './GlassIcon';
 import { useSession } from '@/lib/session';
@@ -130,7 +133,7 @@ export default function Layout() {
     <CryptoBackdrop/>
     {!scanning && <div className="hidden lg:block"><LiveTicker/></div>}
     {!scanning && <header className="phone-bar sticky top-0 z-40 lg:hidden">
-      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><div className="flex items-center gap-1.5"><XLink className="size-9"/><TreasuryMini/><AccountButton compact/></div></div>
+      <div className="flex h-[54px] items-center justify-between gap-3 px-4"><Brand/><div className="flex items-center gap-1.5"><TreasuryMini/><NotificationBell compact/><AccountButton compact/></div></div>
       <div className="border-t border-ink/[0.06]"><LiveTicker/></div>
     </header>}
     {!scanning && <header className="sticky top-0 z-40 hidden lg:block">
@@ -141,10 +144,10 @@ export default function Layout() {
         </div>
         <TabStrip/>
         <div className="flex shrink-0 items-center justify-end gap-2">
-          <XLink className="size-[52px]"/>
-          <TreasuryChip/>
+          <span className="dock-squeeze contents"><XLink className="size-[52px]"/><TreasuryChip/></span>
+          <NotificationBell/>
           <AccountButton/>
-          <Link to="/launch" className="btn press flex min-h-[52px] pl-1.5 pr-5 text-[14.5px]"><span className="orb size-10"><GlassIcon name="qr" size={30} className="!filter-none"/></span>Scan & launch</Link>
+          <Link to="/launch" className="btn press flex min-h-[52px] pl-1.5 pr-5 text-[14.5px]" aria-label="Scan & launch"><span className="orb size-10"><GlassIcon name="qr" size={30} className="!filter-none"/></span><span className="dock-label">Scan & launch</span></Link>
         </div>
       </div></div>
     </header>}
@@ -174,5 +177,7 @@ export default function Layout() {
     {!scanning && <BottomBar onMore={() => setDrawer(true)}/>}
     <Drawer open={drawer} onClose={() => setDrawer(false)}/>
     {!scanning && <BurnToasts/>}
+    {!scanning && <ChatDock/>}
+    <TipDialog/><RainDialog/><UsernameGate/>
   </>;
 }

@@ -401,3 +401,50 @@ html.touch-lite .app-card::after { display: none; }
 .term-glow { text-shadow: 0 0 12px rgba(27,213,106,.45); }
 .term-scan { background: repeating-linear-gradient(180deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px); }
 @media (prefers-reduced-motion: reduce) { .fuse-hint { animation: none; opacity: 0; } .fuse-born { animation: none; opacity: 1; } .term-line { animation: none; opacity: 1; } }
+
+/* ── Social: docked live chat, rains, tips, notifications ─────────────────────── */
+@media (min-width: 1024px) { html.chat-docked body { padding-right: 356px; } html body { transition: padding-right .5s cubic-bezier(.2,.9,.25,1.05); } }
+.chat-in { animation: chat-in .38s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes chat-in { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+.mention-pop { animation: mention-pop .22s cubic-bezier(.2,.9,.3,1.3) both; transform-origin: bottom center; }
+@keyframes mention-pop { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: none; } }
+.chat-fab { animation: fab-in .5s cubic-bezier(.2,1.3,.35,1) both; }
+@keyframes fab-in { from { opacity: 0; transform: translateY(20px) scale(.8); } to { opacity: 1; transform: none; } }
+.rain-card { background: radial-gradient(120% 90% at 0% 0%, #7FB2FF 0%, transparent 55%), linear-gradient(160deg, #2F7BF2 0%, #1A4FB8 60%, #0F2F75 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 18px 34px -16px rgba(26,79,184,.8); }
+.rain-live { animation: rain-breathe 2.6s ease-in-out infinite; }
+@keyframes rain-breathe { 0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 18px 34px -16px rgba(26,79,184,.8); } 50% { box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 18px 44px -10px rgba(47,123,242,.95); } }
+.rain-drops { background-image: linear-gradient(transparent 0 60%, rgba(255,255,255,.35) 60% 100%); background-size: 2px 22px; mask-image: repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 19px); -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 19px); opacity: .45; animation: rain-fall .7s linear infinite; }
+@keyframes rain-fall { from { background-position: 0 -22px; } to { background-position: 0 0; } }
+.rain-btn { animation: rain-nudge 1.8s ease-in-out infinite; }
+@keyframes rain-nudge { 0%, 100% { transform: none; } 50% { transform: translateY(-2px); } }
+.rain-inside { animation: rain-inside .6s cubic-bezier(.2,1.4,.35,1) both; }
+@keyframes rain-inside { from { transform: scale(.8); opacity: 0; } to { transform: none; opacity: 1; } }
+.rain-banner { background: linear-gradient(90deg, #2F7BF2, #1A4FB8, #2F7BF2); background-size: 200% 100%; animation: rain-banner 3s linear infinite; box-shadow: 0 10px 22px -12px rgba(26,79,184,.9); }
+@keyframes rain-banner { to { background-position: -200% 0; } }
+.rain-orb { background: radial-gradient(circle at 30% 25%, #9CC3FF, #2F7BF2 55%, #1A4FB8); box-shadow: 0 16px 34px -12px rgba(47,123,242,.9); }
+.tip-pop { animation: tip-pop .6s cubic-bezier(.2,1.5,.35,1) both; }
+@keyframes tip-pop { from { transform: scale(0) rotate(-30deg); } to { transform: none; } }
+.tip-burst { animation: tip-burst .8s cubic-bezier(.2,1.5,.35,1) both; }
+@keyframes tip-burst { 0% { transform: scale(.3) rotate(-20deg); opacity: 0; } 60% { transform: scale(1.12) rotate(6deg); opacity: 1; } 100% { transform: none; } }
+.tip-glow { animation: tip-glow 2.2s ease-in-out infinite; }
+@keyframes tip-glow { 0%, 100% { box-shadow: 0 8px 18px -12px rgba(217,165,33,.8); } 50% { box-shadow: 0 10px 26px -8px rgba(217,165,33,1); } }
+.bell-ring { animation: bell-ring .9s ease both; transform-origin: 50% 10%; }
+@keyframes bell-ring { 0%, 100% { transform: none; } 15% { transform: rotate(18deg); } 30% { transform: rotate(-15deg); } 45% { transform: rotate(10deg); } 60% { transform: rotate(-6deg); } 75% { transform: rotate(3deg); } }
+.badge-pop { animation: badge-pop .5s cubic-bezier(.2,1.6,.35,1) both; }
+@keyframes badge-pop { from { transform: scale(0); } to { transform: none; } }
+.sheet-fade { animation: page-fade .25s ease-out both; }
+.sheet-pop { animation: sheet-pop .42s cubic-bezier(.2,1.15,.3,1) both; }
+@keyframes sheet-pop { from { opacity: 0; transform: translateY(24px) scale(.96); } to { opacity: 1; transform: none; } }
+.gate-orb { animation: gate-orb 3.2s ease-in-out infinite; box-shadow: 0 22px 40px -16px rgba(12,13,16,.7); }
+@keyframes gate-orb { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-6px) rotate(3deg); } }
+.gate-check { animation: badge-pop .4s cubic-bezier(.2,1.6,.35,1) both; }
+.float-soft { animation: gate-orb 4s ease-in-out infinite; }
+.profile-banner { background: radial-gradient(90% 140% at 10% 0%, #FCE7A2 0%, transparent 55%), radial-gradient(70% 120% at 90% 10%, #9CC3FF 0%, transparent 60%), linear-gradient(120deg, #1B1D22, #0C0D10); }
+.profile-pop { animation: sheet-pop .6s cubic-bezier(.2,1.3,.35,1) both; }
+.pnl-up { background: linear-gradient(180deg, #FFFFFF, #EFFAF3); }
+.pnl-down { background: linear-gradient(180deg, #FFFFFF, #FDF0F0); }
+@media (prefers-reduced-motion: reduce) { .chat-in, .mention-pop, .chat-fab, .rain-live, .rain-drops, .rain-btn, .rain-banner, .tip-glow, .gate-orb, .float-soft, .bell-ring { animation: none; } }
+
+/* When the live chat is docked, the header gives up secondary chips before anything overlaps. */
+@media (max-width: 1919px) { html.chat-docked .dock-squeeze { display: none; } }
+@media (max-width: 1599px) { html.chat-docked .dock-label { display: none; } }

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, Coins, LogIn, LogOut, Rocket, UserRound, Wallet } from 'lucide-react';
+import { Bell, ChevronDown, Coins, LogIn, LogOut, Rocket, Settings as Cog, UserRound, Wallet } from 'lucide-react';
+import { useSocial } from '@/lib/social';
+import { UserAvatar } from './social/UserChip';
 import { useSession } from '@/lib/session';
 import { useAccount, useAccountSync } from '@/lib/account';
 import { useMarket } from '@/lib/market';
@@ -12,7 +14,7 @@ const ethLabel = (value: number): string => value === 0 ? '0 ETH' : value < 0.00
 /** Top-right account control: "Sign in" (X, email, MetaMask or any wallet) or the signed-in creator with live claimable fees. */
 export function AccountButton({ compact = false }: { compact?: boolean }) {
   useAccountSync();
-  const session = useSession(); const account = useAccount(); const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null;
+  const session = useSession(); const social = useSocial(); const account = useAccount(); const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null;
   const [open, setOpen] = useState<boolean>(false); const root = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!open) return; const close = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); }; const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); }; document.addEventListener('mousedown', close); window.addEventListener('keydown', key); return () => { document.removeEventListener('mousedown', close); window.removeEventListener('keydown', key); }; }, [open]);
   if (!session.configured) return null;
@@ -20,10 +22,10 @@ export function AccountButton({ compact = false }: { compact?: boolean }) {
     <LogIn size={compact ? 15 : 16} strokeWidth={2.5}/>{compact ? 'Sign in' : 'Sign in / Sign up'}
   </button>;
   const me = account.data; const claimable = me?.totalClaimableEth ?? 0;
-  const name = me?.alias ?? (session.wallet ? shortAddress(session.wallet, 4, 4) : 'Account');
+  const username = social.me?.username ?? null; const name = username ? `@${username}` : me?.alias ?? (session.wallet ? shortAddress(session.wallet, 4, 4) : 'Account');
   return <div ref={root} className="relative">
     <button onClick={() => setOpen(v => !v)} aria-expanded={open} aria-haspopup="menu" className={cn('press raised flex items-center gap-2 rounded-[16px] font-extrabold', compact ? 'min-h-10 pl-1.5 pr-2.5 text-[12px]' : 'min-h-[52px] pl-1.5 pr-3 text-[13px]')}>
-      <span className={cn('flex items-center justify-center rounded-[12px] bg-ink text-white', compact ? 'size-7' : 'size-10')}><UserRound size={compact ? 14 : 17}/></span>
+      {social.me?.username ? <UserAvatar user={{ username: social.me.username, avatar: social.me.avatar }} size={compact ? 28 : 40}/> : <span className={cn('flex items-center justify-center rounded-[12px] bg-ink text-white', compact ? 'size-7' : 'size-10')}><UserRound size={compact ? 14 : 17}/></span>}
       {!compact && <span className="text-left leading-none"><span className="block max-w-[120px] truncate">{name}</span><span className="mt-1 flex items-center gap-1 font-mono text-[11px] font-bold text-ink/60"><span className={cn('size-1.5 rounded-full', claimable > 0 ? 'pulse-dot bg-up' : 'bg-ink/30')}/>{account.isPending ? '…' : `${ethLabel(claimable)} to claim`}</span></span>}
       {compact && claimable > 0 && <span className="pulse-dot size-2 rounded-full bg-up"/>}
       <ChevronDown size={14} className={cn('transition-transform', open && 'rotate-180')}/>
@@ -32,6 +34,9 @@ export function AccountButton({ compact = false }: { compact?: boolean }) {
       <div className="px-3 pb-2 pt-2"><p className="truncate text-[15px] font-extrabold">{name}</p>{session.wallet && <p className="mt-0.5 font-mono text-[11.5px] text-ink/60">{shortAddress(session.wallet, 6, 4)}</p>}</div>
       <div className="sunk mx-1 rounded-2xl px-3 py-3"><p className="stat-label !text-[11px]">Creator fees to claim</p><p className="mt-1 text-[22px] font-extrabold tnum">{ethLabel(claimable)}</p>{ethUsd && claimable > 0 && <p className="font-mono text-[11.5px] text-ink/60">≈ {usd(claimable * ethUsd)}</p>}<p className="mt-1 font-mono text-[11px] font-bold text-ink/55">{me ? `${me.launches.length} coin${me.launches.length === 1 ? '' : 's'} launched · ${me.wallets.length} wallet${me.wallets.length === 1 ? '' : 's'}` : 'Loading your coins…'}</p></div>
       <div className="mt-1.5 space-y-0.5">
+        {username && <Link to={`/u/${username}`} onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><UserRound size={16}/>My profile</Link>}
+        <Link to="/settings" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><Cog size={16}/>Settings<span className="ml-auto font-mono text-[10px] font-bold uppercase text-ink/45">Profile · X · wallets</span></Link>
+        <Link to="/notifications" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><Bell size={16}/>Notifications & tips{(social.me?.pendingTips ?? 0) > 0 && <span className="ml-auto rounded-full bg-[#D9A521] px-2 font-mono text-[11px] font-black text-white">{social.me?.pendingTips}</span>}</Link>
         <Link to="/wallet" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl bg-ink px-3 text-[14px] font-extrabold text-white transition-transform hover:scale-[1.01]"><Wallet size={16}/>My wallet<span className="ml-auto font-mono text-[10px] font-bold uppercase text-white/60">Deposit · withdraw</span></Link>
         <Link to="/earnings" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><Coins size={16}/>Claim creator fees</Link>
         <Link to="/earnings#launches" onClick={() => setOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-bold hover:bg-white/70"><Rocket size={16}/>My launches</Link>

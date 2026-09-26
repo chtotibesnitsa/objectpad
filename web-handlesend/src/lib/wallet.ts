@@ -4,7 +4,7 @@ import { createWalletClient, http, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { api } from './api';
 import { useSession } from './session';
-import { devWallet } from './devWallet';
+import { devWallet, findDevWallet } from './devWallet';
 import { chain, prepareTx, waitForReceipt, type PreparedTx } from './chain';
 import { claimWithDevWallet, claimWithSession, type AccountWallet } from './account';
 import { robinhoodChain } from '@/shared/pons';
@@ -41,8 +41,8 @@ export function useSigner() {
   return useCallback((address: string): Signer | null => {
     const a = address.toLowerCase();
     if (session.wallet && session.wallet.toLowerCase() === a) return { address: session.wallet, kind: 'session', send: session.send };
-    const local = devWallet();
-    if (local && local.address.toLowerCase() === a) {
+    const local = findDevWallet(a);
+    if (local) {
       const account = privateKeyToAccount(local.privateKey); const client = createWalletClient({ account, chain: robinhoodChain, transport: http() });
       return { address: account.address, kind: 'device', send: tx => client.sendTransaction({ ...tx, chain: robinhoodChain }) };
     }

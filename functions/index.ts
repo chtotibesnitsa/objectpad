@@ -26,7 +26,7 @@ export default {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin');
     const allowed = originAllowed(env, origin);
-    const isPublicRead = request.method === 'GET' && /^\/api\/(status|market|house|coins|tokens|curves|objects|activity|trending|messages|artifacts|creators|items|logos|burns|pipeline|engine|bounties|rewards|treasury|earn)(\/|$)/.test(url.pathname);
+    const isPublicRead = request.method === 'GET' && /^\/api\/(status|market|house|coins|tokens|curves|objects|activity|trending|messages|artifacts|creators|items|logos|burns|pipeline|engine|bounties|rewards|treasury|earn|social)(\/|$)/.test(url.pathname);
 
     if (request.method === 'OPTIONS') {
       if (!allowed) return new Response(null, { status: 403, headers: baseHeaders() });

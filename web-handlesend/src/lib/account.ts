@@ -4,7 +4,7 @@ import { createWalletClient, encodeFunctionData, http, type Address, type Hex } 
 import { privateKeyToAccount } from 'viem/accounts';
 import { api } from './api';
 import { useSession } from './session';
-import { devWallet, type DevWallet } from './devWallet';
+import { devWallets, type DevWallet } from './devWallet';
 import { guestToken } from './creator';
 import { robinhoodChain } from '@/shared/pons';
 import { ESCROW_ABI, PONS_FEE_ESCROW } from '@/shared/economy';
@@ -66,8 +66,8 @@ export function useAccountSync(): void {
       const bearer = await token(); if (!bearer || cancelled || done.current === bearer.slice(-16)) return; done.current = bearer.slice(-16);
       try {
         const guest = guestToken(); await api('/account/adopt', { token: bearer, method: 'POST', body: guest ? { guestToken: guest } : {} });
-        const me = await api<Account>('/account/me', { token: bearer, timeout: 30_000 }); const local = devWallet();
-        if (local && !me.wallets.some(w => w.address === local.address.toLowerCase())) await linkDevWallet(bearer, local, me.publicId);
+        const me = await api<Account>('/account/me', { token: bearer, timeout: 30_000 });
+        for (const local of devWallets()) if (!me.wallets.some(w => w.address === local.address.toLowerCase())) await linkDevWallet(bearer, local, me.publicId).catch(() => undefined);
         void qc.invalidateQueries({ queryKey: ACCOUNT_KEY });
       } catch (error) { console.warn('objectpad.account.sync', error instanceof Error ? error.message.slice(0, 80) : ''); }
     })();
