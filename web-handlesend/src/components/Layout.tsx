@@ -37,7 +37,7 @@ function TabStrip() {
   useLayoutEffect(() => { const measure = () => { const el = index >= 0 ? root.current?.querySelectorAll<HTMLElement>('a')[index] : null; setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null); }; measure(); window.addEventListener('resize', measure); return () => window.removeEventListener('resize', measure); }, [index]);
   return <nav ref={root} aria-label="Main navigation" className="sunk relative mx-2 hidden flex-1 items-center justify-between gap-0.5 rounded-[18px] p-1 lg:flex xl:mx-6">
     <span aria-hidden="true" className={cn('raised absolute bottom-1 top-1 rounded-[14px] transition-all duration-500 ease-[cubic-bezier(.2,.9,.25,1.15)]', pill ? 'opacity-100' : 'opacity-0')} style={pill ? { left: pill.left, width: pill.width } : undefined}/>
-    {TABS.map((tab, i) => <NavLink key={tab.to} to={tab.to} className={cn('relative z-10 flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[14px] px-3 text-[14.5px] font-bold tracking-[-0.015em] transition-colors duration-300', i === index ? 'text-ink' : 'text-ink/65 hover:text-ink')}><tab.icon size={16} strokeWidth={2.5}/>{tab.label}</NavLink>)}
+    {TABS.map((tab, i) => <NavLink key={tab.to} to={tab.to} className={cn('relative z-10 flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] px-2 text-[13.5px] font-bold tracking-[-0.015em] transition-colors duration-300 xl:gap-2 xl:px-3 xl:text-[14.5px]', i === index ? 'text-ink' : 'text-ink/65 hover:text-ink')}><tab.icon size={15} strokeWidth={2.5} className="shrink-0"/><span className="whitespace-nowrap">{tab.label}</span></NavLink>)}
   </nav>;
 }
 

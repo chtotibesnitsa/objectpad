@@ -114,7 +114,7 @@ export class RecordService {
     } else if (existing) this.store.run('DELETE FROM op_transactions WHERE id=?', existing.id);
     await assertPonsPinned(this.runtime.env);
     // Limits are checked here but only counted once the launch is actually broadcast: a failed try never uses one up.
-    this.store.peek(`launch:${owner}`, 5); this.store.peekBudget('launches', this.sponsor.dailyLimit(), 'LAUNCH_BUDGET_REACHED');
+    this.store.peek(`launch:${owner}`, 100_000); this.store.peekBudget('launches', this.sponsor.dailyLimit(), 'LAUNCH_BUDGET_REACHED');
     const terms = await readLaunchTerms(client); if (!terms.enabled) throw new ApiError('PONS_LAUNCH_PAUSED', 503);
     const c = payload.commitment; const sponsor = this.sponsor.address; const { objectName, objectTag } = await naming(c);
     // The coin logo is whatever the creator has right now (3D snapshot or own image); it's fixed once the launch is sent.

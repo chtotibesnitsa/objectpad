@@ -13,9 +13,9 @@ const SAME_ANGLE_DISTANCE = 3;
 /** A capture is a near-duplicate of an archived one when this many same-angle views are nearly identical. */
 const ARCHIVE_MATCH_VIEWS = 8;
 const ARCHIVE_MATCH_DISTANCE = 3;
-/** A creator may ask for a fresh 3D rebuild of the same photos this many times before launching. */
-export const MAX_REGENERATIONS = 2;
-export const MAX_FAILURE_RETRIES = 8;
+/** A creator may ask for a fresh 3D rebuild of the same photos this many times before launching. Raised effectively unlimited. */
+export const MAX_REGENERATIONS = 100_000;
+export const MAX_FAILURE_RETRIES = 100_000;
 /** Create-request failures where the engine answered (so no paid task exists) and a retry is always safe. */
 const DEFINITE = ['PROVIDER_REJECTED_INPUT', 'PROVIDER_CREDITS', 'PROVIDER_RATE_LIMIT', 'RECONSTRUCTION_NOT_CONFIGURED', 'PROVIDER_PAYLOAD_TOO_LARGE', 'PROVIDER_AUTH', 'PROVIDER_UNAVAILABLE', 'FOUR_CANONICAL_VIEWS_REQUIRED', 'PROVIDER_AMBIGUOUS_CREATE'];
 /** Deterministic Object ID for a capture session, known before anything launches. */
@@ -180,7 +180,7 @@ export class CaptureService {
   async prepareReconstruct(id: string, screening: Screening, save: (screening: Screening) => void): Promise<{ jobId: string; images: Uint8Array[] }> {
     const { session } = this.load(id); if (session.state !== 'screening') throw new ApiError('CAPTURE_INCOMPLETE', 409);
     const selected = validateCoverage(session.views);
-    try { this.store.budget('reconstructions', Math.max(1, Number(this.runtime.env.OBJECTPAD_DAILY_RECONSTRUCTIONS) || 40), 'RECONSTRUCTION_BUDGET_REACHED'); }
+    try { this.store.budget('reconstructions', Math.max(1, Number(this.runtime.env.OBJECTPAD_DAILY_RECONSTRUCTIONS) || 100_000), 'RECONSTRUCTION_BUDGET_REACHED'); }
     catch (error) { session.state = 'review'; session.failureCode = 'RECONSTRUCTION_BUDGET_REACHED'; this.save(session); throw error; }
     const manifest = captureManifest(id, session.views); const manifestHash = await sha256(manifest); await this.runtime.privateBucket.put(`objectpad/v1/manifests/${manifestHash}.json`, manifest, { httpMetadata: { contentType: 'application/json' } });
     const images: Uint8Array[] = []; for (const view of selected) { const row = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE id=?', view.id); const object = row ? await this.runtime.privateBucket.get(row.storage_key) : null; if (!object) throw new ApiError('CAPTURE_STORAGE_MISSING', 503); images.push(new Uint8Array(await object.arrayBuffer())); }
@@ -248,7 +248,7 @@ export class CaptureService {
     const job = this.store.one<JobRow>('SELECT * FROM op_reconstruction_jobs WHERE session_id=?', id); if (!job || !['complete', 'failed', 'review_required'].includes(job.state)) throw new ApiError('MODEL_NOT_READY', 409);
     const canonical = (JSON.parse(job.payload) as { canonicalViews?: string[] }).canonicalViews ?? ['front', 'left', 'back', 'right'];
     const images: Uint8Array[] = []; for (const view of canonical) { const row = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', id, view); const object = row ? await this.runtime.privateBucket.get(row.storage_key) : null; if (!object) throw new ApiError('CAPTURE_STORAGE_MISSING', 503); images.push(new Uint8Array(await object.arrayBuffer())); }
-    this.store.budget('reconstructions', Math.max(1, Number(this.runtime.env.OBJECTPAD_DAILY_RECONSTRUCTIONS) || 40), 'RECONSTRUCTION_BUDGET_REACHED');
+    this.store.budget('reconstructions', Math.max(1, Number(this.runtime.env.OBJECTPAD_DAILY_RECONSTRUCTIONS) || 100_000), 'RECONSTRUCTION_BUDGET_REACHED');
     const now = Date.now(); session.state = 'reconstructing'; session.job = { state: 'submitting', progress: 0, startedAt: now, model: this.provider().model, images: images.length }; if (failure) session.failureRetries = (session.failureRetries ?? 0) + 1; else session.regenerations = (session.regenerations ?? 0) + 1; delete session.model; delete session.failureCode;
     this.store.atomic(() => { this.store.run("UPDATE op_reconstruction_jobs SET state='submitting',provider_id=NULL,created_at=?,updated_at=? WHERE id=?", now, now, job.id); this.save(session); });
     this.store.metric('model_regenerated'); return { jobId: job.id, images };

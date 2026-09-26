@@ -9,8 +9,8 @@ import { Store } from './store';
 
 /** One launchAndBuy with the on-chain object record appended (measured ≈4.14M gas on 2026-09-25) plus a small margin. */
 export const LAUNCH_GAS_BUDGET = 4_400_000n;
-/** Free launches per person per 24h, enforced per account/guest and per network. */
-export const PER_PERSON_DAILY = 5;
+/** Free launches per person per 24h. Raised effectively unlimited: ObjectPad now funds every launch for everyone. */
+export const PER_PERSON_DAILY = 100_000;
 
 /**
  * The ObjectPad launch treasury (sponsor): a platform wallet that sends every Pons V2 launch and pays the launch fee plus the
@@ -42,7 +42,7 @@ export class SponsorService {
   get address(): Address { return privateKeyToAccount(this.key()).address; }
   wallet() { return createWalletClient({ account: privateKeyToAccount(this.key()), chain: robinhoodChain, transport: http(rpcUrl(this.runtime.env), { timeout: 20_000 }) }); }
   /** Platform-wide daily safety cap. Each person is separately capped at PER_PERSON_DAILY. */
-  dailyLimit(): number { const value = Number(this.runtime.env.OBJECTPAD_DAILY_LAUNCHES); return Number.isFinite(value) && value > 0 ? Math.floor(value) : 200; }
+  dailyLimit(): number { const value = Number(this.runtime.env.OBJECTPAD_DAILY_LAUNCHES); return Number.isFinite(value) && value > 0 ? Math.floor(value) : 100_000; }
   usedToday(): number { return Number(this.store.one<{ count: number }>('SELECT count FROM op_rate_limits WHERE key=?', `launches:${Math.floor(Date.now() / 86_400_000)}`)?.count ?? 0); }
   /** Live sponsor balance and the real cost of one launch (fee + minimum buy + gas budget at the current gas price). */
   async status(fresh = false): Promise<SponsorStatus> {
