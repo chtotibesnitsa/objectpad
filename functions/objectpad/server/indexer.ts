@@ -6,6 +6,7 @@ import type { Runtime } from './types';
 import type { Store } from './store';
 import type { PairService } from './pairs';
 import { isEthPair, pairAsset } from '../shared/pairs';
+import { isNsfwText } from '../shared/nsfw';
 
 const BUY = parseAbiItem('event CurveBuy(address indexed sender,address indexed recipient,uint256 quoteIn,uint256 tokensOut,uint256 protocolFee,uint256 creatorFee)');
 const SELL = parseAbiItem('event CurveSell(address indexed sender,address indexed recipient,uint256 tokensIn,uint256 quoteOut,uint256 protocolFee,uint256 creatorFee)');
@@ -139,8 +140,10 @@ export class TradeIndexer {
       const holders = Number(this.store.one<{ n: number }>("SELECT COUNT(*) AS n FROM op_idx_balances WHERE token=? AND holder NOT IN (?,?) AND balance NOT LIKE '-%' AND balance<>'0'", t.token, t.curve, DEAD)?.n ?? 0);
       const base = { token: t.token, curve: t.curve, priceEth, marketCapEth: priceEth * 1e9, change24h: ref > 0 ? ((priceEth - ref) / ref) * 100 : 0, volume24hEth: recent.reduce((s, r) => s + r.eth, 0) * factor, volumeEth: Number(totals?.v ?? 0) * factor, trades24h: recent.length, buys24h: recent.filter(r => r.side === 'buy').length, sells24h: recent.filter(r => r.side === 'sell').length, trades: Number(totals?.n ?? 0), holders, progress: graduated ? 1 : threshold && threshold > 0n ? Math.min(1, Number(real * 10_000n / threshold) / 10_000) : 0, graduated, spark: [...spark, priceEth].filter(p => p > 0), lastTradeAt: totals?.last ?? null, launchHash: t.hash, state: 'live' as const, pair };
       if (t.kind === 'creator') {
-        const p = JSON.parse(this.store.one<{ payload: string }>('SELECT payload FROM op_records WHERE id=?', t.ref)?.payload ?? '{}') as { symbol?: string; verifiedName?: string; iconHash?: string; confirmedAt?: number; commitment?: { objectTag?: string; objectName?: string; thumbnailHash?: string } };
-        out.push({ ...base, kind: 'creator', id: t.ref, symbol: p.symbol ?? '', name: p.verifiedName ?? '', logo: `${api}/api/artifacts/${p.iconHash ?? p.commitment?.thumbnailHash ?? ''}`, path: `/objects/${t.ref}`, tag: p.commitment?.objectTag ?? null, objectName: p.commitment?.objectName ?? null, launchedAt: p.confirmedAt ?? totals?.first ?? Date.now(), trending: trendScore.get(t.ref) ?? 0 });
+        const p = JSON.parse(this.store.one<{ payload: string }>('SELECT payload FROM op_records WHERE id=?', t.ref)?.payload ?? '{}') as { symbol?: string; verifiedName?: string; iconHash?: string; confirmedAt?: number; commitment?: { objectTag?: string; objectName?: string; thumbnailHash?: string; story?: string; captureSessionId?: string } };
+        const aiFlag = p.commitment?.captureSessionId ? this.store.one<{ v: number | null }>("SELECT json_extract(payload,'$.suggestion.nsfw') AS v FROM op_capture_sessions WHERE id=?", p.commitment.captureSessionId)?.v === 1 : false;
+        const nsfw = aiFlag || isNsfwText(p.verifiedName, p.symbol, p.commitment?.objectName, p.commitment?.story);
+        out.push({ ...base, kind: 'creator', id: t.ref, symbol: p.symbol ?? '', name: p.verifiedName ?? '', logo: `${api}/api/artifacts/${p.iconHash ?? p.commitment?.thumbnailHash ?? ''}`, path: `/objects/${t.ref}`, tag: p.commitment?.objectTag ?? null, objectName: p.commitment?.objectName ?? null, launchedAt: p.confirmedAt ?? totals?.first ?? Date.now(), trending: trendScore.get(t.ref) ?? 0, nsfw });
       } else {
         const spec = HOUSE_COINS.find(c => c.id === t.ref); if (!spec) return; const launched = this.store.one<{ updated_at: number }>('SELECT updated_at FROM op_house WHERE id=?', t.ref)?.updated_at;
         out.push({ ...base, kind: 'original', id: t.ref, symbol: spec.ticker, name: spec.name, logo: `${origin}/assets/objects/coin-${spec.id}.webp`, path: `/coin/${spec.ticker.toLowerCase()}`, tag: houseRecord(spec)?.tag ?? null, objectName: spec.catalog ?? null, launchedAt: launched ?? totals?.first ?? Date.now(), trending: 0 });

@@ -1,4 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
+
+/** 3D builds (or launches) running longer than this are treated as failed and hidden until regenerated. */
+const STALE_BUILD_MS = 180_000;
 import type { DraftInput, Env, LaunchDraft, ObjectContext, RecordPayload, Runtime, SavedSession } from './types';
 import { VIEWS, objectSpecsText, type BuildingCoin, type CoinPreview, normalizeObjectName, objectNameSeed, objectTagFrom, type Readiness, type SponsorStatus } from '../shared/domain';
 import { ApiError, boundedBody, publicName, randomToken, requireOwner, safeTelegramUrl, safeXUrl, sha256, validAddress } from '../shared/security';
@@ -13,6 +16,7 @@ import { SponsorService } from './sponsor';
 import { HouseService } from './house';
 import { BurnService } from './burn';
 import { UniquenessService } from './uniqueness';
+import { isNsfwText } from '../shared/nsfw';
 import { MarketService } from './market';
 import { TradeIndexer } from './indexer';
 import { AccountService } from './accounts';
@@ -355,7 +359,10 @@ export class ObjectPad extends DurableObject<Env> {
       const building = ['review', 'screening', 'reconstructing', 'validating', 'failed'].includes(s.state);
       const progress = s.state === 'validating' ? 99 : building ? Math.max(0, Math.min(99, s.job?.progress ?? 0)) : 100;
       const stage = ['review', 'screening'].includes(s.state) ? 'AI check' : s.state === 'validating' ? 'Checking the model' : s.state === 'failed' ? 'Rebuilding' : !building ? 'Launching on-chain' : progress < 45 ? 'Building the shape' : progress < 85 ? 'Painting the colours' : 'Final touches';
-      out.push({ code: row.object_id.slice(0, 12), name: s.launchDraft.publicName, symbol: s.launchDraft.symbol, state: building ? 'building' : 'launching', progress, stage, queuedAt: s.launchQueuedAt, ...(s.job?.startedAt ? { startedAt: s.job.startedAt } : {}) });
+      // A build that has run past the 3-minute limit counts as failed: it stays off the market until the creator regenerates it.
+      if (Date.now() - (s.job?.startedAt ?? s.launchQueuedAt) > STALE_BUILD_MS) continue;
+      const nsfw = s.suggestion?.nsfw === true || isNsfwText(s.launchDraft.publicName, s.launchDraft.symbol, s.launchDraft.story);
+      out.push({ code: row.object_id.slice(0, 12), name: s.launchDraft.publicName, symbol: s.launchDraft.symbol, state: building ? 'building' : 'launching', progress, stage, queuedAt: s.launchQueuedAt, ...(s.job?.startedAt ? { startedAt: s.job.startedAt } : {}), ...(nsfw ? { nsfw: true } : {}) });
     }
     return out;
   }

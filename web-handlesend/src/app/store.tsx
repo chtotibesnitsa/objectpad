@@ -1,4 +1,5 @@
 import createContextHook from '@nkzw/create-context-hook';
+import { isNsfwText } from '@/shared/nsfw';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -133,7 +134,7 @@ export const [AppProvider, useApp] = createContextHook(() => {
     session, creator, signedIn: session.authenticated, signInAvailable: session.configured, accountWallet, localWallet: (local?.address as Address | undefined) ?? null, localKey: local?.privateKey ?? null, activeWallet,
     ensureLocalWallet, importLocalWallet, newLocalKey, signer, accountToken, profile, me, displayName, setAlias, linkLocalWallet, claimGas, myScans, adopt, refetchMe: () => void meQ.refetch(),
     // market
-    coins, recent, loaded: !coinsQ.isPending, coinsError: coinsQ.isError && !coins.length ? coinsQ.error.message : null, market: marketQ.data ?? null, ethUsd, status, burns: burnsQ.data ?? null, building: buildingQ.data?.items ?? [], rewards: rewardsQ.data ?? null, refetchRewards: () => void rewardsQ.refetch(),
+    coins, recent, loaded: !coinsQ.isPending, coinsError: coinsQ.isError && !coins.length ? coinsQ.error.message : null, market: marketQ.data ?? null, ethUsd, status, burns: burnsQ.data ?? null, building: (buildingQ.data?.items ?? []).filter(b => b.nsfw !== true && !isNsfwText(b.name, b.symbol) && Date.now() - (b.startedAt ?? b.queuedAt) < 180_000), rewards: rewardsQ.data ?? null, refetchRewards: () => void rewardsQ.refetch(),
     pairs: pairsQ.data ?? null, pair, coin, launchesLeft, treasuryOpen, ethBalance: holdings.data?.eth ?? null, balances: holdings.data?.balances ?? {}, refreshHoldings: () => void holdings.refetch(), refreshAll, lastScan, setLastScan, tokenBalance,
     encodeFunctionData,
   };

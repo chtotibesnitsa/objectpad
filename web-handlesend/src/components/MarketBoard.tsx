@@ -11,6 +11,7 @@ import { sparkPath } from './CoinCard';
 import { cn } from '@/lib/utils';
 import { PairBadge } from './PairBadge';
 import type { CoinPair } from '@/shared/domain';
+import { isNsfwCoin } from '@/shared/nsfw';
 
 /** One ObjectPad coin row (creator coin or ObjectPad original), normalised for the board. */
 export interface BoardCoin { key: string; to: string; symbol: string; name: string; icon: ReactNode; priceEth: number; changePct: number; volumeEth: number; capEth: number | null; trades: number; buys: number; sells: number; spark: number[]; live: boolean; tag?: string; pair?: CoinPair | null; }
@@ -20,16 +21,16 @@ export interface BoardTrade { id: string; to: string; symbol: string; icon: Reac
  * Every coin on ObjectPad, indexed from Robinhood Chain: real creators' coins first, then ObjectPad originals by 24h
  * volume. Shared by the homepage board, the list view, the ticker and the burn feed.
  */
-export function usePlatformMarket() {
+export function usePlatformMarket(adult = false) {
   const market = useMarket(); const feed = useCoins(); const data = feed.data;
   return useMemo(() => {
-    const now = Date.now(); const live = (data?.items ?? []).filter(c => c.state === 'live');
+    const now = Date.now(); const live = (data?.items ?? []).filter(c => c.state === 'live' && isNsfwCoin(c) === adult);
     const coins: BoardCoin[] = live.map(c => ({ key: c.token, to: c.path, symbol: c.symbol, name: c.name, icon: <CoinIcon src={c.logo} seed={c.token} size={36}/>, priceEth: c.priceEth, changePct: c.change24h, volumeEth: c.volume24hEth, capEth: c.marketCapEth, trades: c.trades24h, buys: c.buys24h, sells: c.sells24h, spark: c.spark, live: true, tag: c.tag ?? undefined, pair: c.pair ?? null }));
     const byCurve = new Map(live.map(c => [c.curve, c]));
     const trades: BoardTrade[] = (data?.recent ?? []).flatMap(t => { const c = byCurve.get(t.curve); return c ? [{ id: t.id, to: c.path, symbol: c.symbol, icon: <CoinIcon src={c.logo} seed={c.token} size={28}/>, side: t.side, eth: t.eth, trader: t.trader, at: t.at, href: explorerTx(t.hash), live: true }] : []; });
     const totals = coins.reduce((s, c) => ({ volumeEth: s.volumeEth + c.volumeEth, trades: s.trades + c.trades, buys: s.buys + c.buys, sells: s.sells + c.sells, capEth: s.capEth + (c.capEth ?? 0) }), { volumeEth: 0, trades: 0, buys: 0, sells: 0, capEth: 0 });
     return { coins, trades, totals, liveCount: live.length, ethUsd: market.data?.ethUsd ?? null, updatedAt: data?.updatedAt ?? now, loading: feed.isPending };
-  }, [data, market.data?.ethUsd, feed.isPending]);
+  }, [data, market.data?.ethUsd, feed.isPending, adult]);
 }
 
 const Spark = memo(function Spark({ prices, up }: { prices: number[]; up: boolean }) {
@@ -68,8 +69,8 @@ export const Tape = memo(function Tape({ trades, ethUsd, limit = 14 }: { trades:
 });
 
 /** The ObjectPad market: platform-wide 24h volume, trades, buy pressure, ranked coins and the live tape. */
-export function MarketBoard({ limit = 10, compact = false }: { limit?: number; compact?: boolean }) {
-  const board = usePlatformMarket(); const { ethUsd, totals } = board;
+export function MarketBoard({ limit = 10, compact = false, adult = false }: { limit?: number; compact?: boolean; adult?: boolean }) {
+  const board = usePlatformMarket(adult); const { ethUsd, totals } = board;
   const coins = board.coins.slice(0, limit); const maxVolume = Math.max(...coins.map(c => c.volumeEth), 1e-9);
   const buyPct = totals.trades ? Math.round((totals.buys / totals.trades) * 100) : 50;
   const stats: { label: string; value: ReactNode; tint: string }[] = [

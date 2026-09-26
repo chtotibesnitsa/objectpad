@@ -242,10 +242,11 @@ export class CaptureService {
     if (this.store.one('SELECT id FROM op_records WHERE session_id=?', id)) throw new ApiError('RECORD_ALREADY_COMMITTED', 409);
     // A provider failure (or an uncertain submission) is our problem, not the creator's: those retries never use up the
     // two "I don't like it" rebuilds, up to MAX_FAILURE_RETRIES per capture.
-    const failure = session.state === 'failed' || (session.state === 'blocked' && session.failureCode === 'PROVIDER_SUBMISSION_UNCERTAIN') || (session.state === 'review' && Boolean(session.manifestHash) && Boolean(session.failureCode));
+    const stale = session.state === 'reconstructing' && Date.now() - (session.job?.startedAt ?? 0) > 180_000;
+    const failure = stale || session.state === 'failed' || (session.state === 'blocked' && session.failureCode === 'PROVIDER_SUBMISSION_UNCERTAIN') || (session.state === 'review' && Boolean(session.manifestHash) && Boolean(session.failureCode));
     if (!(session.state === 'model_review' || failure) || !session.manifestHash) throw new ApiError('MODEL_NOT_READY', 409);
     if (failure ? (session.failureRetries ?? 0) >= MAX_FAILURE_RETRIES : (session.regenerations ?? 0) >= MAX_REGENERATIONS) throw new ApiError('REGENERATE_LIMIT', 429);
-    const job = this.store.one<JobRow>('SELECT * FROM op_reconstruction_jobs WHERE session_id=?', id); if (!job || !['complete', 'failed', 'review_required'].includes(job.state)) throw new ApiError('MODEL_NOT_READY', 409);
+    const job = this.store.one<JobRow>('SELECT * FROM op_reconstruction_jobs WHERE session_id=?', id); if (!job || (!stale && !['complete', 'failed', 'review_required'].includes(job.state))) throw new ApiError('MODEL_NOT_READY', 409);
     const canonical = (JSON.parse(job.payload) as { canonicalViews?: string[] }).canonicalViews ?? ['front', 'left', 'back', 'right'];
     const images: Uint8Array[] = []; for (const view of canonical) { const row = this.store.one<{ storage_key: string }>('SELECT storage_key FROM op_capture_views WHERE session_id=? AND view_id=?', id, view); const object = row ? await this.runtime.privateBucket.get(row.storage_key) : null; if (!object) throw new ApiError('CAPTURE_STORAGE_MISSING', 503); images.push(new Uint8Array(await object.arrayBuffer())); }
     this.store.budget('reconstructions', Math.max(1, Number(this.runtime.env.OBJECTPAD_DAILY_RECONSTRUCTIONS) || 100_000), 'RECONSTRUCTION_BUDGET_REACHED');

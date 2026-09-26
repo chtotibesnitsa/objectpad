@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { isNsfwCoin } from '@/shared/nsfw';
 import { ArrowRightCircle, ChevronRight, CircleUserRound, ScanLine } from 'lucide-react';
 import type { ObjectCoin } from '@/shared/domain';
 import { sortRewards } from '@/lib/rewards';
@@ -20,7 +21,7 @@ export function CoinTile({ coin, ethUsd }: { coin: ObjectCoin; ethUsd: number | 
 
 export default function HomeView() {
   const app = useApp(); const lastScan = app.lastScan();
-  const trending = useMemo(() => [...app.coins].sort((a, b) => b.trending - a.trending).slice(0, 8), [app.coins]);
+  const trending = useMemo(() => app.coins.filter(c => !isNsfwCoin(c)).sort((a, b) => b.trending - a.trending).slice(0, 8), [app.coins]);
   const open = useMemo(() => sortRewards((app.rewards?.bounties ?? []).filter(b => b.status === 'open'), 'best', Date.now()), [app.rewards]);
   const burned = Number(BigInt(app.burns?.totalTokens ?? '0') / 10n ** 14n) / 1e4;
   return <RootScreen><div className="flex flex-col gap-[18px]">

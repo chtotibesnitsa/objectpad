@@ -10,6 +10,7 @@ import { useHolders, type CoinTrade } from '@/lib/coins';
 import { buyPairedWithEth, quotePairedBuy } from '@/lib/pairs';
 import { CURVE_ABI } from '@/shared/pons';
 import { useApp } from '../store';
+import { isNsfwCoin } from '@/shared/nsfw';
 import { Feedback } from '../feedback';
 import { Fmt } from '../format';
 import { Cover, PushScreen, RootScreen, Sheet } from '../chrome';
@@ -22,8 +23,8 @@ const addressUrl = (a: string) => `${EXPLORER}/address/${a}`;
 const tokenUrl = (a: string) => `${EXPLORER}/token/${a}`;
 const ModelView = lazy(() => import('../ModelView'));
 
-type Sort = 'Trending' | 'New' | 'Market cap' | 'Volume' | 'Watchlist';
-const SORTS: Sort[] = ['Trending', 'New', 'Market cap', 'Volume', 'Watchlist'];
+type Sort = 'Trending' | 'New' | 'Market cap' | 'Volume' | 'Watchlist' | 'NSFW 18+';
+const SORTS: Sort[] = ['Trending', 'New', 'Market cap', 'Volume', 'Watchlist', 'NSFW 18+'];
 
 function TradeTicker({ trades, coins, ethUsd }: { trades: CoinTrade[]; coins: ObjectCoin[]; ethUsd: number | null }) {
   const items = [...trades, ...trades];
@@ -41,18 +42,18 @@ export function CoinRow({ coin, rank, ethUsd }: { coin: ObjectCoin; rank: number
 }
 
 export default function MarketView() {
-  const app = useApp(); const [sort, setSort] = useState<Sort>('Trending'); const [query, setQuery] = useState<string>(''); const [pairFilter, setPairFilter] = useState<string>('all');
+  const app = useApp(); const [sort, setSort] = useState<Sort>('Trending'); const [query, setQuery] = useState<string>(''); const [pairFilter, setPairFilter] = useState<string>('all'); const [adultOk, setAdultOk] = useState<boolean>(false);
   const list = useMemo(() => {
-    let l = app.coins; const q = query.trim().toLowerCase();
+    const adult = sort === 'NSFW 18+'; let l = app.coins.filter(c => isNsfwCoin(c) === adult); const q = query.trim().toLowerCase();
     if (q) l = l.filter(c => `${c.name} ${c.symbol} ${c.objectName ?? ''} ${c.pair?.symbol ?? ''}`.toLowerCase().includes(q));
     if (pairFilter === 'stocks') l = l.filter(c => c.pair); else if (pairFilter === 'eth') l = l.filter(c => !c.pair); else if (pairFilter !== 'all') l = l.filter(c => c.pair?.address.toLowerCase() === pairFilter);
     const s = [...l];
-    if (sort === 'Trending') return s.sort((a, b) => b.trending - a.trending); if (sort === 'New') return s.sort((a, b) => b.launchedAt - a.launchedAt);
+    if (sort === 'Trending' || adult) return s.sort((a, b) => b.trending - a.trending); if (sort === 'New') return s.sort((a, b) => b.launchedAt - a.launchedAt);
     if (sort === 'Market cap') return s.sort((a, b) => b.marketCapEth - a.marketCapEth); if (sort === 'Volume') return s.sort((a, b) => b.volume24hEth - a.volume24hEth);
     return s.filter(c => app.watchlist.has(c.id));
   }, [app.coins, app.watchlist, query, pairFilter, sort]);
   const pairs = useMemo(() => { const m = new Map<string, { pair: NonNullable<ObjectCoin['pair']>; n: number }>(); app.coins.forEach(c => { if (!c.pair) return; const k = c.pair.address.toLowerCase(); const e = m.get(k); if (e) e.n++; else m.set(k, { pair: c.pair, n: 1 }); }); return [...m.values()].sort((a, b) => b.n - a.n); }, [app.coins]);
-  const volume = app.coins.reduce((s, c) => s + c.volume24hEth, 0);
+  const volume = app.coins.filter(c => !isNsfwCoin(c)).reduce((s, c) => s + c.volume24hEth, 0);
   return <RootScreen><div className="flex flex-col gap-3">
     <Enter className="flex flex-col gap-3.5">
       <Lab>Robinhood Chain · live</Lab><Display size={42}>Market</Display>
@@ -68,7 +69,7 @@ export default function MarketView() {
       </div>
     </div>
     {app.coinsError ? <ErrorBanner message={app.coinsError}/> : !app.loaded ? [0, 1, 2, 3, 4, 5].map(i => <Shimmer key={i} className="h-[76px] rounded-[22px]"/>) : list.length === 0 ? <p className="pt-8 text-center text-[14px] font-semibold text-[#6A6E78]">{sort === 'Watchlist' ? 'Tap the star on any coin to watch it.' : 'No coins match.'}</p> : null}
-    {list.map((c, i) => <Enter key={c.id} delay={Math.min(i, 8) * 0.04}><button type="button" onPointerDown={() => Feedback.tap()} onClick={() => app.push(`/app/coin/${c.id}`)} className="ap-press block w-full"><CoinRow coin={c} rank={i + 1} ethUsd={app.ethUsd}/></button></Enter>)}
+    {sort === 'NSFW 18+' && !adultOk ? <div className="ap-raised mt-2 rounded-[24px] p-5 text-center"><p className="ap-mono text-[11px] font-extrabold" style={{ color: PAD.down }}>18+ · ADULT CONTENT</p><p className="mt-2 text-[22px] font-extrabold">NSFW coins</p><p className="mt-1.5 text-[14px] font-semibold text-[#6A6E78]">Coins with adult names or objects, flagged by keyword filters or our AI. Only continue if you're 18 or older.</p><div className="mt-4 flex gap-2"><button type="button" onClick={() => setAdultOk(true)} className="ap-press h-12 flex-1 rounded-full text-[15px] font-extrabold text-white" style={{ background: PAD.ink }}>I'm 18+</button><button type="button" onClick={() => setSort('Trending')} className="ap-press ap-raised h-12 flex-1 rounded-full text-[15px] font-extrabold">Go back</button></div></div> : list.map((c, i) => <Enter key={c.id} delay={Math.min(i, 8) * 0.04}><button type="button" onPointerDown={() => Feedback.tap()} onClick={() => app.push(`/app/coin/${c.id}`)} className="ap-press block w-full"><CoinRow coin={c} rank={i + 1} ethUsd={app.ethUsd}/></button></Enter>)}
   </div></RootScreen>;
 }
 

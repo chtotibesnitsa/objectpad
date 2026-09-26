@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { isNsfwCoin } from '@/shared/nsfw';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
@@ -145,7 +146,7 @@ function FreeLaunch() {
 
 /** Coins from real scanned objects, each a real spinning 3D scan with its own coin page. */
 function CoinsShelf() {
-  const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null; const feed = useCoins(); const coins = useMemo(() => (feed.data?.items ?? []).slice(0, 7), [feed.data]);
+  const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null; const feed = useCoins(); const coins = useMemo(() => (feed.data?.items ?? []).filter(c => !isNsfwCoin(c)).slice(0, 7), [feed.data]);
   return <section className="page py-12 sm:py-16">
     <SectionHead code="03 · Object coins" title="Real things. Real charts." aside={<Link to="/explore" className="pill press !pr-5"><span className="orb"><GlassIcon name="chart" size={30} className="!filter-none"/></span>All coins<ArrowRight size={15}/></Link>}/>
     <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">{coins.map((coin, i) => <Reveal key={coin.id} delay={i * 50}><SpecimenCard coin={coin} ethUsd={ethUsd} index={i}/></Reveal>)}<Reveal delay={350}><LaunchTile/></Reveal></div>
