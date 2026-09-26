@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-data class CoinForm(val publicName: String = "", val symbol: String = "", val story: String = "", val xUrl: String = "", val telegram: String = "", val feeWallet: String = "") {
+data class CoinForm(val publicName: String = "", val symbol: String = "", val story: String = "", val xUrl: String = "", val telegram: String = "", val feeWallet: String = "", val pairToken: String = "") {
     fun errors(): Map<String, String> = buildMap {
         val n = publicName.trim(); if (n.length < 2) put("name", "At least 2 characters.") else if (n.length > 32) put("name", "Up to 32 characters.")
         if (!Regex("^[A-Z0-9]{2,10}$").matches(symbol.trim().uppercase())) put("symbol", "2–10 letters or digits.")
@@ -79,6 +79,7 @@ class StudioViewModel : ViewModel() {
             publicName = s.launchDraft?.publicName ?: s.suggestion?.name ?: "", symbol = s.launchDraft?.symbol ?: s.suggestion?.ticker ?: "",
             story = s.launchDraft?.story ?: s.suggestion?.story ?: "", xUrl = s.launchDraft?.xUrl ?: "", telegram = s.launchDraft?.telegram ?: "",
             feeWallet = s.launchDraft?.feeWallet ?: account.state.value.activeWallet ?: "",
+            pairToken = s.launchDraft?.pairToken ?: "",
         ) else prev.form
         _ui.update { it.copy(session = s, loading = false, error = null, form = form) }
         if (announced != s.state) { if (s.state == "model_review") app.sounds.play("model"); if (s.state in setOf("blocked", "failed")) app.sounds.play("rejected"); announced = s.state }
@@ -113,7 +114,7 @@ class StudioViewModel : ViewModel() {
         val f = _ui.value.form
         // Guests with no wallet get this phone's ObjectPad wallet at launch, so creator rewards always have a home.
         val fee = f.feeWallet.trim().ifBlank { account.state.value.activeWallet ?: if (launching) account.ensureLocalWallet().address else "" }
-        return LaunchDraft(f.publicName.trim(), f.symbol.trim().uppercase(), f.story.trim(), f.xUrl.trim(), f.telegram.trim().ifBlank { null }, fee.ifBlank { null })
+        return LaunchDraft(f.publicName.trim(), f.symbol.trim().uppercase(), f.story.trim(), f.xUrl.trim(), f.telegram.trim().ifBlank { null }, fee.ifBlank { null }, f.pairToken.ifBlank { null })
     }
 
     fun save() {

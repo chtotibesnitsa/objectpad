@@ -18,6 +18,7 @@ struct StudioView: View {
     @State private var story: String = ""
     @State private var xUrl: String = ""
     @State private var feeWallet: String = ""
+    @State private var pairToken: String = ""
     @State private var dirty: Bool = false
     @State private var busy: String?
     @State private var actionError: String?
@@ -79,6 +80,7 @@ struct StudioView: View {
             story = s.launchDraft?.story ?? s.suggestion?.story ?? story
             xUrl = s.launchDraft?.xUrl ?? xUrl
             feeWallet = s.launchDraft?.feeWallet ?? account.activeWallet ?? feeWallet
+            pairToken = s.launchDraft?.pairToken ?? pairToken
         }
         if announced != s.state {
             if s.state == "model_review" { Feedback.success(.model) }
@@ -171,6 +173,7 @@ struct StudioView: View {
             PadField(label: "Name", placeholder: "Golden Mug", text: binding($name))
             PadField(label: "Ticker", placeholder: "MUG", text: Binding(get: { symbol }, set: { symbol = String($0.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(10)); dirty = true }), mono: true)
             PadField(label: "Story", placeholder: "Where it came from, why it matters…", text: binding($story), axis: .vertical)
+            PairPickerCard(selection: Binding(get: { pairToken }, set: { pairToken = $0; dirty = true }), suggestion: s.suggestion?.pair, disabled: s.launch != nil)
             DisclosureGroup(isExpanded: $showAdvanced) {
                 VStack(spacing: 12) {
                     PadField(label: "X link (optional)", placeholder: "https://x.com/yourcoin", text: binding($xUrl), mono: true, keyboard: .URL)
@@ -213,7 +216,7 @@ struct StudioView: View {
     private func launch() {
         run("Launching…") {
             let fee = feeWallet.trimmingCharacters(in: .whitespaces).isEmpty ? (account.activeWallet ?? (try? account.ensureLocalWallet())) : feeWallet.trimmingCharacters(in: .whitespaces)
-            let draft = LaunchDraft(publicName: name.trimmingCharacters(in: .whitespaces), symbol: symbol, story: story.trimmingCharacters(in: .whitespaces), xUrl: xUrl.trimmingCharacters(in: .whitespaces), telegram: nil, feeWallet: fee)
+            let draft = LaunchDraft(publicName: name.trimmingCharacters(in: .whitespaces), symbol: symbol, story: story.trimmingCharacters(in: .whitespaces), xUrl: xUrl.trimmingCharacters(in: .whitespaces), telegram: nil, feeWallet: fee, pairToken: PairCatalog.isEth(pairToken) ? nil : pairToken)
             let r = try await caller.launch(draft)
             if r.hash != nil || r.state != "queued" { Feedback.success(.seal) }
             dirty = false

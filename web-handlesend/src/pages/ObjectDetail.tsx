@@ -17,6 +17,8 @@ import { Dialog } from '@/components/ui/dialog';
 import { ErrorState, Loading } from '@/components/Feedback';
 import { PriceChart } from '@/components/PriceChart';
 import { TradePanel } from '@/components/TradePanel';
+import { PairBadge } from '@/components/PairBadge';
+import { usePair, isEthPair } from '@/lib/pairs';
 import { ObjectKey } from '@/components/ObjectKey';
 import { TxPanel, useLaunchTx } from '@/components/TxProof';
 import { ShareCardDialog } from '@/components/ShareCardDialog';
@@ -85,7 +87,7 @@ export function ObjectView({ id }: { id: string }) {
       </div>
       <div className="space-y-4">
         <div className="glass rounded-[28px] p-5 sm:p-6">
-          <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><img src={object.iconUrl ?? object.model.thumbnailUrl} alt="" className="size-14 rounded-full bg-white object-cover shadow-[0_0_0_1px_rgba(12,13,16,.08)]"/><div><h1 className="display text-3xl sm:text-4xl">{object.verifiedName}</h1><p className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-xs text-ink/65"><span className="btn px-2 py-0.5 font-medium ">${object.symbol}</span><ShieldCheck size={13} className="text-up"/>Verified launch{object.checkin && <span className="rounded-full bg-up/10 px-2 py-0.5 text-up">Object Key ✓</span>}</p></div></div>
+          <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><img src={object.iconUrl ?? object.model.thumbnailUrl} alt="" className="size-14 rounded-full bg-white object-cover shadow-[0_0_0_1px_rgba(12,13,16,.08)]"/><div><h1 className="display text-3xl sm:text-4xl">{object.verifiedName}</h1><p className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-xs text-ink/65"><span className="btn px-2 py-0.5 font-medium ">${object.symbol}</span><ShieldCheck size={13} className="text-up"/>Verified launch{object.checkin && <span className="rounded-full bg-up/10 px-2 py-0.5 text-up">Object Key ✓</span>}</p>{!isEthPair(object.pairToken) && <PairLine address={object.pairToken as string}/>}</div></div>
             <div className="flex gap-1"><button className="press flex size-10 items-center justify-center rounded-full bg-white/70 shadow-[0_0_0_1px_rgba(12,13,16,.07)] disabled:opacity-40" aria-label="Save to watchlist" aria-pressed={watchlist.data?.ids.includes(id) ?? false} disabled={!auth.authenticated || save.isPending} onClick={() => save.mutate()}><Bookmark size={15} className={watchlist.data?.ids.includes(id) ? 'fill-current' : ''}/></button><button className="press flex size-10 items-center justify-center rounded-full bg-white/70 shadow-[0_0_0_1px_rgba(12,13,16,.07)]" aria-label="Copy link" onClick={() => void copyText(object.canonicalUrl).then(setCopied)}>{copied ? <Check size={15}/> : <Copy size={15}/>}</button><button className="press flex size-10 items-center justify-center rounded-full bg-white/70 shadow-[0_0_0_1px_rgba(12,13,16,.07)]" aria-label="Share on X" onClick={() => setShareOpen(true)}><ExternalLink size={15}/></button></div></div>
           <dl className="mt-5 grid grid-cols-2 gap-2">{[['Price', price], ['Market cap', cap], ['Curve reserve', state ? eth(state.realReserveEth, 4) : '—'], ['Graduation', state ? (state.graduated ? 'Graduated' : `${(state.progress * 100).toFixed(1)}%`) : '—']].map(([label, value]) => <div key={label} className="rounded-2xl bg-white/60 px-3.5 py-3 shadow-[0_0_0_1px_rgba(12,13,16,.04)]"><dt className="spec !text-[11px]">{label}</dt><dd className="mt-1 text-lg font-semibold tnum">{curve.isError ? 'Unavailable' : value}</dd>{label === 'Graduation' && state && !state.graduated && <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink/[0.07]"><div className="h-full rounded-full bg-ink" style={{ width: `${Math.max(2, state.progress * 100)}%` }}/></div>}</div>)}</dl>
         </div>
@@ -107,7 +109,7 @@ export function ObjectView({ id }: { id: string }) {
         <section className="glass rounded-[26px] p-6"><h2 className="text-lg font-semibold">The object</h2><p className="mt-3 whitespace-pre-line text-[15px] leading-7 text-ink/80">{object.story}</p><div className="mt-4 flex flex-wrap gap-2">{object.xUrl && <a href={object.xUrl} target="_blank" rel="noreferrer nofollow" className="chip">X<ArrowUpRight size={11}/></a>}{object.telegram && <a href={object.telegram} target="_blank" rel="noreferrer nofollow" className="chip">Telegram<ArrowUpRight size={11}/></a>}<span className="chip">{object.category || 'Object'}</span></div></section>
       </div>
       <aside className="space-y-4">
-        <div className="raised rounded-[30px] p-5 sm:p-6"><h2 className="mb-4 text-[18px] font-extrabold">Trade ${object.symbol}</h2><TradePanel token={object.tokenAddress as Address} curve={object.curveAddress as Address} symbol={object.symbol} state={state}/></div>
+        <div className="raised rounded-[30px] p-5 sm:p-6"><h2 className="mb-4 text-[18px] font-extrabold">Trade ${object.symbol}</h2><TradePanel token={object.tokenAddress as Address} curve={object.curveAddress as Address} symbol={object.symbol} state={state} pairToken={object.pairToken}/></div>
         <CreatorFees record={object}/>
         <ObjectKey objectId={object.objectId} checkin={object.checkin} isCreator={isCreator}/>
         <Link to={`/craft?add=${object.tokenAddress}`} className="lift steel group flex items-center gap-4 rounded-[24px] p-5"><span className="raised flex size-10 items-center justify-center rounded-xl"><Hammer size={18}/></span><div className="flex-1"><p className="font-extrabold">Craft with ${object.symbol}</p><p className="text-xs font-semibold text-ink/65">Crafting Table · in production</p></div><ArrowUpRight size={17}/></Link>
@@ -125,6 +127,12 @@ export function ObjectView({ id }: { id: string }) {
     <ShareCardDialog open={shareOpen} onOpenChange={setShareOpen} url={object.canonicalUrl} postText={share} input={{ name: object.verifiedName, symbol: object.symbol, ca: object.tokenAddress, imageUrl: object.iconUrl ?? object.model.thumbnailUrl, creator: object.checkin ? 'a verified creator' : null, category: object.category || undefined }}/>
     <Dialog open={reportOpen} onOpenChange={setReportOpen} title="Report this coin" description="Reports go to the operator queue. Don’t include private keys or unnecessary personal information."><form onSubmit={form.handleSubmit(values => report.mutate(values))} className="space-y-4"><textarea {...form.register('reason')} rows={4} className="w-full" placeholder="Describe the rights, safety or accuracy concern."/>{form.formState.errors.reason && <p role="alert" className="text-sm text-down">{form.formState.errors.reason.message}</p>}{report.isSuccess ? <p role="status" className="text-sm text-up">Report received.</p> : <Button className="w-full" disabled={report.isPending}>Submit report</Button>}{report.isError && <p role="alert" className="text-sm text-down">{report.error.message}</p>}</form></Dialog>
   </div>;
+}
+
+/** "Paired with NVDA" line under the coin name, with the asset's live price and 24h move. */
+function PairLine({ address }: { address: string }) {
+  const pair = usePair(address); if (!pair) return null;
+  return <p className="mt-2 flex flex-wrap items-center gap-2"><PairBadge symbol={pair.symbol} logo={pair.logo} change={pair.change24h} label/>{pair.priceUsd && <span className="font-mono text-[11.5px] font-bold text-ink/60">{pair.name} · {usd(pair.priceUsd)}</span>}</p>;
 }
 
 export default function ObjectDetail() { const { id = '' } = useParams(); return <ObjectView id={id}/>; }

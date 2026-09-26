@@ -44,6 +44,7 @@ final class Router {
     var signIn: Bool = false
     var creatingReward: Bool = false
     var account: Bool = false
+    var v2: Bool = false
 
     func push(_ route: Route, on tab: Tab? = nil) {
         let t = tab ?? self.tab
@@ -97,6 +98,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: Binding(get: { router.signIn }, set: { router.signIn = $0 })) { SignInSheet().environment(account).environment(store) }
         .sheet(isPresented: Binding(get: { router.account }, set: { router.account = $0 })) { AccountSheet().environment(account).environment(store).environment(router) }
+        .sheet(isPresented: Binding(get: { router.v2 }, set: { router.v2 = $0 })) { V2View().environment(store).environment(router).presentationDetents([.large]).presentationCornerRadius(34) }
         .fullScreenCover(isPresented: Binding(get: { router.creatingReward }, set: { router.creatingReward = $0 })) {
             RewardCreateView { id in router.creatingReward = false; router.push(.reward(id), on: .rewards) }
                 .environment(account).environment(store).environment(router)

@@ -166,7 +166,7 @@ private fun Header(c: ObjectCoin, ethUsd: Double?) {
     Raised(radius = 26.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CoinImage(c.logo, 54.dp, fallback = c.symbol)
-            Column(Modifier.weight(1f).padding(start = 12.dp)) { Strong(c.name, size = 18, maxLines = 1); MonoText("\$${c.symbol} · ${Fmt.short(c.token)}") }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) { Strong(c.name, size = 18, maxLines = 1); MonoText("\$${c.symbol} · ${Fmt.short(c.token)}"); c.pair?.let { com.objectpad.app.ui.components.PairBadge(it, Modifier.padding(top = 4.dp), showChange = true) } }
             Column(horizontalAlignment = Alignment.End) {
                 Text(Fmt.price(c.priceEth, ethUsd), style = Type.num.copy(fontSize = 17.sp))
                 Text(Fmt.pct(c.change24h) + " 24h", style = Type.num.copy(fontSize = 12.sp, color = if (c.change24h >= 0) Pad.Up else Pad.Down))
@@ -234,7 +234,11 @@ private fun TradePanel(coin: ObjectCoin, app: AppUiState, onRefreshHoldings: () 
         val u = units ?: return@LaunchedEffect
         if (side == "sell" && wallet == null) return@LaunchedEffect
         delay(350); quoting = true
-        runCatching { if (side == "buy") ChainClient.quoteBuy(coin.curve, u) else ChainClient.quoteSell(coin.curve, wallet!!, u) }
+        val pq = coin.pair?.let { app.pair(it.address) }
+        runCatching {
+            if (side == "buy" && coin.pair != null) { val r = pq?.route ?: throw IllegalStateException("No route"); com.objectpad.app.data.PairTrade.curveBuy(coin.curve, com.objectpad.app.data.PairTrade.quoteSwap(r, u, app.pairs?.router?.quoter)) }
+            else if (side == "buy") ChainClient.quoteBuy(coin.curve, u) else ChainClient.quoteSell(coin.curve, wallet!!, u)
+        }
             .onSuccess { quote = it }.onFailure { quoteError = "Unavailable" }
         quoting = false
     }
@@ -249,6 +253,27 @@ private fun TradePanel(coin: ObjectCoin, app: AppUiState, onRefreshHoldings: () 
         scope.launch {
             try {
                 val signer = manager.signer()
+                val pair = coin.pair
+                if (side == "buy" && pair != null) {
+                    // Stock-paired: ETH -> pair asset on Uniswap V3, approve the curve, then buy. Each leg is quoted on-chain.
+                    val route = app.pair(pair.address)?.route ?: throw IllegalStateException("No on-chain ETH route to ${pair.symbol} right now.")
+                    val router = app.pairs?.router?.swapRouter?.ifBlank { null } ?: com.objectpad.app.data.PairTrade.FALLBACK_ROUTER
+                    val ten = BigInteger.valueOf(10_000); val keep = BigInteger.valueOf(10_000L - slippage)
+                    val quoted = com.objectpad.app.data.PairTrade.quoteSwap(route, u, app.pairs?.router?.quoter)
+                    val before = ChainClient.tokenBalance(pair.address, signer.address)
+                    busy = "1/3 Swapping ETH → ${pair.symbol}…"
+                    val h1 = signer.send(TxRequest(router, com.objectpad.app.data.PairTrade.swapData(route, signer.address, u, quoted * keep / ten), u)); ChainClient.waitForReceipt(h1)
+                    val received = ChainClient.tokenBalance(pair.address, signer.address) - before
+                    if (received <= BigInteger.ZERO) throw IllegalStateException("The swap to ${pair.symbol} returned nothing.")
+                    if (ChainClient.allowance(pair.address, signer.address, coin.curve) < received) { busy = "2/3 Approving ${pair.symbol}…"; val h2 = signer.send(TxRequest(pair.address, Abi.approve(coin.curve, received))); ChainClient.waitForReceipt(h2) }
+                    val minimum = com.objectpad.app.data.PairTrade.curveBuy(coin.curve, received) * keep / ten
+                    if (minimum <= BigInteger.ZERO) throw IllegalStateException("The curve would return nothing for this amount.")
+                    busy = "3/3 Buying \$${coin.symbol}…"
+                    val h3 = signer.send(TxRequest(coin.curve, Abi.buy(received, minimum, signer.address), BigInteger.ZERO))
+                    lastHash = h3; ChainClient.waitForReceipt(h3); confirmed = true
+                    ObjectPadApp.instance.sounds.play("launch"); amount = ""; loadBalances(); onRefreshHoldings()
+                    return@launch
+                }
                 val expected = if (side == "buy") ChainClient.quoteBuy(coin.curve, u) else ChainClient.quoteSell(coin.curve, signer.address, u)
                 val minimum = expected * BigInteger.valueOf(10_000L - slippage) / BigInteger.valueOf(10_000)
                 if (minimum <= BigInteger.ZERO) throw IllegalStateException("The curve would return nothing for this amount.")
@@ -271,6 +296,7 @@ private fun TradePanel(coin: ObjectCoin, app: AppUiState, onRefreshHoldings: () 
 
     Raised(radius = 28.dp) {
         Lab("Trade \$${coin.symbol}")
+        coin.pair?.let { p -> Notice(if (side == "buy") "Paired with ${p.symbol}. Pay with ETH; it routes on-chain into ${p.symbol} (swap, approve, buy)." else "Paired with ${p.symbol}. Sells pay out in ${p.symbol}.", Modifier.padding(top = 8.dp)) }
         Row(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pad.Ink.copy(alpha = 0.07f)).padding(4.dp)) {
             listOf("buy", "sell").forEach { s ->
                 Box(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).background(if (side == s) (if (s == "buy") Pad.Up else Pad.Down) else Color.Transparent).press { side = s; amount = "" }, contentAlignment = Alignment.Center) {

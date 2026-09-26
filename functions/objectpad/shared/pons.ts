@@ -10,8 +10,17 @@ export const ROUTER_ABI = parseAbi([
   'struct LaunchParams { string name; string symbol; string logo; string description; Socials socials; address creatorFeeRecipient; uint16 creatorTaxBps; bool buybackEnabled; bytes32 expectedEconomics; bytes32 salt; }',
   'function launchAndBuy(LaunchParams params,uint256 launchConfigId,address pairToken,uint256 quoteIn,uint256 minTokensOut,address recipient,address[] snipeTaxExemptions) payable returns(address token,address curve,uint256 tokensOut)',
 ]);
+/**
+ * Direct factory launch. Used for stock/asset-paired launches: the Pons launch-and-buy router only forwards native ETH as
+ * the opening buy, so an ERC-20-quoted launch goes straight to the factory (launch fee only, no opening buy).
+ */
+export const FACTORY_LAUNCH_ABI = parseAbi([
+  'struct Socials { string twitter; string telegram; string discord; string website; string farcaster; }',
+  'struct TokenParams { string name; string symbol; string logo; string description; Socials socials; address creatorFeeRecipient; uint16 creatorTaxBps; bool buybackEnabled; bytes32 expectedEconomics; bytes32 salt; }',
+  'function launchToken(TokenParams params,uint256 launchConfigId,address pairToken) payable returns(address token,address curve)',
+]);
 export const FACTORY_ABI = parseAbi([
-  'function launchFee() view returns(uint256)', 'function launchEnabled() view returns(bool)',
+  'function launchFee() view returns(uint256)', 'function launchEnabled() view returns(bool)', 'function approvedPairTokens(address) view returns(bool)',
   'function previewLaunchEconomics(uint256 launchConfigId,address pairToken) view returns(bytes32)',
   // Log layout checked against receipts: three indexed addresses, not four. Unknown words are not represented as supply.
   'event TokenLaunched(address indexed token,address indexed curve,address indexed launcher,address pairToken,uint256 value0,uint256 value1)',
@@ -29,7 +38,13 @@ export const REGISTRY_ABI = parseAbi([
 export function chainClient(rpc?: string) { return createPublicClient({ chain: robinhoodChain, transport: http(rpc, { timeout: 12_000, retryCount: 1 }) }); }
 /** `recipient` receives the first buy; sponsored launches send it to the dead address so no one holds a launch bag. */
 export interface LaunchInput { name: string; symbol: string; logo: string; description: string; website: string; twitter: string; telegram?: string; creator: Address; recipient?: Address; feeRecipient: Address; creatorTaxBps: number; quoteIn: bigint; minTokensOut: bigint; salt: Hex; }
-export async function readLaunchTerms(client = chainClient()) { const [launchFee, expectedEconomics, enabled] = await Promise.all([client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'launchFee' }), client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'previewLaunchEconomics', args: [LAUNCH_CONFIG_ID, zeroAddress] }), client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'launchEnabled' })]); return { launchFee, expectedEconomics, enabled }; }
+export async function readLaunchTerms(client = chainClient(), pairToken: Address = zeroAddress) { const [launchFee, expectedEconomics, enabled, approved] = await Promise.all([client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'launchFee' }), client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'previewLaunchEconomics', args: [LAUNCH_CONFIG_ID, pairToken] }), client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'launchEnabled' }), pairToken === zeroAddress ? Promise.resolve(true) : client.readContract({ address: PONS_FACTORY, abi: FACTORY_ABI, functionName: 'approvedPairTokens', args: [pairToken] })]); return { launchFee, expectedEconomics, enabled, approved }; }
+/** Factory `launchToken` arguments for an asset-paired launch (no opening buy). */
+export function pairedLaunchArguments(input: LaunchInput, expectedEconomics: Hex, pairToken: Address) {
+  if (pairToken === zeroAddress || input.creatorTaxBps !== 150 || !/^0x[0-9a-f]{64}$/i.test(input.salt)) throw new Error('Launch terms require explicit protocol review.');
+  return [{ name: input.name, symbol: input.symbol, logo: input.logo, description: input.description, socials: { twitter: input.twitter, telegram: input.telegram ?? '', discord: '', website: input.website, farcaster: '' }, creatorFeeRecipient: input.feeRecipient, creatorTaxBps: input.creatorTaxBps, buybackEnabled: false, expectedEconomics, salt: input.salt }, LAUNCH_CONFIG_ID, pairToken] as const;
+}
+export function buildPairedLaunchTx(input: LaunchInput, terms: { launchFee: bigint; expectedEconomics: Hex }, pairToken: Address) { return { to: PONS_FACTORY, data: encodeFunctionData({ abi: FACTORY_LAUNCH_ABI, functionName: 'launchToken', args: pairedLaunchArguments(input, terms.expectedEconomics, pairToken) }), value: terms.launchFee }; }
 export function launchArguments(input: LaunchInput, expectedEconomics: Hex) {
   if (input.quoteIn < MIN_INITIAL_BUY_WEI || input.minTokensOut < 0n || input.creatorTaxBps !== 150 || !/^0x[0-9a-f]{64}$/i.test(input.salt)) throw new Error('Launch terms require explicit protocol review.');
   return [{ name: input.name, symbol: input.symbol, logo: input.logo, description: input.description, socials: { twitter: input.twitter, telegram: input.telegram ?? '', discord: '', website: input.website, farcaster: '' }, creatorFeeRecipient: input.feeRecipient, creatorTaxBps: input.creatorTaxBps, buybackEnabled: false, expectedEconomics, salt: input.salt }, LAUNCH_CONFIG_ID, zeroAddress, input.quoteIn, input.minTokensOut, input.recipient ?? input.creator, []] as const;

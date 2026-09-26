@@ -11,6 +11,9 @@ import com.objectpad.app.data.CoinTrade
 import com.objectpad.app.data.MarketSnapshot
 import com.objectpad.app.data.ObjectCoin
 import com.objectpad.app.data.ObjectPadApi
+import com.objectpad.app.data.PairBoard
+import com.objectpad.app.data.PairCatalog
+import com.objectpad.app.data.PairQuote
 import com.objectpad.app.data.Readiness
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -39,7 +42,10 @@ data class AppUiState(
     val holdings: Holdings? = null,
     val watchlist: Set<String> = emptySet(),
     val toast: String? = null,
+    val pairs: PairBoard? = null,
 ) {
+    /** Live quote for a pair address (ETH when blank). */
+    fun pair(address: String?): PairQuote? = pairs?.assets?.firstOrNull { if (PairCatalog.isEth(address)) it.isEth else it.address.equals(address, true) }
     val ethUsd: Double? get() = market.data?.ethUsd
     val treasury: Treasury get() {
         val s = status.data?.sponsor
@@ -65,6 +71,7 @@ class AppViewModel : ViewModel() {
         poll(15_000) { refreshMarket() }
         poll(30_000) { refreshStatus() }
         poll(30_000) { refreshBurns() }
+        poll(30_000) { runCatching { ObjectPadApi.pairs() }.onSuccess { p -> _state.update { it.copy(pairs = p) } } }
         poll(5_000) { runCatching { ObjectPadApi.building() }.onSuccess { b -> _state.update { it.copy(building = b.items) } } }
         viewModelScope.launch { account.collect { a -> a.activeWallet?.let { if (_state.value.holdings?.wallet != it) refreshHoldings() } } }
     }

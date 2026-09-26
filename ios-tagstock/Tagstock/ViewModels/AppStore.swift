@@ -13,6 +13,7 @@ final class AppStore {
     var burns: BurnFeed?
     var building: [BuildingCoin] = []
     var rewards: RewardBoard?
+    var pairs: PairBoard?
     var coinsError: String?
     var loaded: Bool = false
     var ethBalance: BigUInt?
@@ -45,6 +46,7 @@ final class AppStore {
         poll(30) { await self.refreshStatus() }
         poll(30) { await self.refreshBurns() }
         poll(20) { await self.refreshRewards() }
+        poll(30) { await self.refreshPairs() }
         poll(6) { if let b = try? await ObjectPadApi.building() { self.building = b.items } }
     }
 
@@ -59,6 +61,9 @@ final class AppStore {
     func refreshMarket() async { if let m = try? await ObjectPadApi.market() { market = m } }
     func refreshStatus() async { if let s = try? await ObjectPadApi.status() { status = s } }
     func refreshBurns() async { if let b = try? await ObjectPadApi.burns() { burns = b } }
+    func refreshPairs() async { if let p = try? await ObjectPadApi.pairs() { pairs = p } }
+    /// Live quote for a pair address (ETH when empty).
+    func pair(_ address: String?) -> PairQuote? { pairs?.assets.first { PairCatalog.isEth(address) ? $0.isEth : $0.address.lowercased() == address?.lowercased() } }
     func refreshRewards() async { if let r = try? await RewardsApi(account: account).board() { rewards = r } }
 
     func refreshAll() async {

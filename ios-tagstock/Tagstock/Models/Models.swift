@@ -50,6 +50,7 @@ nonisolated struct ObjectCoin: Codable, Sendable, Hashable, Identifiable {
     var lastTradeAt: Double?
     @Def<Num> var launchedAt: Double
     @Def<Num> var trending: Double
+    var pair: CoinPair?
 }
 
 nonisolated struct CoinTrade: Codable, Sendable, Hashable, Identifiable {
@@ -105,7 +106,7 @@ nonisolated struct BuildingFeed: Codable, Sendable { @Def<Empty<BuildingCoin>> v
 // MARK: - Scans & launches
 
 nonisolated struct CaptureView: Codable, Sendable, Hashable { @Def<Str> var view: String; @Def<Num> var acceptedAt: Double }
-nonisolated struct ObjectSuggestion: Codable, Sendable, Hashable { @Def<Str> var name: String; @Def<Str> var ticker: String; @Def<Str> var story: String; @Def<Zero> var compared: Int }
+nonisolated struct ObjectSuggestion: Codable, Sendable, Hashable { @Def<Str> var name: String; @Def<Str> var ticker: String; @Def<Str> var story: String; @Def<Zero> var compared: Int; var pair: PairSuggestion? }
 nonisolated struct LaunchDraft: Codable, Sendable, Hashable {
     var publicName: String
     var symbol: String
@@ -113,6 +114,7 @@ nonisolated struct LaunchDraft: Codable, Sendable, Hashable {
     var xUrl: String
     var telegram: String?
     var feeWallet: String?
+    var pairToken: String? = nil
 }
 nonisolated struct EngineJob: Codable, Sendable, Hashable { @Def<Str> var state: String; @Def<Num> var progress: Double; var queue: Int? }
 nonisolated struct ModelArtifact: Codable, Sendable, Hashable { @Def<Str> var optimizedHash: String; @Def<Str> var modelUrl: String; @Def<Str> var thumbnailUrl: String; @Def<Zero> var triangles: Int }
@@ -185,6 +187,7 @@ nonisolated struct ObjectRecord: Codable, Sendable, Hashable, Identifiable {
     var feeVault: String?
     @Def<Str> var creatorWallet: String
     @Def<Zero> var acceptedViewCount: Int
+    var pairToken: String?
     var id: String { objectId }
 }
 

@@ -337,6 +337,7 @@ private fun CoinPanel(vm: StudioViewModel, s: CaptureSession, app: AppUiState) {
         Field(f.telegram, { v -> vm.edit { it.copy(telegram = v.trim()) } }, "Telegram (optional)", "https://t.me/group", Modifier.padding(top = 10.dp), errors["telegram"])
         val coinPath = s.coinUrl?.removePrefix("https://") ?: "objectpad.fun/o/…"
         Field(coinPath, {}, "Website", "", Modifier.padding(top = 10.dp), hint = "Your coin’s permanent ObjectPad page, fixed before launch.", mono = true, enabled = false)
+        com.objectpad.app.ui.components.PairPicker(app, f.pairToken, { v -> vm.edit { it.copy(pairToken = v) } }, s.suggestion?.pair, Modifier.padding(top = 12.dp), enabled = s.launch == null && !queued)
         IconPicker(vm, s, Modifier.padding(top = 12.dp))
         Field(f.feeWallet, { v -> vm.edit { it.copy(feeWallet = v.trim()) } }, "Fee wallet (optional)", "0x… receives the 1.5% creator fee", Modifier.padding(top = 10.dp), errors["fee"], mono = true,
             hint = if (account.activeWallet != null) "Prefilled with your ${if (account.signedIn) "account" else "ObjectPad"} wallet." else "Leave empty: we create an ObjectPad wallet on this phone at launch.")

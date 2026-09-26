@@ -46,8 +46,13 @@ struct HomeView: View {
                     Text("\(store.market?.objectpad?.launched ?? store.coins.count) OBJECTS LIVE ON-CHAIN").font(Typeface.mono(10.5, 800)).foregroundStyle(.white)
                 }
                 .padding(.horizontal, 11).padding(.vertical, 7).glass(Capsule(), tint: Pad.ink.opacity(0.4))
-                Display("Scan it.\nLaunch it.", size: 44, color: .white)
-                Text("Any real object becomes a coin in 6 photos. Free launch, no account needed.")
+                Button { router.v2 = true } label: {
+                    HStack(spacing: 6) { Text("V2 LIVE").font(Typeface.mono(9.5, 900)).foregroundStyle(Color(hex: 0x3A2A05)).padding(.horizontal, 6).frame(height: 18).background(Capsule().fill(Pad.goldGradient)); Text("Pair any object with a stock").font(Typeface.sans(12.5, 800)).foregroundStyle(.white); Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.white) }
+                        .padding(.leading, 4).padding(.trailing, 10).frame(height: 28).glass(Capsule(), tint: Pad.ink.opacity(0.5))
+                }
+                .buttonStyle(.press)
+                Display("Real objects.\nReal markets.", size: 42, color: .white)
+                Text("Scan any object, pair it with a tokenized stock, and launch its coin free on Robinhood Chain.")
                     .font(Typeface.sans(15, 650)).foregroundStyle(.white.opacity(0.85))
                 HStack(spacing: 10) {
                     PadButton(title: "Scan an object", icon: "viewfinder", kind: .pearl) { router.startScan() }
@@ -60,6 +65,7 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 Image("duck_mark").resizable().frame(width: 30, height: 30).clipShape(Circle())
                 Text("ObjectPad").font(Typeface.display(19)).foregroundStyle(.white)
+                V2Pill(small: true)
                 Spacer()
                 treasuryChip
             }

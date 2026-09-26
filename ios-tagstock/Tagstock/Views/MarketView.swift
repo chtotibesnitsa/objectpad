@@ -6,12 +6,14 @@ struct MarketView: View {
     @Environment(Router.self) private var router
     @State private var sort: MarketSort = .trending
     @State private var query: String = ""
+    @State private var pairFilter: String = "all"
 
     enum MarketSort: String, CaseIterable { case trending = "Trending", new = "New", mcap = "Market cap", volume = "Volume", watch = "Watchlist" }
 
     private var list: [ObjectCoin] {
         var l = store.coins
-        if !query.isEmpty { l = l.filter { "\($0.name) \($0.symbol) \($0.objectName ?? "")".localizedStandardContains(query) } }
+        if !query.isEmpty { l = l.filter { "\($0.name) \($0.symbol) \($0.objectName ?? "") \($0.pair?.symbol ?? "")".localizedStandardContains(query) } }
+        switch pairFilter { case "all": break; case "stocks": l = l.filter { $0.pair != nil }; case "eth": l = l.filter { $0.pair == nil }; default: l = l.filter { $0.pair?.address.lowercased() == pairFilter } }
         switch sort {
         case .trending: return l.sorted { $0.trending > $1.trending }
         case .new: return l.sorted { $0.launchedAt > $1.launchedAt }
@@ -51,6 +53,7 @@ struct MarketView: View {
                         .padding(.horizontal, 14).frame(height: 44).glass(Capsule())
                         ScrollView(.horizontal) { HStack(spacing: 6) { ForEach(MarketSort.allCases, id: \.self) { s in Pill(title: s.rawValue, icon: s == .watch ? "star.fill" : nil, on: sort == s) { withAnimation(.snappy) { sort = s } } } } }
                             .scrollIndicators(.hidden)
+                        pairChips
                     }
                     .padding(.vertical, 8)
                     .background(Pad.paper.opacity(0.92))
@@ -62,6 +65,30 @@ struct MarketView: View {
         .scrollIndicators(.hidden)
         .refreshable { await store.refreshCoins() }
         .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+extension MarketView {
+    /// V2: filter the market by what coins are paired with.
+    var pairChips: some View {
+        let counts = Dictionary(grouping: store.coins.compactMap(\.pair), by: { $0.address.lowercased() })
+        let pairs = counts.values.compactMap(\.first).sorted { (counts[$0.address.lowercased()]?.count ?? 0) > (counts[$1.address.lowercased()]?.count ?? 0) }
+        return ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                Text("V2").font(Typeface.mono(9.5, 900)).foregroundStyle(Color(hex: 0x3A2A05)).padding(.horizontal, 6).frame(height: 18).background(Capsule().fill(Pad.goldGradient))
+                ForEach([("all", "All pairs"), ("stocks", "Any stock"), ("eth", "ETH")], id: \.0) { f in Pill(title: f.1, on: pairFilter == f.0) { withAnimation(.snappy) { pairFilter = f.0 } } }
+                ForEach(pairs, id: \.address) { p in
+                    Button { Feedback.selection(); withAnimation(.snappy) { pairFilter = p.address.lowercased() } } label: {
+                        HStack(spacing: 5) { CoinAvatar(url: p.logo, symbol: p.symbol, size: 22); Text(p.symbol).font(Typeface.sans(13, 800)); Text("\(counts[p.address.lowercased()]?.count ?? 0)").font(Typeface.mono(11, 700)).opacity(0.6) }
+                            .foregroundStyle(pairFilter == p.address.lowercased() ? .white : Pad.ink)
+                            .padding(.leading, 4).padding(.trailing, 12).frame(height: 38)
+                            .background(Capsule().fill(pairFilter == p.address.lowercased() ? Pad.ink : .white))
+                    }
+                    .buttonStyle(.quiet)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
     }
 }
 
@@ -99,7 +126,10 @@ struct CoinRow: View {
             CoinAvatar(url: coin.logo, symbol: coin.symbol, size: 50)
             VStack(alignment: .leading, spacing: 3) {
                 Text(coin.name).font(Typeface.sans(15, 800)).foregroundStyle(Pad.ink).lineLimit(1)
-                Text("$\(coin.symbol) · \(coin.holders) holders").font(Typeface.mono(10.5, 700)).foregroundStyle(Pad.muted).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text("$\(coin.symbol) · \(coin.holders) holders").font(Typeface.mono(10.5, 700)).foregroundStyle(Pad.muted).lineLimit(1)
+                    if let p = coin.pair { PairBadge(pair: p) }
+                }
             }
             Spacer(minLength: 6)
             Sparkline(points: coin.spark, up: coin.change24h >= 0).frame(width: 52, height: 24)
@@ -190,6 +220,7 @@ struct CoinDetailView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(c.name).font(Typeface.sans(15, 750)).foregroundStyle(Pad.muted)
+                    if let p = c.pair { HStack(spacing: 6) { PairBadge(pair: p, showChange: true); if let u = p.priceUsd { Text("\(p.name) · \(Fmt.usd(u))").font(Typeface.mono(11, 700)).foregroundStyle(Pad.muted).lineLimit(1) } } }
                     RollingText(text: Fmt.price(curve?.priceEth ?? c.priceEth, store.ethUsd), font: Typeface.display(36))
                 }
                 Spacer()
@@ -326,6 +357,10 @@ struct TradeSheet: View {
                 VStack(alignment: .leading) { Text("$\(coin.symbol)").font(Typeface.sans(18, 800)); Text(Fmt.price(curve?.priceEth ?? coin.priceEth, store.ethUsd)).font(Typeface.mono(12, 700)).foregroundStyle(Pad.muted) }
                 Spacer()
             }
+            if let p = coin.pair {
+                HStack(spacing: 8) { CoinAvatar(url: p.logo, symbol: p.symbol, size: 24); VStack(alignment: .leading, spacing: 1) { Text("Paired with \(p.symbol)").font(Typeface.sans(13, 800)); Text(side == "buy" ? "Pay with ETH · routed on-chain into \(p.symbol) (3 confirmations)" : "Sells pay out in \(p.symbol)").font(Typeface.sans(11.5, 600)).foregroundStyle(Pad.muted) }; Spacer() }
+                    .padding(10).background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0xFFF8E6))).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Pad.gold.opacity(0.5), lineWidth: 1))
+            }
             InkSegmented(options: [("buy", "Buy"), ("sell", "Sell")], selection: $side)
             if done {
                 VStack(spacing: 10) {
@@ -363,6 +398,35 @@ struct TradeSheet: View {
         .task(id: "\(side)-\(amount)") { await requote() }
     }
 
+    /// Stock-paired buy: swap ETH → pair asset on Uniswap V3, approve the curve, then buy. Each step is quoted on-chain first.
+    private func pairedBuy(signer: WalletSigner, pair: CoinPair, ethIn: BigUInt) async throws {
+        guard let q = store.pair(pair.address), let route = q.route else { throw ChainError.message("No on-chain ETH route to \(pair.symbol) right now.") }
+        let c = ChainClient.shared; let router = store.pairs?.router?.swapRouter ?? PairTrade.fallbackRouter
+        busy = "Quoting…"
+        let quoted = try await PairTrade.quoteSwap(route, ethIn: ethIn, quoter: store.pairs?.router?.quoter)
+        let before = try await c.tokenBalance(pair.address, owner: signer.address)
+        busy = "1/3 Swapping ETH → \(pair.symbol)…"
+        let h1 = try await signer.send(TxRequest(to: router, data: PairTrade.swapData(route, recipient: signer.address, amountIn: ethIn, minOut: quoted.scaled(10_000 - slippage, 10_000)), value: ethIn))
+        try await c.waitForReceipt(h1)
+        let received = try await c.tokenBalance(pair.address, owner: signer.address) - before
+        guard !received.isZero else { throw ChainError.message("The swap to \(pair.symbol) returned nothing.") }
+        if try await c.allowance(pair.address, owner: signer.address, spender: coin.curve) < received {
+            busy = "2/3 Approving \(pair.symbol)…"
+            let h2 = try await signer.send(TxRequest(to: pair.address, data: Abi.approveData(coin.curve, received)))
+            try await c.waitForReceipt(h2)
+        }
+        let expected = try await PairTrade.curveBuy(curve: coin.curve, quoteIn: received)
+        let minimum = expected.scaled(10_000 - slippage, 10_000)
+        guard !minimum.isZero else { throw ChainError.message("The curve would return nothing for this amount.") }
+        busy = "3/3 Buying $\(coin.symbol)…"
+        let h3 = try await signer.send(TxRequest(to: coin.curve, data: Abi.buyData(received, minimum, signer.address)))
+        hash = h3; try await c.waitForReceipt(h3)
+        Feedback.success(.coins)
+        withAnimation(.spring) { done = true }
+        busy = nil
+        onDone()
+    }
+
     private func balances() async {
         guard let w = try? account.signer().address else { return }
         ethBal = try? await ChainClient.shared.balance(w)
@@ -374,7 +438,10 @@ struct TradeSheet: View {
         guard let u = units else { return }
         try? await Task.sleep(for: .milliseconds(350))
         guard !Task.isCancelled else { return }
-        if side == "buy" { quote = try? await ChainClient.shared.quoteBuy(curve: coin.curve, quoteIn: u) }
+        if side == "buy", let p = coin.pair, let q = store.pair(p.address), let r = q.route {
+            if let out = try? await PairTrade.quoteSwap(r, ethIn: u, quoter: store.pairs?.router?.quoter) { quote = try? await PairTrade.curveBuy(curve: coin.curve, quoteIn: out) }
+        }
+        else if side == "buy" { quote = try? await ChainClient.shared.quoteBuy(curve: coin.curve, quoteIn: u) }
         else if let w = try? account.signer().address { quote = try? await ChainClient.shared.quoteSell(curve: coin.curve, seller: w, tokensIn: u) }
     }
 
@@ -383,6 +450,7 @@ struct TradeSheet: View {
         error = nil
         do {
             let signer = try account.signer()
+            if side == "buy", let p = coin.pair { try await pairedBuy(signer: signer, pair: p, ethIn: u); return }
             busy = "Quoting…"
             let expected = side == "buy" ? try await ChainClient.shared.quoteBuy(curve: coin.curve, quoteIn: u) : try await ChainClient.shared.quoteSell(curve: coin.curve, seller: signer.address, tokensIn: u)
             let minimum = expected.scaled(10_000 - slippage, 10_000)

@@ -4,6 +4,8 @@ import { serverClient } from './chain';
 import { HOUSE_COINS, houseRecord } from './house';
 import type { Runtime } from './types';
 import type { Store } from './store';
+import type { PairService } from './pairs';
+import { isEthPair, pairAsset } from '../shared/pairs';
 
 const BUY = parseAbiItem('event CurveBuy(address indexed sender,address indexed recipient,uint256 quoteIn,uint256 tokensOut,uint256 protocolFee,uint256 creatorFee)');
 const SELL = parseAbiItem('event CurveSell(address indexed sender,address indexed recipient,uint256 tokensIn,uint256 quoteOut,uint256 protocolFee,uint256 creatorFee)');
@@ -28,6 +30,9 @@ interface CurveRow { curve: string; token: string; start_block: number; cursor: 
 export class TradeIndexer {
   private flight: Promise<void> | null = null; private lastSync = 0;
   private summary: { at: number; items: ObjectCoin[] } | null = null; private summaryFlight: Promise<ObjectCoin[]> | null = null;
+  private pairs: PairService | null = null;
+  /** Wires the pair price source so stock-paired coins are converted to ETH for display and ranking. */
+  setPairs(pairs: PairService): void { this.pairs = pairs; }
   constructor(private readonly store: Store, private readonly runtime: Runtime) {
     store.run('CREATE TABLE IF NOT EXISTS op_idx_curves (curve TEXT PRIMARY KEY, token TEXT NOT NULL, start_block INTEGER NOT NULL, cursor INTEGER NOT NULL)');
     store.run('CREATE TABLE IF NOT EXISTS op_idx_trades (id TEXT PRIMARY KEY, curve TEXT NOT NULL, side TEXT NOT NULL, eth REAL NOT NULL, tokens REAL NOT NULL, trader TEXT NOT NULL, hash TEXT NOT NULL, block INTEGER NOT NULL, log_index INTEGER NOT NULL, at INTEGER NOT NULL)');
@@ -114,7 +119,14 @@ export class TradeIndexer {
     await this.sync(); const client = serverClient(this.runtime.env); const tracked = this.tracked(); const origin = this.runtime.origin; const api = this.runtime.apiOrigin;
     const states = tracked.length ? await client.multicall({ contracts: tracked.flatMap(t => (['quoteReserve', 'tokenReserve', 'phantomQuote', 'graduationThreshold', 'graduated'] as const).map(functionName => ({ address: t.curve as Address, abi: CURVE_STATE, functionName }))), allowFailure: true }).catch(() => []) : [];
     const day = Date.now() - 86_400_000; const out: ObjectCoin[] = [];
+    const board = this.pairs ? await this.pairs.list().catch(() => null) : null; const quotes = new Map((board?.assets ?? []).map(a => [a.address.toLowerCase(), a]));
     tracked.forEach((t, i) => {
+      // Curve reserves and indexed trade amounts are in the coin's quote asset. For stock-paired coins every ETH figure is the
+      // quote amount (read as 18-decimals) times the asset's live on-chain ETH price, rescaled for the asset's real decimals.
+      const pairToken = t.kind === 'creator' ? (JSON.parse(this.store.one<{ payload: string }>('SELECT payload FROM op_records WHERE id=?', t.ref)?.payload ?? '{}') as { pairToken?: string }).pairToken : undefined;
+      const asset = isEthPair(pairToken) ? null : pairAsset(pairToken); const pq = asset ? quotes.get(asset.address.toLowerCase()) : undefined;
+      const factor = asset ? (pq?.priceEth ?? 0) * 10 ** (18 - asset.decimals) : 1;
+      const pair = asset ? { address: asset.address.toLowerCase(), symbol: asset.symbol, name: asset.name, kind: asset.kind, ...(asset.sector ? { sector: asset.sector } : {}), logo: pq?.logo ?? `${api}/api/pairs/logo/${asset.address.toLowerCase()}`, priceEth: pq?.priceEth ?? null, priceUsd: pq?.priceUsd ?? null, change24h: pq?.change24h ?? null } : null;
       const read = (k: number) => states[i * 5 + k]?.status === 'success' ? states[i * 5 + k].result as bigint | boolean : undefined;
       const quote = read(0) as bigint | undefined; const reserve = read(1) as bigint | undefined; const phantom = read(2) as bigint | undefined; const threshold = read(3) as bigint | undefined; const graduated = read(4) === true;
       const virtual = quote !== undefined && phantom !== undefined ? (quote >= phantom ? quote : quote + phantom) : undefined; const real = virtual !== undefined && phantom !== undefined && virtual > phantom ? virtual - phantom : 0n;
@@ -122,10 +134,10 @@ export class TradeIndexer {
       const recent = this.store.all<{ side: string; eth: number; tokens: number; at: number }>('SELECT side,eth,tokens,at FROM op_idx_trades WHERE curve=? AND at>=? ORDER BY block,log_index', t.curve, day);
       const before = this.store.one<{ eth: number; tokens: number }>('SELECT eth,tokens FROM op_idx_trades WHERE curve=? AND at<? ORDER BY block DESC, log_index DESC LIMIT 1', t.curve, day);
       const totals = this.store.one<{ n: number; v: number; last: number | null; first: number | null }>('SELECT COUNT(*) AS n, COALESCE(SUM(eth),0) AS v, MAX(at) AS last, MIN(at) AS first FROM op_idx_trades WHERE curve=?', t.curve);
-      const spark = this.store.all<{ eth: number; tokens: number }>('SELECT eth,tokens FROM (SELECT eth,tokens,block,log_index FROM op_idx_trades WHERE curve=? ORDER BY block DESC, log_index DESC LIMIT 40) ORDER BY block,log_index', t.curve).map(r => r.eth / r.tokens);
-      const priceEth = curvePrice || spark[spark.length - 1] || 0; const ref = before ? before.eth / before.tokens : recent[0] ? recent[0].eth / recent[0].tokens : priceEth;
+      const spark = this.store.all<{ eth: number; tokens: number }>('SELECT eth,tokens FROM (SELECT eth,tokens,block,log_index FROM op_idx_trades WHERE curve=? ORDER BY block DESC, log_index DESC LIMIT 40) ORDER BY block,log_index', t.curve).map(r => (r.eth / r.tokens) * factor);
+      const priceEth = (curvePrice * factor) || spark[spark.length - 1] || 0; const ref = before ? (before.eth / before.tokens) * factor : recent[0] ? (recent[0].eth / recent[0].tokens) * factor : priceEth;
       const holders = Number(this.store.one<{ n: number }>("SELECT COUNT(*) AS n FROM op_idx_balances WHERE token=? AND holder NOT IN (?,?) AND balance NOT LIKE '-%' AND balance<>'0'", t.token, t.curve, DEAD)?.n ?? 0);
-      const base = { token: t.token, curve: t.curve, priceEth, marketCapEth: priceEth * 1e9, change24h: ref > 0 ? ((priceEth - ref) / ref) * 100 : 0, volume24hEth: recent.reduce((s, r) => s + r.eth, 0), volumeEth: Number(totals?.v ?? 0), trades24h: recent.length, buys24h: recent.filter(r => r.side === 'buy').length, sells24h: recent.filter(r => r.side === 'sell').length, trades: Number(totals?.n ?? 0), holders, progress: graduated ? 1 : threshold && threshold > 0n ? Math.min(1, Number(real * 10_000n / threshold) / 10_000) : 0, graduated, spark: [...spark, priceEth].filter(p => p > 0), lastTradeAt: totals?.last ?? null, launchHash: t.hash, state: 'live' as const };
+      const base = { token: t.token, curve: t.curve, priceEth, marketCapEth: priceEth * 1e9, change24h: ref > 0 ? ((priceEth - ref) / ref) * 100 : 0, volume24hEth: recent.reduce((s, r) => s + r.eth, 0) * factor, volumeEth: Number(totals?.v ?? 0) * factor, trades24h: recent.length, buys24h: recent.filter(r => r.side === 'buy').length, sells24h: recent.filter(r => r.side === 'sell').length, trades: Number(totals?.n ?? 0), holders, progress: graduated ? 1 : threshold && threshold > 0n ? Math.min(1, Number(real * 10_000n / threshold) / 10_000) : 0, graduated, spark: [...spark, priceEth].filter(p => p > 0), lastTradeAt: totals?.last ?? null, launchHash: t.hash, state: 'live' as const, pair };
       if (t.kind === 'creator') {
         const p = JSON.parse(this.store.one<{ payload: string }>('SELECT payload FROM op_records WHERE id=?', t.ref)?.payload ?? '{}') as { symbol?: string; verifiedName?: string; iconHash?: string; confirmedAt?: number; commitment?: { objectTag?: string; objectName?: string; thumbnailHash?: string } };
         out.push({ ...base, kind: 'creator', id: t.ref, symbol: p.symbol ?? '', name: p.verifiedName ?? '', logo: `${api}/api/artifacts/${p.iconHash ?? p.commitment?.thumbnailHash ?? ''}`, path: `/objects/${t.ref}`, tag: p.commitment?.objectTag ?? null, objectName: p.commitment?.objectName ?? null, launchedAt: p.confirmedAt ?? totals?.first ?? Date.now(), trending: trendScore.get(t.ref) ?? 0 });

@@ -64,6 +64,7 @@ nonisolated enum ObjectPadApi {
     static func record(_ id: String) async throws -> ObjectRecord { try await get("/objects/\(id)") }
     static func earnMarket() async throws -> EarnMarket { try await get("/earn/market") }
     static func leaderboard() async throws -> Leaderboard { try await get("/earn/leaderboard") }
+    static func pairs() async throws -> PairBoard { try await get("/pairs", timeout: 30) }
 
     private static let messages: [String: String] = [
         "UNAUTHORIZED": "Your session expired. Sign in again.", "RATE_LIMITED": "Too many requests. Wait a moment and retry.",
@@ -97,6 +98,7 @@ nonisolated enum ObjectPadApi {
         "BOUNTY_CLOSED": "This bounty already has a winner.", "REWARD_HAS_PENDING": "Proofs are waiting. Pick a winner or reject them first.", "REVIEW_REASON_REQUIRED": "Add a short public reason.",
         "WALLET_REQUIRED": "Your account needs a wallet to get paid.", "UNSUPPORTED_IMAGE": "Use a JPG or PNG photo.", "FORBIDDEN": "Only the poster or ObjectPad can do that.",
         "BOUNTY_COIN_NOT_FOUND": "We couldn’t find that coin. Paste its 0x address or objectpad.fun link.", "BOUNTY_NOT_YOUR_COIN": "That coin was launched by another account.",
+        "PAIR_NOT_SUPPORTED": "That pairing isn’t supported. Pick another asset or keep ETH.", "PAIR_NOT_APPROVED": "Pons isn’t accepting that pair right now. Pick another asset or keep ETH.",
     ]
     static func describe(_ code: String) -> String { messages[code] ?? "The request could not be completed (\(code.replacingOccurrences(of: "_", with: " ").lowercased())). Retry safely." }
 }
@@ -135,6 +137,7 @@ struct SessionCaller {
         var j: [String: Any] = ["publicName": d.publicName, "symbol": d.symbol, "story": d.story, "xUrl": d.xUrl]
         if let t = d.telegram, !t.isEmpty { j["telegram"] = t }
         if let f = d.feeWallet, !f.isEmpty { j["feeWallet"] = f }
+        if let p = d.pairToken, !PairCatalog.isEth(p) { j["pairToken"] = p }
         return j
     }
 }

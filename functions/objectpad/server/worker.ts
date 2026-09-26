@@ -22,6 +22,8 @@ import { RewardService } from './rewards';
 import { ethPrice } from './market';
 import { normalizeIcon, normalizeImage } from './media';
 import { visionJson } from './ai';
+import { PairService } from './pairs';
+import { isEthPair, pairAsset } from '../shared/pairs';
 
 export const OBJECTPAD_CLASS = 'ObjectPad';
 export const OBJECTPAD_INSTANCE = 'objectpad-production-v1';
@@ -75,7 +77,7 @@ const string = (input: unknown, max = 200): string => { if (typeof input !== 'st
 
 /** Strict launch-draft validation: coin name (written onchain), ticker, one-line story and optional X profile. */
 export function parseLaunchDraft(data: Record<string, unknown>): LaunchDraft {
-  const allowed = ['publicName', 'symbol', 'story', 'xUrl', 'telegram', 'feeWallet', 'sessionId', 'rights', 'category'];
+  const allowed = ['publicName', 'symbol', 'story', 'xUrl', 'telegram', 'feeWallet', 'sessionId', 'rights', 'category', 'pairToken'];
   if (Object.keys(data).some(key => !allowed.includes(key))) throw new ApiError('INVALID_INPUT');
   let name: string; try { name = publicName(string(data.publicName, 64)); } catch (error) { if (error instanceof ApiError) throw error; throw new ApiError('METADATA_INVALID'); }
   const symbol = string(data.symbol, 10).trim().toUpperCase(); const story = string(data.story ?? '', 400).normalize('NFC').trim(); const xUrl = string(data.xUrl ?? '', 200).trim();
@@ -83,7 +85,9 @@ export function parseLaunchDraft(data: Record<string, unknown>): LaunchDraft {
   if (name.length > 32 || !/^[A-Z0-9]{2,10}$/.test(symbol) || story.length < 10 || story.length > 280 || (xUrl && !safeXUrl(xUrl))) throw new ApiError('METADATA_INVALID');
   if (telegram && !safeTelegramUrl(telegram)) throw new ApiError('LINK_INVALID');
   if (feeWallet && !validAddress(feeWallet)) throw new ApiError('WALLET_INVALID');
-  return { publicName: name, symbol, story, xUrl, ...(telegram ? { telegram } : {}), ...(feeWallet ? { feeWallet: feeWallet.toLowerCase() } : {}) };
+  const pairRaw = string(data.pairToken ?? '', 42).trim(); if (pairRaw && !pairAsset(pairRaw)) throw new ApiError('PAIR_NOT_SUPPORTED');
+  const pairToken = pairRaw && !isEthPair(pairRaw) ? pairRaw.toLowerCase() : '';
+  return { publicName: name, symbol, story, xUrl, ...(telegram ? { telegram } : {}), ...(feeWallet ? { feeWallet: feeWallet.toLowerCase() } : {}), ...(pairToken ? { pairToken } : {}) };
 }
 /** Manual record creation input (the automatic flow builds the same shape from the saved draft or AI suggestion). */
 export function parseDraft(data: Record<string, unknown>): DraftInput {
@@ -116,7 +120,7 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
@@ -124,6 +128,7 @@ export class ObjectPad extends DurableObject<Env> {
     this.captures = new CaptureService(this.store, this.runtime); this.sponsor = new SponsorService(this.store, this.runtime); this.records = new RecordService(this.store, this.runtime, this.captures, this.sponsor);
     this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime); this.accounts = new AccountService(this.store, this.runtime, this.sponsor, this.records); this.earn = new EarnService(this.store, this.runtime, this.sponsor, this.accounts); this.bounties = new BountyService(this.store, this.records);
     this.rewards = new RewardService(this.store, this.runtime, this.records, async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { handle: x.handle, name: x.name, avatar: x.avatar } : null; }, owner => this.records.creatorWallet(owner));
+    this.pairs = new PairService(this.store, this.runtime); this.indexer.setPairs(this.pairs);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
   }
   private exclusive<T>(action: () => Promise<T>): Promise<T> { const run = this.queue.then(action, action); this.queue = run.then(() => {}, () => {}); return run; }
@@ -140,6 +145,9 @@ export class ObjectPad extends DurableObject<Env> {
       if (method === 'GET' && /^\/artifacts\/[a-f0-9]{64}$/.test(path)) return await this.artifact(request, path.slice(11));
       if (method === 'GET' && path === '/status') return json(readiness(this.runtime, await probeToolkit(this.runtime), await this.sponsor.status().catch(() => null)));
       if (method === 'GET' && path === '/market') return json(await this.market.snapshot());
+      // ObjectPad V2: every Pons V2 pair asset with live on-chain prices, logos and how many ObjectPad coins trade against it.
+      if (method === 'GET' && path === '/pairs') { const coins = await this.indexer.coins(new Map(trending(this.store).map(t => [t.objectId, t.score]))).catch(() => []); const counts = new Map<string, number>(); for (const c of coins) if (c.pair) counts.set(c.pair.address.toLowerCase(), (counts.get(c.pair.address.toLowerCase()) ?? 0) + 1); return json(await this.pairs.list(counts)); }
+      const pairLogo = path.match(/^\/pairs\/logo\/(0x[a-f0-9]{40})$/); if (method === 'GET' && pairLogo) return await this.pairs.logo(pairLogo[1]);
       // ObjectPad Earn public reads: validated live market + reward tier, rules, genuine activity feed, proof records.
       if (method === 'GET' && path === '/earn/market') return json(await this.earn.market());
       if (method === 'GET' && path === '/earn/rules') return json(this.earn.rules());
@@ -379,6 +387,7 @@ export class ObjectPad extends DurableObject<Env> {
   private draftFor(sessionId: string): DraftInput {
     const { session } = this.captures.load(sessionId); const draft = session.launchDraft; const suggestion = session.suggestion;
     if (draft) return { sessionId, ...draft, category: suggestion?.object ?? '', rights: true };
+    // No saved draft: the coin launches on the AI name, still paired with ETH (the AI pair pick is only a suggestion).
     if (!suggestion) throw new ApiError('LAUNCH_DRAFT_REQUIRED', 409);
     return { sessionId, publicName: suggestion.name, symbol: suggestion.ticker, story: suggestion.story.length >= 10 ? suggestion.story : `A real ${suggestion.object}, scanned on ObjectPad.`, xUrl: '', category: suggestion.object, rights: true };
   }

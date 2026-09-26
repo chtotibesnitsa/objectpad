@@ -15,6 +15,8 @@ import { SpecimenCard, LaunchTile, ChangeChip, LiveBadge, CoinCardStats } from '
 import { GlassIcon } from '@/components/GlassIcon';
 import { type CurveState } from '@/lib/chain';
 import { cn } from '@/lib/utils';
+import { PairBadge, PairLogo } from '@/components/PairBadge';
+import { usePairs } from '@/lib/pairs';
 
 const ExhibitViewer = lazy(() => import('@/components/ExhibitViewer'));
 
@@ -34,8 +36,9 @@ export const ObjectCard = memo(function ObjectCard({ object, curve, ethUsd: ethU
       <div className="grid-paper absolute inset-0 opacity-60" aria-hidden="true"/><img src={object.model.thumbnailUrl} alt={`3D scan of ${object.verifiedName}`} loading="lazy" className={cn('relative aspect-square w-full object-contain p-5 transition-all duration-500 group-hover:scale-105 motion-reduce:transform-none', ready && 'scale-90 opacity-0')}/>
       {spin && seen && <div className={cn('pointer-events-none absolute inset-0 transition-opacity duration-700', ready ? 'opacity-100' : 'opacity-0')}><Suspense fallback={null}><ExhibitViewer src={object.model.modelUrl} active fallback={null} onReady={onReady} speed={1.6}/></Suspense></div>}
       <span className="chip-dark absolute left-3 top-3">${object.symbol}</span>
+      {coin?.pair && <PairBadge symbol={coin.pair.symbol} logo={coin.pair.logo} className="absolute left-3 top-12"/>}
       {live && <ChangeChip change={change}/>}
-      {object.checkin && <span className="absolute left-3 top-12 flex size-7 items-center justify-center rounded-full bg-up text-white" title="Object Key check-in"><KeyRound size={13}/></span>}
+      {object.checkin && <span className="absolute right-3 top-12 flex size-7 items-center justify-center rounded-full bg-up text-white" title="Object Key check-in"><KeyRound size={13}/></span>}
       {object.objectTag && <span className="chip absolute bottom-3 left-3 hidden !text-[11px] sm:inline-flex">{object.objectTag}</span>}
       {live && <LiveBadge/>}</div>
     <CoinCardStats id={`c-${object.objectId}`} name={object.verifiedName} marketCapEth={marketCapEth} ethUsd={ethUsd} trades={coin?.trades ?? 0} holders={coin?.holders ?? 0} spark={spark} change={change} progress={progress} graduated={graduated} live={live}/>
@@ -53,9 +56,12 @@ export default function Explore() {
   const seenBuilding = useRef<Set<string>>(new Set());
   useEffect(() => { const now = new Set(buildingItems.map(b => b.code)); if ([...seenBuilding.current].some(code => !now.has(code))) void qc.invalidateQueries({ queryKey: ['objectpad', 'archive'] }); seenBuilding.current = now; }, [buildingItems, qc]);
   const set = (key: string, value: string | null) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); };
-  const items: ListedObject[] = query.data?.items ?? [];
-  const feed = useCoins(); const liveIds = useMemo(() => new Set(items.map(i => i.record.objectId)), [items]);
-  const previews = useMemo(() => { const q = deferred.trim().toLowerCase(); const list = (feed.data?.items ?? []).filter(c => c.kind === 'original' && !liveIds.has(c.id)).filter(c => !q || `${c.name} ${c.symbol} ${c.tag ?? ''} ${c.objectName ?? ''}`.toLowerCase().includes(q)); if (sort === 'newest') return [...list].sort((a, b) => b.launchedAt - a.launchedAt); if (sort === 'volume') return [...list].sort((a, b) => b.volume24hEth - a.volume24hEth); return [...list].sort((a, b) => b.marketCapEth - a.marketCapEth); }, [deferred, sort, feed.data, liveIds]);
+  const feed = useCoins(); const pairParam = params.get('pair') ?? 'all'; const pairsBoard = usePairs();
+  const pairOf = useMemo(() => new Map((feed.data?.items ?? []).map(c => [c.id, c.pair?.address ?? null])), [feed.data]);
+  const pairChips = useMemo(() => { const counts = new Map<string, number>(); for (const c of feed.data?.items ?? []) if (c.pair) counts.set(c.pair.address, (counts.get(c.pair.address) ?? 0) + 1); return (pairsBoard.data?.assets ?? []).filter(a => counts.has(a.address.toLowerCase())).map(a => ({ ...a, n: counts.get(a.address.toLowerCase()) ?? 0 })).sort((a, b) => b.n - a.n); }, [feed.data, pairsBoard.data]);
+  const matchPair = (id: string): boolean => { if (pairParam === 'all') return true; const p = pairOf.get(id) ?? null; if (pairParam === 'stocks') return Boolean(p); if (pairParam === 'eth') return !p; return p === pairParam.toLowerCase(); };
+  const items: ListedObject[] = (query.data?.items ?? []).filter(i => matchPair(i.record.objectId)); const liveIds = useMemo(() => new Set(items.map(i => i.record.objectId)), [items]);
+  const previews = useMemo(() => { const q = deferred.trim().toLowerCase(); const list = (feed.data?.items ?? []).filter(c => c.kind === 'original' && !liveIds.has(c.id) && (pairParam === 'all' || pairParam === 'eth')).filter(c => !q || `${c.name} ${c.symbol} ${c.tag ?? ''} ${c.objectName ?? ''}`.toLowerCase().includes(q)); if (sort === 'newest') return [...list].sort((a, b) => b.launchedAt - a.launchedAt); if (sort === 'volume') return [...list].sort((a, b) => b.volume24hEth - a.volume24hEth); return [...list].sort((a, b) => b.marketCapEth - a.marketCapEth); }, [deferred, sort, feed.data, liveIds, pairParam]);
   return <div className="page py-6 sm:py-10">
     <div className="flex flex-wrap items-end justify-between gap-5"><div className="flex items-end gap-4"><GlassIcon name={tab === 'market' ? 'chart' : 'mesh'} size={84} float className="hidden sm:block"/><div><p className="lab">Explore · Robinhood Chain</p><h1 className="display mt-3 text-[46px] sm:text-[64px]">{tab === 'market' ? 'Coin list.' : 'Object coins.'}</h1><p className="mt-2 max-w-xl text-[17px] font-extrabold text-ink/65">{tab === 'market' ? 'Every ObjectPad coin, ranked by 24h volume.' : 'Every coin here is a real thing someone scanned.'}</p></div></div>
       <SegmentedTabs label="View" value={tab} onChange={value => set('tab', value === 'market' ? 'market' : null)} items={[{ value: 'objects', label: 'Grid', icon: <Box size={14}/> }, { value: 'market', label: 'List', icon: <Activity size={14}/> }]}/></div>
@@ -63,6 +69,11 @@ export default function Explore() {
       <div className="steel mt-6 flex flex-col gap-3 rounded-[24px] p-2.5 lg:flex-row lg:items-center lg:justify-between"><div className="relative w-full lg:max-w-md"><Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted"/><input aria-label="Search coins, tickers, tags or hashes" value={search} onChange={event => { setSearch(event.target.value); set('q', event.target.value || null); }} placeholder="Name, ticker, OP- tag or hash…" className="w-full pl-11"/></div>
         <div className="flex flex-wrap gap-1.5">{[['all', 'All'], ['live', 'Live'], ['memes', 'Memes'], ['toys', 'Toys'], ['desk', 'Desk & other']].map(([v, l]) => <button key={v} onClick={() => setKind(v)} className={cn('press min-h-9 rounded-full px-3.5 text-xs font-extrabold', kind === v ? 'raised' : 'text-ink/65 hover:text-ink')}>{l}</button>)}</div>
         <SegmentedTabs label="Sort" size="sm" value={sort} onChange={value => set('sort', value === 'trending' ? null : value)} items={SORTS.map(s => ({ ...s, icon: s.value === 'trending' ? <TrendingUp size={12}/> : undefined }))}/></div>
+      <div className="no-scrollbar mt-3 flex items-center gap-1.5 overflow-x-auto" role="group" aria-label="Filter by pair">
+        <span className="mr-1 flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-extrabold uppercase text-ink/55"><span className="v2-pill relative inline-flex h-[18px] items-center rounded-full px-1.5 text-[10px] font-black text-[#3A2A05]">V2</span>Paired with</span>
+        {[['all', 'All'], ['stocks', 'Any stock'], ['eth', 'ETH']].map(([v, l]) => <button key={v} onClick={() => set('pair', v === 'all' ? null : v)} className={cn('press min-h-9 shrink-0 rounded-full px-3.5 text-xs font-extrabold', pairParam === v ? 'bg-ink text-white' : 'raised text-ink/70')}>{l}</button>)}
+        {pairChips.map(a => <button key={a.address} onClick={() => set('pair', a.address.toLowerCase())} className={cn('press flex min-h-9 shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs font-extrabold', pairParam === a.address.toLowerCase() ? 'bg-ink text-white' : 'raised')}><PairLogo src={a.logo} symbol={a.symbol} size={24}/>{a.symbol}<span className="opacity-60">{a.n}</span></button>)}
+      </div>
       {query.isPending ? <Loading label="Reading live object coins…"/> : <>
         {query.isError && <div className="mt-6"><ErrorState message="Live coins couldn’t load right now. ObjectPad originals are still shown below." retry={() => void query.refetch()}/></div>}
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">

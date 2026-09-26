@@ -91,6 +91,7 @@ fun routeFor(uri: Uri?): String? {
         path.startsWith("/coin/") -> "coin/${path.removePrefix("/coin/")}"
         path == "/rewards" -> "rewards"
         path.startsWith("/rewards/") -> "reward/${path.removePrefix("/rewards/")}"
+        path == "/v2" || path == "/changelog" -> "v2"
         else -> null
     }
 }
@@ -115,7 +116,7 @@ fun AppNavigation(link: Uri?) {
         NavHost(nav, "home", Modifier.fillMaxSize(),
             enterTransition = { fadeIn() + slideInHorizontally { it / 10 } }, exitTransition = { fadeOut() },
             popEnterTransition = { fadeIn() }, popExitTransition = { fadeOut() + slideOutHorizontally { it / 10 } }) {
-            composable("home") { Box(Modifier.statusBarsPadding()) { HomeScreen(app, ::startScan, { open("qr") }, ::openCoin, { nav.tab("coins") }, { nav.tab("burn") }, { open("treasury") }, { open("info/docs") }, prefs.lastScan, ::openStudio) } }
+            composable("home") { Box(Modifier.statusBarsPadding()) { HomeScreen(app, ::startScan, { open("qr") }, ::openCoin, { nav.tab("coins") }, { nav.tab("burn") }, { open("treasury") }, { open("info/docs") }, prefs.lastScan, ::openStudio) { open("v2") } } }
             composable("coins") { Box(Modifier.statusBarsPadding()) { CoinsScreen(app, ::openCoin) { vm.refreshAll() } } }
             composable("scan") { Box(Modifier.statusBarsPadding()) { ScanHub(app, ::startScan, { open("qr") }, ::openStudio) } }
             composable("burn") { Box(Modifier.statusBarsPadding()) { BurnScreen(app) } }
@@ -136,6 +137,7 @@ fun AppNavigation(link: Uri?) {
             }
             composable("qr") { QrScanScreen({ nav.popBackStack() }) { id, token -> nav.navigate("capture?session=$id&token=${token.orEmpty()}") { popUpTo("qr") { inclusive = true } } } }
             composable("treasury") { TreasuryScreen(app) { nav.popBackStack() } }
+            composable("v2") { Box(Modifier.statusBarsPadding()) { com.objectpad.app.ui.screens.V2Screen(app, { nav.popBackStack() }) { startScan() } } }
             composable("signin") { SignInScreen({ nav.popBackStack() }) { nav.popBackStack(); vm.refreshHoldings() } }
             composable("community") { CommunityScreen { nav.popBackStack() } }
             composable("craft") { CraftScreen { nav.popBackStack() } }

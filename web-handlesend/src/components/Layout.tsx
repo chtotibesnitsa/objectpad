@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom';
-import { Activity, BookOpen, Compass, Flame, Home, LogOut, ScanLine, Sparkles, Vault, Volume2, VolumeX, X } from 'lucide-react';
+import { Activity, Compass, Home, LogOut, ScanLine, Volume2, VolumeX, X } from 'lucide-react';
+import { PixelIcon, type PixelName } from './PixelIcon';
 import { Brand } from './Brand';
 import { LiveTicker, ObjectPadCa } from './LiveTicker';
 import { BurnToasts } from './BurnToasts';
@@ -16,16 +17,16 @@ import { OBJECTPAD_X_URL } from '@/lib/brand';
 import { shortAddress } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-const TABS = [
-  { to: '/explore', label: 'Coins', icon: Compass, match: (p: string, s: string) => (p === '/explore' && !s.includes('tab=market')) || p.startsWith('/coin/') || p.startsWith('/objects/') },
-  { to: '/explore?tab=market', label: 'Market', icon: Activity, match: (p: string, s: string) => p === '/explore' && s.includes('tab=market') },
-  { to: '/earn', label: 'Earn', icon: Sparkles, match: (p: string) => p.startsWith('/earn') || p.startsWith('/rewards') },
-  { to: '/burn', label: 'Burn', icon: Flame, match: (p: string) => p === '/burn' },
-  { to: '/treasury', label: 'Treasury', icon: Vault, match: (p: string) => p === '/treasury' },
-  { to: '/docs', label: 'How it works', icon: BookOpen, match: (p: string) => p === '/docs' },
+const TABS: { to: string; label: string; icon: PixelName; match: (p: string, s: string) => boolean }[] = [
+  { to: '/launch', label: 'Create', icon: 'create', match: (p: string) => p.startsWith('/launch') },
+  { to: '/explore', label: 'Market', icon: 'market', match: (p: string) => p === '/explore' || p.startsWith('/coin/') || p.startsWith('/objects/') },
+  { to: '/earn', label: 'Earn', icon: 'earn', match: (p: string) => p.startsWith('/earn') || p.startsWith('/rewards') },
+  { to: '/burn', label: 'Burn', icon: 'burn', match: (p: string) => p === '/burn' },
+  { to: '/treasury', label: 'Treasury', icon: 'treasury', match: (p: string) => p === '/treasury' },
+  { to: '/docs', label: 'How it works', icon: 'docs', match: (p: string) => p === '/docs' },
 ];
 const DRAWER: { code: string; title: string; items: { to: string; label: string; icon: GlassName; note: string }[] }[] = [
-  { code: '01', title: 'Make', items: [{ to: '/launch', label: 'Scan & launch', icon: 'qr', note: 'Phone camera → coin' }, { to: '/download', label: 'Mobile apps', icon: 'rocket', note: 'Android live · iOS soon' }, { to: '/inventory', label: 'Saved scans', icon: 'mesh', note: 'Resume any scan' }, { to: '/rewards', label: 'Paid Rewards', icon: 'diamond', note: 'Find & scan objects · post your own bounty' }, { to: '/earn', label: 'Post & earn', icon: 'coins', note: 'Get paid for verified X posts' }, { to: '/wallet', label: 'My wallet', icon: 'wallet', note: 'Balance · deposit · withdraw' }, { to: '/earnings', label: 'Creator earnings', icon: 'coins', note: '0.5% of every trade' }] },
+  { code: '01', title: 'Make', items: [{ to: '/v2', label: 'What’s new in V2', icon: 'chart', note: 'Stock pairing · release log' }, { to: '/launch', label: 'Scan & launch', icon: 'qr', note: 'Phone camera → coin, paired with any stock' }, { to: '/download', label: 'Mobile apps', icon: 'rocket', note: 'Android live · iOS in App Store review' }, { to: '/inventory', label: 'Saved scans', icon: 'mesh', note: 'Resume any scan' }, { to: '/rewards', label: 'Paid Rewards', icon: 'diamond', note: 'Find & scan objects · post your own bounty' }, { to: '/earn', label: 'Post & earn', icon: 'coins', note: 'Get paid for verified X posts' }, { to: '/wallet', label: 'My wallet', icon: 'wallet', note: 'Balance · deposit · withdraw' }, { to: '/earnings', label: 'Creator earnings', icon: 'coins', note: '0.5% of every trade' }] },
   { code: '02', title: 'Market', items: [{ to: '/explore', label: 'Object coins', icon: 'chart', note: 'Every scanned coin' }, { to: '/burn', label: '$OBJECTPAD burn', icon: 'burn', note: 'Buyback & burn log' }, { to: '/treasury', label: 'Launch treasury', icon: 'vault', note: 'Pays every launch' }] },
   { code: '03', title: 'Protocol', items: [{ to: '/docs', label: 'How it works', icon: 'chain', note: '4 steps · receipt · fees' }, { to: '/provenance', label: 'Provenance', icon: 'fingerprint', note: 'Trace any object' }, { to: '/craft', label: 'Crafting Table', icon: 'diamond', note: 'Launching soon' }, { to: '/safety', label: 'Safety & rights', icon: 'shield', note: 'What we accept' }] },
 ];
@@ -37,7 +38,7 @@ function TabStrip() {
   useLayoutEffect(() => { const measure = () => { const el = index >= 0 ? root.current?.querySelectorAll<HTMLElement>('a')[index] : null; setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null); }; measure(); window.addEventListener('resize', measure); return () => window.removeEventListener('resize', measure); }, [index]);
   return <nav ref={root} aria-label="Main navigation" className="sunk relative mx-2 hidden flex-1 items-center justify-between gap-0.5 rounded-[18px] p-1 lg:flex xl:mx-6">
     <span aria-hidden="true" className={cn('raised absolute bottom-1 top-1 rounded-[14px] transition-all duration-500 ease-[cubic-bezier(.2,.9,.25,1.15)]', pill ? 'opacity-100' : 'opacity-0')} style={pill ? { left: pill.left, width: pill.width } : undefined}/>
-    {TABS.map((tab, i) => <NavLink key={tab.to} to={tab.to} className={cn('relative z-10 flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] px-2 text-[13.5px] font-bold tracking-[-0.015em] transition-colors duration-300 xl:gap-2 xl:px-3 xl:text-[14.5px]', i === index ? 'text-ink' : 'text-ink/65 hover:text-ink')}><tab.icon size={15} strokeWidth={2.5} className="shrink-0"/><span className="whitespace-nowrap">{tab.label}</span></NavLink>)}
+    {TABS.map((tab, i) => <NavLink key={tab.to} to={tab.to} className={cn('relative z-10 flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] px-2 text-[13.5px] font-bold tracking-[-0.015em] transition-colors duration-300 xl:gap-2 xl:px-3 xl:text-[14.5px]', i === index ? 'text-ink' : 'text-ink/65 hover:text-ink')}><PixelIcon name={tab.icon} size={14}/><span className="whitespace-nowrap">{tab.label}</span></NavLink>)}
   </nav>;
 }
 
@@ -155,11 +156,11 @@ export default function Layout() {
       <div className="steel relative overflow-hidden rounded-[30px] p-6 sm:p-8">
         <AsciiObject src="/models/points/bull.json" cols={60} rows={22} className="absolute -right-6 -top-4 hidden text-[11.5px] text-ink/[0.08] md:block"/>
         <div className="relative grid gap-8 md:grid-cols-[1.1fr_1.6fr]">
-          <div><Brand/><p className="mt-4 max-w-xs text-[15px] font-bold leading-6 text-ink/75">Real objects. Scanned in 3D. Launched free on Robinhood Chain.</p><div className="mt-5 flex flex-wrap items-center gap-2"><Link to="/launch" className="btn press min-h-12 pl-1.5 pr-5 text-sm"><span className="orb size-9"><GlassIcon name="qr" size={26} className="!filter-none"/></span>Scan & launch free</Link><a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" className="btn-ghost press min-h-12 px-4 text-sm"><XLogo size={15}/>@ObjectPadFun</a></div></div>
+          <div><Brand/><p className="mt-4 max-w-xs text-[15px] font-bold leading-6 text-ink/75">The launchpad for real-world objects, now backed by real markets. Launched free on Robinhood Chain.</p><div className="mt-5 flex flex-wrap items-center gap-2"><Link to="/launch" className="btn press min-h-12 pl-1.5 pr-5 text-sm"><span className="orb size-9"><GlassIcon name="qr" size={26} className="!filter-none"/></span>Scan & launch free</Link><a href={OBJECTPAD_X_URL} target="_blank" rel="noreferrer" className="btn-ghost press min-h-12 px-4 text-sm"><XLogo size={15}/>@ObjectPadFun</a></div></div>
           <div className="grid grid-cols-2 gap-6 text-sm font-bold sm:grid-cols-3">
             <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Discover</span><Link to="/explore">Object coins</Link><Link to="/explore?tab=market">Live market</Link><Link to="/burn">$OBJECTPAD burn</Link><Link to="/treasury">Treasury</Link></div>
             <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Create</span><Link to="/launch">Scan & launch</Link><Link to="/inventory">Saved scans</Link><Link to="/earnings">Creator earnings</Link><Link to="/craft">Crafting Table</Link></div>
-            <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Protocol</span><Link to="/docs">How it works</Link><Link to="/provenance">Provenance</Link><Link to="/safety">Safety & rights</Link><Link to="/status">System status</Link></div>
+            <div className="flex flex-col items-start gap-2.5"><span className="lab mb-1">Protocol</span><Link to="/v2">V2 release log</Link><Link to="/docs">How it works</Link><Link to="/provenance">Provenance</Link><Link to="/safety">Safety & rights</Link><Link to="/status">System status</Link></div>
           </div>
         </div>
         <div className="relative mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-white/70 px-4 py-3 font-mono text-[12px] uppercase shadow-[0_0_0_1px_rgba(12,13,16,.08)]"><ObjectPadCa/><span className="ml-auto font-bold text-ink/60">Chain 4663 · Robinhood Chain</span></div>

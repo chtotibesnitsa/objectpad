@@ -12,7 +12,33 @@ data class ObjectCoin(
     val buys24h: Int = 0, val sells24h: Int = 0, val trades: Int = 0, val holders: Int = 0, val progress: Double = 0.0,
     val graduated: Boolean = false, val spark: List<Double> = emptyList(), val lastTradeAt: Long? = null,
     val launchHash: String? = null, val launchedAt: Long = 0, val trending: Double = 0.0, val state: String = "live",
+    val pair: CoinPair? = null,
 )
+
+/** What a coin trades against (a Pons V2 quote asset). null = ETH. */
+@Serializable
+data class CoinPair(
+    val address: String = "", val symbol: String = "", val name: String = "", val kind: String = "", val sector: String? = null,
+    val logo: String = "", val priceEth: Double? = null, val priceUsd: Double? = null, val change24h: Double? = null,
+)
+/** The AI's recommended pair for a scanned object (a one-tap suggestion; ETH stays the default). */
+@Serializable data class PairSuggestion(val symbol: String = "", val address: String = "", val name: String = "", val reason: String = "")
+@Serializable data class PairRoute(val tokens: List<String> = emptyList(), val fees: List<Int> = emptyList())
+@Serializable
+data class PairQuote(
+    val address: String = "", val symbol: String = "", val name: String = "", val kind: String = "", val decimals: Int = 18,
+    val sector: String? = null, val logo: String = "", val approved: Boolean = false, val priceEth: Double? = null,
+    val priceUsd: Double? = null, val change24h: Double? = null, val coins: Int = 0, val route: PairRoute? = null,
+) { val isEth: Boolean get() = kind == "native" }
+@Serializable data class PairRouter(val swapRouter: String = "", val quoter: String = "", val weth: String = "")
+@Serializable data class PairBoard(val ethUsd: Double? = null, val assets: List<PairQuote> = emptyList(), val router: PairRouter? = null)
+
+object PairCatalog {
+    const val ETH = "0x0000000000000000000000000000000000000000"
+    val popular = listOf("ETH", "NVDA", "TSLA", "AAPL", "SPCX", "GME", "COIN", "MSTR", "PLTR", "SPY", "QQQ", "GLD", "AMZN", "META", "GOOGL", "RBLX", "NFLX", "USDG", "cbBTC")
+    val kinds = listOf("popular" to "Popular", "stock" to "Stocks", "etf" to "ETFs", "commodity" to "Commodities", "crypto" to "Crypto", "stable" to "Stable", "community" to "Community", "all" to "All")
+    fun isEth(a: String?): Boolean = a.isNullOrBlank() || a.equals(ETH, true)
+}
 
 @Serializable
 data class CoinTrade(
@@ -73,8 +99,8 @@ data class BurnFeed(
 
 @Serializable data class ViewQuality(val blur: Double = 0.0, val exposure: Double = 0.0, val centered: Boolean = true)
 @Serializable data class CaptureView(val id: String = "", val view: String = "", val hash: String = "", val width: Int = 0, val height: Int = 0, val bytes: Long = 0, val acceptedAt: Long = 0)
-@Serializable data class ObjectSuggestion(val `object`: String = "", val name: String = "", val ticker: String = "", val story: String = "", val compared: Int = 0, val catalog: String? = null, val colors: List<String> = emptyList(), val materials: List<String> = emptyList())
-@Serializable data class LaunchDraft(val publicName: String = "", val symbol: String = "", val story: String = "", val xUrl: String = "", val telegram: String? = null, val feeWallet: String? = null)
+@Serializable data class ObjectSuggestion(val `object`: String = "", val name: String = "", val ticker: String = "", val story: String = "", val compared: Int = 0, val catalog: String? = null, val colors: List<String> = emptyList(), val materials: List<String> = emptyList(), val pair: PairSuggestion? = null)
+@Serializable data class LaunchDraft(val publicName: String = "", val symbol: String = "", val story: String = "", val xUrl: String = "", val telegram: String? = null, val feeWallet: String? = null, val pairToken: String? = null)
 @Serializable data class EngineJob(val state: String = "", val progress: Double = 0.0, val failureCode: String? = null, val startedAt: Long? = null, val queue: Int? = null, val model: String? = null, val images: Int? = null, val providerStatus: String? = null)
 @Serializable
 data class ModelArtifact(
@@ -122,6 +148,7 @@ data class ObjectRecord(
     val model: RecordModel = RecordModel(), val iconUrl: String? = null, val feeVault: String? = null, val launchMode: String? = null,
     val sponsor: String? = null, val acceptedViewCount: Int = 0, val captureManifestHash: String = "", val originalModelHash: String = "",
     val uniqueness: Uniqueness? = null, val creatorWallet: String = "", val status: String = "confirmed", val launchDataSuffix: String? = null,
+    val pairToken: String? = null,
 )
 @Serializable data class PublicFeed(val items: List<ObjectRecord> = emptyList(), val nextCursor: String? = null)
 

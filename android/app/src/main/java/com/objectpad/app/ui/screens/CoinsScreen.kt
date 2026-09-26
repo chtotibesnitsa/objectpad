@@ -51,6 +51,8 @@ import com.objectpad.app.ui.components.Raised
 import com.objectpad.app.ui.components.Sparkline
 import com.objectpad.app.ui.components.Strong
 import com.objectpad.app.ui.components.press
+import com.objectpad.app.ui.components.PairBadge
+import com.objectpad.app.ui.components.PairLogo
 import com.objectpad.app.ui.theme.Pad
 import com.objectpad.app.ui.theme.Sans
 import com.objectpad.app.ui.theme.Type
@@ -63,11 +65,14 @@ fun CoinsScreen(app: AppUiState, onCoin: (String) -> Unit, onRetry: () -> Unit) 
     var q by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(Sort.Trending) }
     var kind by rememberSaveable { mutableStateOf("all") }
-    val list = remember(app.coins.data, q, sort, kind, app.watchlist) {
+    var pairFilter by rememberSaveable { mutableStateOf("all") }
+    val pairChips = remember(app.coins.data) { app.coins.data.orEmpty().mapNotNull { it.pair }.groupBy { it.address.lowercase() }.map { (k, v) -> Triple(k, v.first(), v.size) }.sortedByDescending { it.third } }
+    val list = remember(app.coins.data, q, sort, kind, app.watchlist, pairFilter) {
         app.coins.data.orEmpty().asSequence()
             .filter { kind == "all" || it.kind == kind }
+            .filter { when (pairFilter) { "all" -> true; "stocks" -> it.pair != null; "eth" -> it.pair == null; else -> it.pair?.address.equals(pairFilter, true) } }
             .filter { sort != Sort.Watch || it.id in app.watchlist }
-            .filter { q.isBlank() || it.name.contains(q, true) || it.symbol.contains(q, true) || (it.objectName?.contains(q, true) ?: false) || it.tag?.contains(q, true) == true }
+            .filter { q.isBlank() || it.name.contains(q, true) || it.symbol.contains(q, true) || it.pair?.symbol?.contains(q, true) == true || (it.objectName?.contains(q, true) ?: false) || it.tag?.contains(q, true) == true }
             .let { s -> when (sort) { Sort.Trending, Sort.Watch -> s.sortedWith(compareByDescending<ObjectCoin> { it.kind == "creator" }.thenByDescending { it.trending }.thenByDescending { it.volume24hEth }); Sort.Newest -> s.sortedByDescending { it.launchedAt }; Sort.Cap -> s.sortedByDescending { it.marketCapEth }; Sort.Volume -> s.sortedByDescending { it.volume24hEth } } }
             .toList()
     }
@@ -85,6 +90,18 @@ fun CoinsScreen(app: AppUiState, onCoin: (String) -> Unit, onRetry: () -> Unit) 
                 items(Sort.entries.toList()) { s -> Chip(s.label, selected = sort == s, onClick = { sort = s }) }
                 item { Spacer(Modifier.width(6.dp)) }
                 items(listOf("all" to "All", "creator" to "Creators", "original" to "Originals")) { (k, l) -> Chip(l, selected = kind == k, onClick = { kind = k }) }
+            }
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                item { MonoText("V2 · PAIRED WITH", size = 10) }
+                items(listOf("all" to "All pairs", "stocks" to "Any stock", "eth" to "ETH")) { (k, l) -> Chip(l, selected = pairFilter == k, onClick = { pairFilter = k }) }
+                items(pairChips, key = { it.first }) { (addr, p, n) ->
+                    Row(Modifier.clip(RoundedCornerShape(50)).background(if (pairFilter == addr) Pad.Ink else Pad.White).border(1.dp, Pad.Ink.copy(alpha = 0.1f), RoundedCornerShape(50)).press { pairFilter = addr }.padding(start = 3.dp, end = 12.dp, top = 3.dp, bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PairLogo(p.logo, p.symbol, 26.dp); Spacer(Modifier.width(6.dp))
+                        Text("${p.symbol} $n", style = Type.num.copy(fontSize = 12.sp, color = if (pairFilter == addr) Pad.White else Pad.Ink))
+                    }
+                }
             }
         }
         if (app.building.isNotEmpty()) item {
@@ -115,6 +132,7 @@ fun CoinRow(c: ObjectCoin, ethUsd: Double?, watched: Boolean, onClick: () -> Uni
                     if (c.state == "launching") Box(Modifier.padding(start = 6.dp)) { Chip("Launching") }
                 }
                 Body(c.name, size = 12, maxLines = 1)
+                c.pair?.let { PairBadge(it, Modifier.padding(vertical = 2.dp)) }
                 MonoText("${c.holders} holders · ${c.trades24h} trades 24h", size = 10, maxLines = 1)
             }
             Column(horizontalAlignment = Alignment.End) {

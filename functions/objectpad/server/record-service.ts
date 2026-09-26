@@ -1,7 +1,8 @@
 import { concatHex, decodeEventLog, decodeFunctionData, keccak256, stringToHex, zeroAddress, type Address, type Hex } from 'viem';
 import { CANONICAL_VIEWS, normalizeObjectName, objectNameSeed, objectSpecsText, objectSuffixText, objectTagFrom, readObjectSuffix, type ObjectCommitment, type ObjectRecord } from '../shared/domain';
 import { ApiError, canonicalJson, publicName, requireOwner, safeXUrl, sha256, validAddress } from '../shared/security';
-import { buildLaunchTx, ERC20_ABI, FACTORY_ABI, launchArguments, MIN_INITIAL_BUY_WEI, PONS_FACTORY, PONS_ROUTER, readLaunchTerms, robinhoodChain, ROUTER_ABI } from '../shared/pons';
+import { buildLaunchTx, buildPairedLaunchTx, ERC20_ABI, FACTORY_ABI, FACTORY_LAUNCH_ABI, launchArguments, MIN_INITIAL_BUY_WEI, pairedLaunchArguments, PONS_FACTORY, PONS_ROUTER, readLaunchTerms, robinhoodChain, ROUTER_ABI } from '../shared/pons';
+import { isEthPair, pairAsset } from '../shared/pairs';
 import { DEAD_ADDRESS } from '../shared/economy';
 import { reconcileReceipt } from '../shared/transactions';
 import type { DraftInput, RecordPayload, RecordRow, Runtime } from './types';
@@ -77,6 +78,7 @@ export class RecordService {
     if (name.length > 32 || !/^[A-Z0-9]{2,10}$/.test(input.symbol) || story.length < 10 || story.length > 280) throw new ApiError('METADATA_INVALID');
     if (input.xUrl && !safeXUrl(input.xUrl)) throw new ApiError('LINK_INVALID');
     const { wallet, kind } = await this.feeRecipient(owner, input.feeWallet);
+    const pair = isEthPair(input.pairToken) ? null : pairAsset(input.pairToken); if (input.pairToken && !isEthPair(input.pairToken) && !pair) throw new ApiError('PAIR_NOT_SUPPORTED');
     const profile = this.store.one<{ public_id: string }>('SELECT public_id FROM op_profiles WHERE owner=?', owner); if (!profile) throw new ApiError('PROFILE_REQUIRED', 409);
     const objectId = await sha256(`objectpad:v1:${session.id}`); const canonicalUrl = coinUrlFor(this.runtime.origin, objectId);
     // Naming methodology: a neutral AI catalogue name, made unique across ObjectPad with a serial, plus a tag hashed from it and the artifacts.
@@ -89,7 +91,7 @@ export class RecordService {
     const commitment: ObjectCommitment = { version: 1, objectId, publicName: name, slug: objectId, creatorDid: `did:objectpad:${profile.public_id}`, creatorWallet: wallet, captureSessionId: session.id, captureManifestHash: session.manifestHash, acceptedViewCount: session.views.length, reconstructionProvider: 'Meshy', reconstructionModel: session.model.providerModel, reconstructionTaskReference: await sha256(job.provider_id), canonicalViewIds: [...CANONICAL_VIEWS], originalModelHash: session.model.originalHash, optimizedModelHash: session.model.optimizedHash, thumbnailHash: session.model.thumbnailHash, thesisHash: await sha256(story), story, thesis: story, category: input.category.slice(0, 40), externalWebsite: canonicalUrl, xUrl: input.xUrl, telegram: input.telegram ?? '', downloadAllowed: false, chainId: 4663, createdAt: Date.now(), objectName, objectTag, objectSpecs: objectSpecsText({ triangles: session.model.triangles, bounds: session.model.bounds, textures: session.model.textures, materials: session.suggestion?.materials, colors: session.suggestion?.colors, views: session.views.length }) };
     const bytes = canonicalJson(commitment); const metadataHash = await sha256(bytes); const metadataUri = `${this.runtime.apiOrigin}/api/artifacts/${metadataHash}`;
     const key = `objectpad/v1/artifacts/${metadataHash}`; await this.runtime.artifactBucket.put(key, bytes, { httpMetadata: { contentType: 'application/json' } });
-    const payload: RecordPayload = { ...(session.icon ? { iconHash: session.icon.hash } : {}), commitment, symbol: input.symbol, metadataHash, metadataUri, canonicalUrl, feeVault: wallet, feeRecipientKind: kind, launchMode: 'sponsored', uniqueness: session.suggestion ? { checkedAt: Date.now(), compared: session.suggestion.compared, model: this.runtime.env.OBJECTPAD_UNIQUENESS_MODEL?.trim() || 'google/gemini-3.8-flash' } : undefined };
+    const payload: RecordPayload = { ...(session.icon ? { iconHash: session.icon.hash } : {}), commitment, symbol: input.symbol, metadataHash, metadataUri, canonicalUrl, feeVault: wallet, feeRecipientKind: kind, launchMode: 'sponsored', ...(pair ? { pairToken: pair.address.toLowerCase() } : {}), uniqueness: session.suggestion ? { checkedAt: Date.now(), compared: session.suggestion.compared, model: this.runtime.env.OBJECTPAD_UNIQUENESS_MODEL?.trim() || 'google/gemini-3.8-flash' } : undefined };
     session.approved = true; session.state = 'approved'; session.recordId = objectId;
     this.store.atomic(() => { this.store.run('INSERT OR IGNORE INTO op_artifacts(hash,storage_key,kind,bytes,public,session_id) VALUES (?,?,?,?,?,?)', metadataHash, key, 'metadata', new TextEncoder().encode(bytes).length, 1, session.id); this.store.run('INSERT INTO op_records(id,owner,session_id,state,commitment,metadata_hash,metadata_uri,payload) VALUES (?,?,?,?,?,?,?,?)', objectId, owner, session.id, 'prepared', bytes, metadataHash, metadataUri, JSON.stringify(payload)); this.captures.save(session); });
     this.store.metric('record_created'); return payload;
@@ -115,7 +117,8 @@ export class RecordService {
     await assertPonsPinned(this.runtime.env);
     // Limits are checked here but only counted once the launch is actually broadcast: a failed try never uses one up.
     this.store.peek(`launch:${owner}`, 100_000); this.store.peekBudget('launches', this.sponsor.dailyLimit(), 'LAUNCH_BUDGET_REACHED');
-    const terms = await readLaunchTerms(client); if (!terms.enabled) throw new ApiError('PONS_LAUNCH_PAUSED', 503);
+    const pairToken = (isEthPair(payload.pairToken) ? zeroAddress : payload.pairToken) as Address; const paired = pairToken !== zeroAddress;
+    const terms = await readLaunchTerms(client, pairToken); if (!terms.enabled) throw new ApiError('PONS_LAUNCH_PAUSED', 503); if (!terms.approved) throw new ApiError('PAIR_NOT_APPROVED', 409);
     const c = payload.commitment; const sponsor = this.sponsor.address; const { objectName, objectTag } = await naming(c);
     // The coin logo is whatever the creator has right now (3D snapshot or own image); it's fixed once the launch is sent.
     const icon = this.captures.load(row.session_id).session.icon; if (icon?.hash) payload.iconHash = icon.hash; else delete payload.iconHash;
@@ -123,9 +126,17 @@ export class RecordService {
     // The object's name, tag and ID are appended to the launch calldata as UTF-8, so the launch transaction itself carries them.
     const suffix = objectSuffixText(objectTag, objectName, c.objectId, c.objectSpecs);
     const input = { name: c.publicName, symbol: payload.symbol, logo: `${this.runtime.apiOrigin}/api/artifacts/${payload.iconHash ?? c.thumbnailHash}`, description, website: payload.canonicalUrl, twitter: c.xUrl, telegram: c.telegram ?? '', creator: sponsor, recipient: DEAD_ADDRESS, feeRecipient: c.creatorWallet as Address, creatorTaxBps: 150, quoteIn: MIN_INITIAL_BUY_WEI, minTokensOut: 0n, salt: hashHex(await sha256(`objectpad:launch:${id}`)) };
-    const simulation = await client.simulateContract({ address: PONS_ROUTER, abi: ROUTER_ABI, functionName: 'launchAndBuy', args: launchArguments(input, terms.expectedEconomics), account: sponsor, value: terms.launchFee + MIN_INITIAL_BUY_WEI }).catch((error: unknown) => { const detail = error instanceof Error ? error.message : ''; this.note('simulate', detail); if (/insufficient funds/i.test(detail)) throw new ApiError('SPONSOR_EMPTY', 503); throw new ApiError('LAUNCH_SIMULATION_FAILED', 409); });
-    const minTokensOut = simulation.result[2] * 9700n / 10000n; if (minTokensOut <= 0n) throw new ApiError('SIMULATION_EMPTY_OUTPUT', 409);
-    const built = buildLaunchTx({ ...input, minTokensOut }, terms); const tx = { ...built, data: concatHex([built.data, stringToHex(suffix)]) };
+    const simFail = (error: unknown): never => { const detail = error instanceof Error ? error.message : ''; this.note('simulate', detail); if (/insufficient funds/i.test(detail)) throw new ApiError('SPONSOR_EMPTY', 503); throw new ApiError('LAUNCH_SIMULATION_FAILED', 409); };
+    let built: { to: Address; data: Hex; value: bigint };
+    if (paired) {
+      // Asset-paired: the curve collects the stock token, so there is no ETH opening buy. Launched straight from the factory.
+      await client.simulateContract({ address: PONS_FACTORY, abi: FACTORY_LAUNCH_ABI, functionName: 'launchToken', args: pairedLaunchArguments(input, terms.expectedEconomics, pairToken), account: sponsor, value: terms.launchFee }).catch(simFail);
+      built = buildPairedLaunchTx(input, terms, pairToken);
+    } else {
+      const simulation = await client.simulateContract({ address: PONS_ROUTER, abi: ROUTER_ABI, functionName: 'launchAndBuy', args: launchArguments(input, terms.expectedEconomics), account: sponsor, value: terms.launchFee + MIN_INITIAL_BUY_WEI }).catch(simFail);
+      const minTokensOut = simulation.result[2] * 9700n / 10000n; if (minTokensOut <= 0n) throw new ApiError('SIMULATION_EMPTY_OUTPUT', 409);
+      built = buildLaunchTx({ ...input, minTokensOut }, terms);
+    } const tx = { ...built, data: concatHex([built.data, stringToHex(suffix)]) };
     const [estimate, block, balance] = await Promise.all([client.estimateGas({ account: sponsor, ...tx }).catch((error: unknown) => { this.note('estimate', error instanceof Error ? error.message : ''); throw new ApiError('LAUNCH_SIMULATION_FAILED', 409); }), client.getBlock(), client.getBalance({ address: sponsor })]);
     const baseFee = block.baseFeePerGas ?? await client.getGasPrice();
     const plan = FEE_PLANS.map(([g, f]) => ({ gas: estimate * g / 100n, maxFeePerGas: baseFee * f / 100n })).find(p => p.gas * p.maxFeePerGas + tx.value <= balance);
@@ -133,7 +144,7 @@ export class RecordService {
     const gas = plan.gas;
     const wallet = this.sponsor.wallet(); const account = wallet.account;
     payload.sponsor = sponsor.toLowerCase(); payload.launchDescription = description; payload.launchDataSuffix = suffix; payload.feeVault = c.creatorWallet; payload.launchMode = 'sponsored';
-    const requestJson = JSON.stringify({ to: tx.to, data: tx.data, value: tx.value.toString(), gas: gas.toString(), launchFeeWei: terms.launchFee.toString(), initialBuyWei: MIN_INITIAL_BUY_WEI.toString() });
+    const requestJson = JSON.stringify({ to: tx.to, data: tx.data, value: tx.value.toString(), gas: gas.toString(), launchFeeWei: terms.launchFee.toString(), initialBuyWei: paired ? '0' : MIN_INITIAL_BUY_WEI.toString(), pairToken });
     // The treasury also sends showcase launches, so the nonce is managed explicitly and a collision is retried, not fatal.
     let nonce = await this.sponsor.nextNonce(); let maxFeePerGas = plan.maxFeePerGas; let hash: Hex | null = null;
     for (let attempt = 0; attempt < 4 && !hash; attempt++) {
@@ -166,10 +177,13 @@ export class RecordService {
       let state: string = reconcileReceipt({ savedBlockHash: tx.block_hash ?? undefined, currentBlockHash: block.hash ?? undefined, receiptBlockHash: receipt.blockHash, receiptBlock: receipt.blockNumber, head, status: receipt.status, requiredDepth: DEPTH });
       if (transaction.from.toLowerCase() !== payload.sponsor?.toLowerCase() || transaction.to?.toLowerCase() !== expected.to.toLowerCase() || transaction.input.toLowerCase() !== expected.data.toLowerCase() || transaction.value !== BigInt(expected.value)) state = 'reorg_review';
       if (state === 'confirmed') {
-        const decoded = decodeFunctionData({ abi: ROUTER_ABI, data: transaction.input }); if (decoded.functionName !== 'launchAndBuy') throw new ApiError('LAUNCH_METHOD_MISMATCH');
+        const expectedPair = isEthPair(payload.pairToken) ? zeroAddress : (payload.pairToken as string).toLowerCase();
+        const viaFactory = transaction.to?.toLowerCase() === PONS_FACTORY.toLowerCase();
+        const decoded = viaFactory ? decodeFunctionData({ abi: FACTORY_LAUNCH_ABI, data: transaction.input }) : decodeFunctionData({ abi: ROUTER_ABI, data: transaction.input });
+        if (decoded.functionName !== (viaFactory ? 'launchToken' : 'launchAndBuy')) throw new ApiError('LAUNCH_METHOD_MISMATCH');
         const event = receipt.logs.find(log => log.address.toLowerCase() === PONS_FACTORY.toLowerCase() && (() => { try { return decodeEventLog({ abi: FACTORY_ABI, data: log.data, topics: log.topics }).eventName === 'TokenLaunched'; } catch { return false; } })()); if (!event) throw new ApiError('LAUNCH_EVENT_MISSING');
         const args = decodeEventLog({ abi: FACTORY_ABI, eventName: 'TokenLaunched', data: event.data, topics: event.topics }).args;
-        if (args.launcher.toLowerCase() !== payload.sponsor?.toLowerCase() || args.pairToken !== zeroAddress) throw new ApiError('LAUNCH_EVENT_MISMATCH');
+        if (args.launcher.toLowerCase() !== payload.sponsor?.toLowerCase() || args.pairToken.toLowerCase() !== expectedPair) throw new ApiError('LAUNCH_EVENT_MISMATCH');
         const [name, curve] = await Promise.all([client.readContract({ address: args.token, abi: ERC20_ABI, functionName: 'name', blockNumber: receipt.blockNumber }), client.readContract({ address: args.token, abi: ERC20_ABI, functionName: 'curve', blockNumber: receipt.blockNumber })]);
         const params = decoded.args[0]; const record = readObjectSuffix(transaction.input);
         if (payload.launchDataSuffix && record?.text !== payload.launchDataSuffix) throw new ApiError('OBJECT_RECORD_MISMATCH');
@@ -198,6 +212,6 @@ export class RecordService {
     const { row, payload: p } = this.load(id);
     if (row.moderation_state === 'hidden' || row.state !== 'confirmed' || !p.token || !p.launchHash || !p.verifiedName || !p.launchBlockHash || !p.curve) throw new ApiError('NOT_FOUND', 404);
     const { session } = this.captures.load(row.session_id); if (!session.model) throw new ApiError('NOT_FOUND', 404);
-    return { ...p.commitment, metadataHash: p.metadataHash, metadataUri: p.metadataUri, canonicalUrl: p.canonicalUrl, tokenAddress: p.token, curveAddress: p.curve, symbol: p.symbol, launchTransactionHash: p.launchHash, launchBlockHash: p.launchBlockHash, verifiedName: p.verifiedName, status: 'confirmed', model: session.model, feeVault: p.feeVault, launchMode: 'sponsored', sponsor: p.sponsor, launchDescription: p.launchDescription, launchDataSuffix: p.launchDataSuffix, uniqueness: p.uniqueness, confirmedAt: p.confirmedAt, checkin: p.checkin, iconUrl: p.iconHash ? `${this.runtime.apiOrigin}/api/artifacts/${p.iconHash}` : session.model.thumbnailUrl };
+    return { ...p.commitment, metadataHash: p.metadataHash, metadataUri: p.metadataUri, canonicalUrl: p.canonicalUrl, tokenAddress: p.token, curveAddress: p.curve, symbol: p.symbol, launchTransactionHash: p.launchHash, launchBlockHash: p.launchBlockHash, verifiedName: p.verifiedName, status: 'confirmed', model: session.model, feeVault: p.feeVault, launchMode: 'sponsored', sponsor: p.sponsor, launchDescription: p.launchDescription, launchDataSuffix: p.launchDataSuffix, uniqueness: p.uniqueness, confirmedAt: p.confirmedAt, checkin: p.checkin, iconUrl: p.iconHash ? `${this.runtime.apiOrigin}/api/artifacts/${p.iconHash}` : session.model.thumbnailUrl, ...(p.pairToken ? { pairToken: p.pairToken } : {}) };
   }
 }

@@ -7,6 +7,7 @@ import { eth, pct, usd } from '@/lib/format';
 import { SpinSprite } from './SpinSprite';
 import { GlassIcon } from './GlassIcon';
 import { cn } from '@/lib/utils';
+import { PairBadge } from './PairBadge';
 
 /** Tiny price line from a coin's trades. */
 export function sparkPath(prices: number[], height = 28): string {
@@ -46,6 +47,7 @@ export const SpecimenCard = memo(function SpecimenCard({ coin, ethUsd, index = 0
       <div className="grid-paper absolute inset-0 opacity-60" aria-hidden="true"/>
       {exhibit ? <SpinSprite src={exhibit.spin} delay={index * 0.8} className="relative mx-auto w-[80%]"/> : <img src={coin.logo} alt="" className="relative mx-auto aspect-square w-[70%] object-contain p-4"/>}
       <span className="chip-dark absolute left-3 top-3">${coin.symbol}</span>
+      {coin.pair && <PairBadge symbol={coin.pair.symbol} logo={coin.pair.logo} className="absolute left-3 top-12"/>}
       {live ? <ChangeChip change={coin.change24h}/> : <span className="chip absolute right-3 top-3 !text-[11px]">Launching</span>}
       {coin.tag && <span className="chip absolute bottom-3 left-3 hidden !text-[11px] sm:inline-flex">{coin.tag}</span>}
       {live && <LiveBadge/>}

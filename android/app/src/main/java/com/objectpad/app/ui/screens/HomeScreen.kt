@@ -97,10 +97,10 @@ object Exhibits {
 }
 
 @Composable
-fun HomeScreen(app: AppUiState, onScan: () -> Unit, onClaim: () -> Unit, onCoin: (String) -> Unit, onCoins: () -> Unit, onBurn: () -> Unit, onTreasury: () -> Unit, onDocs: () -> Unit, resume: String?, onResume: (String) -> Unit) {
+fun HomeScreen(app: AppUiState, onScan: () -> Unit, onClaim: () -> Unit, onCoin: (String) -> Unit, onCoins: () -> Unit, onBurn: () -> Unit, onTreasury: () -> Unit, onDocs: () -> Unit, resume: String?, onResume: (String) -> Unit, onV2: () -> Unit = {}) {
     val context = LocalContext.current
     LazyColumn(contentPadding = ScreenPadding, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        item { Hero(onScan, onClaim) }
+        item { Hero(onScan, onClaim, onV2) }
         if (resume != null) item {
             Raised(Modifier.fillMaxWidth().press { onResume(resume) }, radius = 22.dp, padding = 14.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) { GlassIcon(Glass.Mesh, 40.dp); Column(Modifier.weight(1f).padding(start = 10.dp)) { Strong("Scan in progress"); Body("Pick up where you left off.", size = 12) }; Icon(Icons.AutoMirrored.Filled.ArrowForward, null) }
@@ -131,13 +131,17 @@ fun HomeScreen(app: AppUiState, onScan: () -> Unit, onClaim: () -> Unit, onCoin:
 }
 
 @Composable
-private fun Hero(onScan: () -> Unit, onClaim: () -> Unit) {
+private fun Hero(onScan: () -> Unit, onClaim: () -> Unit, onV2: () -> Unit) {
     var i by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(1800); i = (i + 1) % WORDS.size } }
     var ex by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(2600); ex = (ex + 1) % Exhibits.ids.size } }
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) { Image(painterResource(R.drawable.duck_mark), null, Modifier.size(34.dp)); Spacer(Modifier.width(8.dp)); Lab("ObjectPad · physical-object launchpad") }
+        Row(verticalAlignment = Alignment.CenterVertically) { Image(painterResource(R.drawable.duck_mark), null, Modifier.size(34.dp)); Spacer(Modifier.width(8.dp)); Text("ObjectPad", style = Type.strong.copy(fontSize = 19.sp)); Spacer(Modifier.width(8.dp)); com.objectpad.app.ui.components.V2Pill(onV2) }
+        Row(Modifier.padding(top = 12.dp).clip(RoundedCornerShape(50)).background(Pad.Ink).press(onClick = onV2).padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            com.objectpad.app.ui.components.V2Pill(onV2, label = "V2 LIVE", small = true); Spacer(Modifier.width(8.dp))
+            Text("Pair any object with a tokenized stock", style = Type.small.copy(fontSize = 12.sp, color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight(800)), maxLines = 1)
+        }
         Box(Modifier.fillMaxWidth().padding(top = 14.dp).height(260.dp).clip(RoundedCornerShape(34.dp)).background(Pad.steel).border(1.5.dp, Color.White, RoundedCornerShape(34.dp))) {
             AnimatedContent(ex, transitionSpec = { (fadeIn(tween(500)) + slideInVertically { it / 8 }) togetherWith fadeOut(tween(300)) }, label = "ex", modifier = Modifier.fillMaxSize()) { idx ->
                 AsyncImage(Exhibits.image(Exhibits.ids[idx]), null, Modifier.fillMaxSize().padding(26.dp), contentScale = ContentScale.Fit)
@@ -145,7 +149,8 @@ private fun Hero(onScan: () -> Unit, onClaim: () -> Unit) {
             Row(Modifier.align(Alignment.TopStart).padding(14.dp)) { Chip("Scan → 3D → coin", dot = Pad.Up) }
             AsyncImage(Exhibits.coin(Exhibits.ids[ex]), null, Modifier.align(Alignment.BottomEnd).padding(14.dp).size(54.dp).clip(CircleShape))
         }
-        Display("Tokenize the physical world.", 44, Modifier.padding(top = 18.dp))
+        Display("Real objects. Real markets.", 42, Modifier.padding(top = 18.dp))
+        Body("The launchpad for real-world objects, now backed by real markets. Pair your coin with NVDA, TSLA, SPY and 60+ more.", Modifier.padding(top = 6.dp), size = 14)
         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Scan your ", style = Type.strong.copy(fontSize = 20.sp))
             AnimatedContent(i, transitionSpec = { (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut()) }, label = "word") { w -> Text(WORDS[w], style = Type.strong.copy(fontSize = 20.sp)) }
@@ -154,7 +159,7 @@ private fun Hero(onScan: () -> Unit, onClaim: () -> Unit) {
         PadButton("Scan & launch my coin", onScan, Modifier.fillMaxWidth().padding(top = 18.dp), glass = Glass.Qr, height = 70.dp)
         PadButton("Scan a QR from my computer", onClaim, Modifier.fillMaxWidth().padding(top = 10.dp), style = BtnStyle.Glass, icon = Icons.Default.QrCodeScanner)
         Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            listOf("$0 launch", "No account", "Full 3D", "1 object = 1 coin").forEach { t -> Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Check, null, Modifier.size(14.dp)); Text(t, style = Type.small.copy(fontSize = 12.sp, color = Pad.Ink.copy(alpha = 0.75f))) } }
+            listOf("$0 launch", "Stock pairing", "Full 3D", "1 object = 1 coin").forEach { t -> Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Check, null, Modifier.size(14.dp)); Text(t, style = Type.small.copy(fontSize = 12.sp, color = Pad.Ink.copy(alpha = 0.75f))) } }
         }
     }
 }

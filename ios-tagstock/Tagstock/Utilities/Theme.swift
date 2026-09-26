@@ -17,6 +17,8 @@ enum Pad {
     static let skyLight = Color(hex: 0x6FB2FF)
     static let amber = Color(hex: 0xF59E0B)
     static let gold = Color(hex: 0xF5C542)
+    /// Gold used only for the V2 marker and pairing highlights.
+    static let goldGradient = LinearGradient(colors: [Color(hex: 0xFCE7A2), Color(hex: 0xF2C94C), Color(hex: 0xD9A521)], startPoint: .top, endPoint: .bottom)
 
     static let page = LinearGradient(colors: [Color(hex: 0xF3F4F6), paper, Color(hex: 0xE3E6EB)], startPoint: .top, endPoint: .bottom)
     static let night = LinearGradient(colors: [Color(hex: 0x2C2F36), Color(hex: 0x17191E), Color(hex: 0x111216)], startPoint: .topLeading, endPoint: .bottomTrailing)

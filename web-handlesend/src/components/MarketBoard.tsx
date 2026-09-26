@@ -9,9 +9,11 @@ import { CountUp } from './Reveal';
 import { CoinIcon } from './CoinIcon';
 import { sparkPath } from './CoinCard';
 import { cn } from '@/lib/utils';
+import { PairBadge } from './PairBadge';
+import type { CoinPair } from '@/shared/domain';
 
 /** One ObjectPad coin row (creator coin or ObjectPad original), normalised for the board. */
-export interface BoardCoin { key: string; to: string; symbol: string; name: string; icon: ReactNode; priceEth: number; changePct: number; volumeEth: number; capEth: number | null; trades: number; buys: number; sells: number; spark: number[]; live: boolean; tag?: string; }
+export interface BoardCoin { key: string; to: string; symbol: string; name: string; icon: ReactNode; priceEth: number; changePct: number; volumeEth: number; capEth: number | null; trades: number; buys: number; sells: number; spark: number[]; live: boolean; tag?: string; pair?: CoinPair | null; }
 export interface BoardTrade { id: string; to: string; symbol: string; icon: ReactNode; side: 'buy' | 'sell'; eth: number; trader: string; at: number; href?: string; live: boolean; }
 
 /**
@@ -22,7 +24,7 @@ export function usePlatformMarket() {
   const market = useMarket(); const feed = useCoins(); const data = feed.data;
   return useMemo(() => {
     const now = Date.now(); const live = (data?.items ?? []).filter(c => c.state === 'live');
-    const coins: BoardCoin[] = live.map(c => ({ key: c.token, to: c.path, symbol: c.symbol, name: c.name, icon: <CoinIcon src={c.logo} seed={c.token} size={36}/>, priceEth: c.priceEth, changePct: c.change24h, volumeEth: c.volume24hEth, capEth: c.marketCapEth, trades: c.trades24h, buys: c.buys24h, sells: c.sells24h, spark: c.spark, live: true, tag: c.tag ?? undefined }));
+    const coins: BoardCoin[] = live.map(c => ({ key: c.token, to: c.path, symbol: c.symbol, name: c.name, icon: <CoinIcon src={c.logo} seed={c.token} size={36}/>, priceEth: c.priceEth, changePct: c.change24h, volumeEth: c.volume24hEth, capEth: c.marketCapEth, trades: c.trades24h, buys: c.buys24h, sells: c.sells24h, spark: c.spark, live: true, tag: c.tag ?? undefined, pair: c.pair ?? null }));
     const byCurve = new Map(live.map(c => [c.curve, c]));
     const trades: BoardTrade[] = (data?.recent ?? []).flatMap(t => { const c = byCurve.get(t.curve); return c ? [{ id: t.id, to: c.path, symbol: c.symbol, icon: <CoinIcon src={c.logo} seed={c.token} size={28}/>, side: t.side, eth: t.eth, trader: t.trader, at: t.at, href: explorerTx(t.hash), live: true }] : []; });
     const totals = coins.reduce((s, c) => ({ volumeEth: s.volumeEth + c.volumeEth, trades: s.trades + c.trades, buys: s.buys + c.buys, sells: s.sells + c.sells, capEth: s.capEth + (c.capEth ?? 0) }), { volumeEth: 0, trades: 0, buys: 0, sells: 0, capEth: 0 });
@@ -40,7 +42,7 @@ const Row = memo(function Row({ coin, rank, ethUsd, maxVolume }: { coin: BoardCo
   return <Link to={coin.to} className="group flex min-h-[64px] items-center gap-3 rounded-2xl px-2 py-2 transition-colors hover:bg-white sm:px-3">
     <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-extrabold tnum', rank === 1 ? 'bg-[#F7D774]/60' : rank === 2 ? 'bg-[#D9DEE6]' : rank === 3 ? 'bg-[#E8C3A0]/60' : 'text-ink/65')}>{rank}</span>
     {coin.icon}
-    <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5"><span className="truncate text-[15px] font-extrabold">${coin.symbol}</span><span className="flex items-center gap-1 rounded-full bg-up/12 px-1.5 py-px font-mono text-[11px] font-bold text-up"><span className="pulse-dot size-1.5 rounded-full bg-up"/>LIVE</span></span><span className="block truncate text-xs font-semibold text-ink/60">{coin.name}</span></span>
+    <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5"><span className="truncate text-[15px] font-extrabold">${coin.symbol}</span><span className="flex items-center gap-1 rounded-full bg-up/12 px-1.5 py-px font-mono text-[11px] font-bold text-up"><span className="pulse-dot size-1.5 rounded-full bg-up"/>LIVE</span>{coin.pair && <PairBadge symbol={coin.pair.symbol} logo={coin.pair.logo} change={coin.pair.change24h}/>}</span><span className="block truncate text-xs font-semibold text-ink/60">{coin.name}</span></span>
     <span className="hidden lg:block"><Spark prices={coin.spark} up={up}/></span>
     <span className="hidden w-28 shrink-0 sm:block"><span className="flex h-2 overflow-hidden rounded-full bg-down/30"><span className="bar-grow block h-full rounded-full bg-up" style={{ width: `${Math.round(buyShare * 100)}%` }}/></span><span className="mt-1 block font-mono text-[11.5px] font-semibold text-ink/60 tnum"><span className="text-up">{coin.buys}</span> / <span className="text-down">{coin.sells}</span></span></span>
     <span className="w-24 shrink-0 text-right"><span className="block text-sm font-bold tnum">{ethUsd ? tinyUsd(coin.priceEth * ethUsd) : eth(coin.priceEth, 10)}</span><span className={cn('block font-mono text-[11px] font-bold tnum', up ? 'text-up' : 'text-down')}>{up ? '▲' : '▼'} {pct(coin.changePct)}</span></span>

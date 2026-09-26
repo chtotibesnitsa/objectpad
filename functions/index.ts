@@ -2,6 +2,7 @@
 // /api/*  -> ObjectPad DO (capture sessions, private frames, Meshy jobs, artifacts, Object Records, launches)
 // /ping   -> liveness
 // /api/logos/:token -> cached on-chain Pons coin logo (public)
+// /api/pairs        -> ObjectPad V2: Pons V2 pair assets (tokenized stocks, ETFs, commodities) with live on-chain prices
 import { OBJECTPAD_CLASS, OBJECTPAD_INSTANCE, originAllowed } from './objectpad/server/worker';
 import type { Env } from './objectpad/server/types';
 

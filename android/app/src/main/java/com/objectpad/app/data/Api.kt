@@ -103,6 +103,7 @@ object ObjectPadApi {
     suspend fun activity(): PublicFeed = get("/activity")
     suspend fun messages(): MessagesFeed = get("/messages")
     suspend fun creator(publicId: String): CreatorArchive = get("/creators/$publicId")
+    suspend fun pairs(): PairBoard = get("/pairs", timeoutMs = 30_000)
 }
 
 private val MESSAGES: Map<String, String> = mapOf(
@@ -162,6 +163,8 @@ private val MESSAGES: Map<String, String> = mapOf(
     "MESSAGE_INVALID" to "That message can’t be posted.",
     "PROFILE_INVALID" to "Use 2–32 letters, digits, spaces, dashes or underscores.",
     "AUTH_NOT_CONFIGURED" to "Sign-in isn’t switched on yet.",
+    "PAIR_NOT_SUPPORTED" to "That pairing isn’t supported. Pick another asset or keep ETH.",
+    "PAIR_NOT_APPROVED" to "Pons isn’t accepting that pair right now. Pick another asset or keep ETH.",
 )
 
 /** Maps server error codes to plain language without exposing internals. */
