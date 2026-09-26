@@ -1,5 +1,5 @@
 /* ObjectPad home-screen app: offline shell + cached app art and sounds. Live data (API, chain) is never cached. */
-const VERSION = 'objectpad-app-v1';
+const VERSION = 'objectpad-app-v2';
 const SHELL = ['/app/', '/app.webmanifest', '/app/icon-192.png', '/app/icon-512.png', '/fonts/anybody.ttf', '/fonts/geist.ttf', '/fonts/geistmono.ttf'];
 
 self.addEventListener('install', event => { event.waitUntil(caches.open(VERSION).then(cache => cache.addAll(SHELL)).catch(() => undefined)); self.skipWaiting(); });
