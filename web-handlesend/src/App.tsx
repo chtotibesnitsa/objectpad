@@ -25,6 +25,7 @@ const Wallet = lazy(() => import('./pages/Wallet'));
 const Download = lazy(() => import('./pages/Download'));
 const Earn = lazy(() => import('./pages/Earn'));
 const EarnProof = lazy(() => import('./pages/Earn').then(module => ({ default: module.EarnProof })));
+const Rewards = lazy(() => import('./pages/Rewards'));
 const Operator = lazy(() => import('./pages/Operator'));
 const Docs = lazy(() => import('./pages/Information').then(module => ({ default: module.Docs })));
 const Safety = lazy(() => import('./pages/Information').then(module => ({ default: module.Safety })));
@@ -36,7 +37,7 @@ const Portfolio = lazy(() => import('./pages/Account').then(module => ({ default
 const Creator = lazy(() => import('./pages/Account').then(module => ({ default: module.Creator })));
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: false, retry: 1 }, mutations: { retry: false } } });
 class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> { state = { failed: false }; static getDerivedStateFromError() { return { failed: true }; } render() { return this.state.failed ? <div role="alert" className="page py-24"><h1 className="display text-4xl">This view could not be opened.</h1><p className="mt-4 text-muted">No operation is assumed to have succeeded. Reload to recover your saved state.</p><button className="mt-6 min-h-11 btn px-6 " onClick={() => location.reload()}>Reload safely</button></div> : this.props.children; } }
-function NavigationEffects() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); const titles: Record<string, string> = { '/': 'Tokenize the physical world', '/explore': 'Object coins', '/launch': 'Scan & launch free', '/provenance': 'Provenance', '/status': 'System status', '/safety': 'Safety and rights', '/docs': 'How it works', '/craft': 'Crafting Table', '/inventory': 'Inventory', '/burn': '$OBJECTPAD burn', '/earnings': 'Creator earnings', '/wallet': 'My wallet', '/download': 'Mobile apps', '/earn': 'Earn for verified posts', '/treasury': 'Launch treasury' }; document.title = `ObjectPad · ${titles[pathname] ?? 'The physical-object launchpad'}`; }, [pathname]); return null; }
+function NavigationEffects() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); const titles: Record<string, string> = { '/': 'Tokenize the physical world', '/explore': 'Object coins', '/launch': 'Scan & launch free', '/provenance': 'Provenance', '/status': 'System status', '/safety': 'Safety and rights', '/docs': 'How it works', '/craft': 'Crafting Table', '/inventory': 'Inventory', '/burn': '$OBJECTPAD burn', '/earnings': 'Creator earnings', '/wallet': 'My wallet', '/download': 'Mobile apps', '/earn': 'Earn for verified posts', '/rewards': 'Paid Rewards', '/treasury': 'Launch treasury' }; document.title = `ObjectPad · ${titles[pathname] ?? 'The physical-object launchpad'}`; }, [pathname]); return null; }
 /** /launch/<session uuid> is the live studio; /launch/<64-hex record id> is the launch status of a sealed record. */
 function LaunchRoute() { const { id = '' } = useParams(); return /^[a-f0-9]{64}$/.test(id) ? <LaunchReview/> : <Studio/>; }
 function Legacy({ to }: { to: string }) { const { id = '' } = useParams(); return <Navigate to={to.replace(':id', id)} replace/>; }
@@ -66,6 +67,7 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="download" element={<Download/>}/>
   <Route path="earn" element={<Earn/>}/>
   <Route path="earn/proof/:id" element={<EarnProof/>}/>
+  <Route path="rewards" element={<Rewards/>}/>
   <Route path="android" element={<Navigate to="/download" replace/>}/>
   <Route path="ios" element={<Navigate to="/download" replace/>}/>
   <Route path="app" element={<Navigate to="/download" replace/>}/>

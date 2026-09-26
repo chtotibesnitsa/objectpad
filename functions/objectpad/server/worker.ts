@@ -17,6 +17,7 @@ import { MarketService } from './market';
 import { TradeIndexer } from './indexer';
 import { AccountService } from './accounts';
 import { EarnService } from './earn';
+import { BountyService } from './bounty';
 import { normalizeIcon, normalizeImage } from './media';
 import { visionJson } from './ai';
 
@@ -113,13 +114,13 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
     this.runtime = { env, origin: canonicalOrigin(env), apiOrigin: publicBase(env.OBJECTPAD_API_ORIGIN), privyAppId: (env.OBJECTPAD_PRIVY_APP_ID || env.VITE_PRIVY_APP_ID || '').trim(), toolkitUrl: clean(env.EXPO_PUBLIC_TOOLKIT_URL) || 'https://toolkit.rork.com', toolkitKey: (env.EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY ?? '').trim(), privateBucket: this.store.bucket('private'), artifactBucket: this.store.bucket('artifacts') };
     this.captures = new CaptureService(this.store, this.runtime); this.sponsor = new SponsorService(this.store, this.runtime); this.records = new RecordService(this.store, this.runtime, this.captures, this.sponsor);
-    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime); this.accounts = new AccountService(this.store, this.runtime, this.sponsor, this.records); this.earn = new EarnService(this.store, this.runtime, this.sponsor, this.accounts);
+    this.uniqueness = new UniquenessService(this.store, this.runtime); this.market = new MarketService(this.store, this.runtime); this.house = new HouseService(this.store, this.runtime, this.sponsor); this.burns = new BurnService(this.store, this.runtime, this.sponsor); this.indexer = new TradeIndexer(this.store, this.runtime); this.accounts = new AccountService(this.store, this.runtime, this.sponsor, this.records); this.earn = new EarnService(this.store, this.runtime, this.sponsor, this.accounts); this.bounties = new BountyService(this.store, this.records);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
   }
   private exclusive<T>(action: () => Promise<T>): Promise<T> { const run = this.queue.then(action, action); this.queue = run.then(() => {}, () => {}); return run; }
@@ -139,6 +140,7 @@ export class ObjectPad extends DurableObject<Env> {
       // ObjectPad Earn public reads: validated live market + reward tier, rules, genuine activity feed, proof records.
       if (method === 'GET' && path === '/earn/market') return json(await this.earn.market());
       if (method === 'GET' && path === '/earn/rules') return json(this.earn.rules());
+      if (method === 'GET' && path === '/bounties') return json(this.bounties.list(null));
       if (method === 'GET' && path === '/earn/feed') return json(this.earn.feed(new URL(request.url).searchParams.get('filter') ?? 'all'));
       const earnProof = path.match(/^\/earn\/proof\/([0-9a-f-]{36})$/); if (method === 'GET' && earnProof) return json(this.earn.proof(earnProof[1]));
       if (method === 'GET' && path === '/house') { if (this.house.pending()) await this.schedule(1_000); return json({ coins: this.house.list() }); }
@@ -553,7 +555,11 @@ export class ObjectPad extends DurableObject<Env> {
       if (path === '/earn/claims' && method === 'POST') { this.store.rate(`earn-claim-ip:${await this.visitor(request)}`, 20, 3_600_000); const data = await body(request); return json(await this.earn.claim(owner, data)); }
       throw new ApiError('NOT_FOUND', 404);
     }
+    if (path === '/bounties/mine' && method === 'GET') return json(this.bounties.list(owner));
+    if (path === '/bounties/submissions' && method === 'POST') { if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401); this.store.rate(`bounty:${owner}`, 20, 3_600_000); const data = await body(request); return json(this.bounties.submit(owner, string(data.bountyId, 40), string(data.coin, 300), typeof data.note === 'string' ? data.note.slice(0, 280) : '')); }
     if (path.startsWith('/ops/')) { this.operator(owner);
+      if (method === 'GET' && path === '/ops/bounties') return json(this.bounties.queue());
+      if (method === 'POST' && path === '/ops/bounties/decide') { const data = await body(request); const result = this.bounties.decide(string(data.id, 36), string(data.state, 12), typeof data.note === 'string' ? data.note.slice(0, 280) : '', typeof data.tx === 'string' ? data.tx.slice(0, 66) : ''); await this.store.audit(await sha256(owner), 'bounty', string(data.state, 12), string(data.id, 36)); return json(result); }
       if (method === 'GET' && path === '/ops/earn') return json(await this.earn.overview());
       if (method === 'POST' && path === '/ops/earn/settings') { const data = await body(request); const result = this.earn.updateSettings(data); await this.store.audit(await sha256(owner), 'earn', 'settings', JSON.stringify(result).slice(0, 900)); return json(result); }
       if (method === 'POST' && path === '/ops/earn/review') { const data = await body(request); return json(this.earn.review(string(data.id, 36), string(data.decision, 10), string(data.reason, 500), owner)); }
