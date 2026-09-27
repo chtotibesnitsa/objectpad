@@ -449,6 +449,20 @@ html.touch-lite .app-card::after { display: none; }
 @media (max-width: 1919px) { html.chat-docked .dock-squeeze { display: none; } }
 @media (max-width: 1599px) { html.chat-docked .dock-label { display: none; } }
 
+/* Header right side, in order of what gives way first as the viewport (or the docked chat panel) eats width:
+   1. X link + treasury chip (dock-squeeze, above), 2. language/account labels collapse to icon-only, 3. "Scan & launch" label. */
+.dock-lang-compact, .dock-account-compact { display: none; }
+@media (max-width: 1300px) { .dock-lang-full, .dock-account-full { display: none !important; } .dock-lang-compact, .dock-account-compact { display: flex; } }
+@media (max-width: 1120px) { .dock-label { display: none; } }
+html.chat-docked .dock-lang-full, html.chat-docked .dock-account-full { display: flex; }
+html.chat-docked .dock-lang-compact, html.chat-docked .dock-account-compact { display: none; }
+@media (max-width: 1660px) { html.chat-docked .dock-lang-full, html.chat-docked .dock-account-full { display: none !important; } html.chat-docked .dock-lang-compact, html.chat-docked .dock-account-compact { display: flex; } }
+@media (max-width: 1480px) { html.chat-docked .dock-label { display: none; } }
+
+/* Secondary tab labels (Burn, Treasury, Vaults, White paper…) fade out before the strip has to scroll, so the
+   pill stays legible instead of a wall of squeezed text. */
+@media (max-width: 1400px) { .tab-label { display: none; } }
+
 /* Translated text is longer/shorter than the English it replaces: let hero lines wrap instead of clipping. */
 html.translated h1, html.translated h1 *, html.translated h2 * { white-space: normal !important; overflow-wrap: anywhere; }
 

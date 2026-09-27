@@ -43,9 +43,9 @@ function TabStrip() {
   const { pathname, search } = useLocation(); const root = useRef<HTMLElement>(null); const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
   const index = TABS.findIndex(tab => tab.match(pathname, search));
   useLayoutEffect(() => { const measure = () => { const el = index >= 0 ? root.current?.querySelectorAll<HTMLElement>('a')[index] : null; setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null); }; measure(); window.addEventListener('resize', measure); return () => window.removeEventListener('resize', measure); }, [index]);
-  return <nav ref={root} aria-label="Main navigation" className="sunk relative mx-2 hidden flex-1 items-center justify-between gap-0.5 rounded-[18px] p-1 lg:flex xl:mx-6">
+  return <nav ref={root} aria-label="Main navigation" className="sunk relative mx-2 hidden min-w-0 flex-1 items-center justify-between gap-0.5 overflow-x-auto rounded-[18px] p-1 no-scrollbar lg:flex xl:mx-6">
     <span aria-hidden="true" className={cn('raised absolute bottom-1 top-1 rounded-[14px] transition-all duration-500 ease-[cubic-bezier(.2,.9,.25,1.15)]', pill ? 'opacity-100' : 'opacity-0')} style={pill ? { left: pill.left, width: pill.width } : undefined}/>
-    {TABS.map((tab, i) => <NavLink key={tab.to} to={tab.to} className={cn('relative z-10 flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] px-2 text-[13.5px] font-bold tracking-[-0.015em] transition-colors duration-300 xl:gap-2 xl:px-3 xl:text-[14.5px]', i === index ? 'text-ink' : 'text-ink/65 hover:text-ink')}><PixelIcon name={tab.icon} size={14}/><span className="whitespace-nowrap">{tab.label}</span></NavLink>)}
+    {TABS.map((tab, i) => <NavLink key={tab.to} to={tab.to} className={cn('relative z-10 flex min-h-11 shrink-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] px-2 text-[13.5px] font-bold tracking-[-0.015em] transition-colors duration-300 xl:gap-2 xl:px-3 xl:text-[14.5px]', i === index ? 'text-ink' : 'text-ink/65 hover:text-ink')}><PixelIcon name={tab.icon} size={14}/><span className={cn('whitespace-nowrap', i !== index && 'tab-label')}>{tab.label}</span></NavLink>)}
   </nav>;
 }
 
@@ -147,12 +147,14 @@ export default function Layout() {
           <Brand/>
         </div>
         <TabStrip/>
-        <div className="flex shrink-0 items-center justify-end gap-2">
+        <div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
           <span className="dock-squeeze contents"><XLink className="size-[52px]"/><TreasuryChip/></span>
-          <LanguageButton/>
+          <span className="dock-lang-full contents"><LanguageButton/></span>
+          <span className="dock-lang-compact"><LanguageButton compact/></span>
           <NotificationBell/>
-          <AccountButton/>
-          <Link to="/launch" className="btn press flex min-h-[52px] pl-1.5 pr-5 text-[14.5px]" aria-label="Scan & launch"><span className="orb size-10"><GlassIcon name="qr" size={30} className="!filter-none"/></span><span className="dock-label">Scan & launch</span></Link>
+          <span className="dock-account-full contents"><AccountButton/></span>
+          <span className="dock-account-compact"><AccountButton compact/></span>
+          <Link to="/launch" className="btn press flex min-h-[52px] shrink-0 pl-1.5 pr-5 text-[14.5px]" aria-label="Scan & launch"><span className="orb size-10"><GlassIcon name="qr" size={30} className="!filter-none"/></span><span className="dock-label">Scan & launch</span></Link>
         </div>
       </div></div>
     </header>}
