@@ -27,7 +27,16 @@ const KIND_LABEL: Record<string, string> = { native: 'Native', stock: 'Stock', e
 
 /** Release notes, newest first. Short, bold titles; one plain line each. */
 const RELEASES: { version: string; title: string; when: string; badge: 'NEW' | 'LIVE'; items: { title: string; text: string }[] }[] = [
-  { version: 'v2.1', title: 'The social update', when: 'Today · evening', badge: 'NEW', items: [
+  { version: 'v2.2', title: 'ObjectPad People · preview', when: 'Sep 27', badge: 'NEW', items: [
+    { title: 'objectpad.fun/People', text: 'Feature states (Planned, Pilot, Live) come straight from the server. No demo figures.' },
+    { title: 'Private profile drafts', text: 'Self-launch or assisted. Save and resume. Separate consents for age, verification and public likeness.' },
+    { title: 'Invitations', text: 'A collaborator prepares a draft; the subject accepts a single-use link that expires in 7 days and takes control.' },
+    { title: 'Account and wallet proof', text: 'X bound by immutable user ID. Wallets proven with a single-use Sign-In with Ethereum message.' },
+    { title: 'Signed fee split', text: 'The subject signs the exact split of collected creator fees. Recorded now, not enforced on-chain yet.' },
+    { title: 'Nominate and apply', text: 'Private nominations of public creators, and creator applications for remote and San Francisco roles.' },
+    { title: 'Still off', text: 'Liveness checks, 3D likeness, publishing and token launch stay off until a provider and splitter contract pass review.' },
+  ] },
+  { version: 'v2.1', title: 'The social update', when: 'Sep 26 · evening', badge: 'LIVE', items: [
     { title: 'Live chat', text: 'Global chat docked on the right of every page. Updates live.' },
     { title: 'Live activity', text: 'Every buy, sell, launch, fee, burn, tip and rain, newest first, with timestamps.' },
     { title: 'Usernames', text: 'Pick your name after signing in with X, MetaMask or email.' },
@@ -38,7 +47,7 @@ const RELEASES: { version: string; title: string; when: string; badge: 'NEW' | '
     { title: 'Notifications', text: 'See what you missed: mentions, tips, rain wins.' },
     { title: 'Wallet settings', text: 'Link X and MetaMask, and add more on-site wallets.' },
   ] },
-  { version: 'v2.0', title: 'Stock-paired coins', when: 'Today · morning', badge: 'LIVE', items: [
+  { version: 'v2.0', title: 'Stock-paired coins', when: 'Sep 26 · morning', badge: 'LIVE', items: [
     { title: 'Stock pairing', text: 'Pair any coin with a stock, ETF, gold or BTC. 70+ assets.' },
     { title: 'AI pair pick', text: 'Suggests a stock that fits your object. ETH stays the default.' },
     { title: 'Buy with ETH', text: 'ETH is swapped into the pair asset on-chain for you.' },

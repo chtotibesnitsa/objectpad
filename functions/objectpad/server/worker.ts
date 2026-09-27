@@ -32,6 +32,8 @@ import { isEthPair, pairAsset } from '../shared/pairs';
 import { UniquenessV2 } from './uniqueness-v2';
 import { VaultService } from './vaults';
 import { DevActivityService } from './dev-activity';
+import { PeopleService } from './people';
+import { serverClient } from './chain';
 
 export const OBJECTPAD_CLASS = 'ObjectPad';
 export const OBJECTPAD_INSTANCE = 'objectpad-production-v1';
@@ -128,7 +130,7 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private readonly people: PeopleService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
@@ -142,6 +144,8 @@ export class ObjectPad extends DurableObject<Env> {
     try { this.store.run("DELETE FROM op_fingerprints_v2 WHERE geometry='null' AND compared=0 AND (score=0 OR score IS NULL)"); this.store.run('DELETE FROM op_proofs'); } catch { /* first boot */ }
     this.vaults = new VaultService(this.store, this.runtime, owner => this.records.storedX(owner)?.handle ?? null, async owner => { try { await this.ensureProfile(owner); return await this.records.creatorWallet(owner); } catch { return null; } });
     this.devActivity = new DevActivityService(this.store, this.runtime);
+    // viem's verifyMessage checks EOA signatures and, through the RPC, contract wallets (ERC-1271 / ERC-6492).
+    this.people = new PeopleService(this.store, this.runtime, { xIdentity: async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { id: x.id, handle: x.handle } : null; }, walletOf: async owner => { try { await this.ensureProfile(owner); return (await this.records.creatorWallet(owner)).toLowerCase(); } catch { return null; } }, verify: (address, message, signature) => serverClient(env).verifyMessage({ address: address as `0x${string}`, message, signature: signature as `0x${string}` }) });
     this.records.identity = async owner => { const x = await this.earn.xIdentity(owner); return x ? { id: x.id, handle: x.handle, avatar: x.avatar, name: x.name } : null; };
     this.records.uq2 = sessionId => this.uq2.summary(sessionId);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
@@ -215,6 +219,7 @@ export class ObjectPad extends DurableObject<Env> {
       const regenerate = path.match(/^\/sessions\/([a-f0-9-]{36})\/regenerate$/); if (method === 'POST' && regenerate) return await this.regenerate(request, regenerate[1]);
       const checkin = path.match(/^\/records\/([a-f0-9]{64})\/checkin$/); if (method === 'PUT' && checkin) return await this.checkin(request, checkin[1]);
       if (path.startsWith('/social/')) { const handled = await this.socialRoute(request, path, method); if (handled) return handled; }
+      if (path === '/people' || path.startsWith('/people/')) return await this.peopleRoute(request, path, method);
     } catch (error) { return this.failure(error); }
     return this.exclusive(async () => { try { return await this.route(request, path); } catch (error) { return this.failure(error); } });
   }
@@ -529,6 +534,48 @@ export class ObjectPad extends DurableObject<Env> {
     this.store.run("INSERT INTO op_scheduler(name,value) VALUES ('last_poll',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value", Date.now());
     await this.captures.poll(); await this.autoLaunch(); if (this.records.hasPending()) await this.records.poll();
     if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(12_000);
+  }
+  /** ObjectPad People. Public: status, invitation preview, published profiles. Everything else needs a signed-in account. */
+  private async peopleRoute(request: Request, path: string, method: string): Promise<Response> {
+    const origin = request.headers.get('Origin');
+    if (method === 'GET') {
+      if (path === '/people/status') return json(this.people.status());
+      const invite = path.match(/^\/people\/invitations\/([a-f0-9]{64})$/); if (invite) { this.store.rate(`people-invite-read:${await this.visitor(request)}`, 60, 3_600_000); return json(this.people.previewInvite(invite[1])); }
+      const profile = path.match(/^\/people\/profiles\/([a-f0-9]{20})$/); if (profile) return json(this.people.profile(profile[1]));
+    }
+    if (method === 'POST' && path === '/people/applications') { this.assertOrigin(request); this.store.rate(`people-apply:${await this.visitor(request)}`, 5, 86_400_000); const viewer = await this.identity(request).catch(() => null); return json(await this.people.apply(viewer && !viewer.startsWith('guest:') ? viewer : null, await body(request))); }
+    const owner = await this.identity(request); if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
+    if (method !== 'GET') { this.assertOrigin(request); this.store.rate(`people-mutation:${owner}`, 60, 60_000); await this.ensureProfile(owner); }
+    if (path === '/people/drafts' && method === 'GET') return json({ items: this.people.list(owner) });
+    if (path === '/people/drafts' && method === 'POST') return json(await this.people.create(owner, await body(request)));
+    if (path === '/people/nominations' && method === 'GET') return json({ items: this.people.nominations(owner) });
+    if (path === '/people/nominations' && method === 'POST') return json(await this.people.nominate(owner, await body(request)));
+    if (path === '/people/reports' && method === 'POST') return json(await this.people.report(owner, await body(request)));
+    const inv = path.match(/^\/people\/invitations\/([a-f0-9]{64})\/(accept|decline)$/);
+    if (inv && method === 'POST') return json(inv[2] === 'accept' ? await this.people.acceptInvite(inv[1], owner) : await this.people.decline(inv[1], owner));
+    const d = path.match(/^\/people\/drafts\/([0-9a-f-]{36})(?:\/([a-z-]+))?$/);
+    if (d) {
+      const [, id, action] = d;
+      if (!action && method === 'GET') return json(this.people.get(id, owner));
+      if (!action && method === 'PATCH') return json(await this.people.update(id, owner, await body(request)));
+      if (!action && method === 'DELETE') return json(await this.people.remove(id, owner));
+      if (method === 'POST') {
+        if (action === 'consents') return json(await this.people.consent(id, owner, await body(request)));
+        if (action === 'account') return json(await this.people.bindAccount(id, owner));
+        if (action === 'wallet-challenge') return json(await this.people.walletChallenge(id, owner, await body(request), origin));
+        if (action === 'wallet') return json(await this.people.walletVerify(id, owner, await body(request), origin));
+        if (action === 'fee-challenge') return json(await this.people.feeChallenge(id, owner, origin));
+        if (action === 'fee-policy') return json(await this.people.feeVerify(id, owner, await body(request), origin));
+        if (action === 'liveness') return json(await this.people.startLiveness(id, owner));
+        if (action === 'invitation') return json(await this.people.invite(id, owner, origin));
+        if (action === 'invitation-revoke') return json(await this.people.revokeInvite(id, owner));
+        if (action === 'publish') return json(await this.people.publish(id, owner));
+        if (action === 'withdraw') return json(await this.people.withdraw(id, owner));
+      }
+    }
+    if (path === '/people/admin' && method === 'GET') { this.operator(owner); return json(this.people.overview()); }
+    if (path === '/people/admin/cases' && method === 'POST') { this.operator(owner); return json(await this.people.decide(owner, await body(request))); }
+    throw new ApiError('NOT_FOUND', 404);
   }
   /** Social layer (profiles, chat, notifications, tips, rains, live activity). Returns null when the path isn't social. */
   private async socialRoute(request: Request, path: string, method: string): Promise<Response | null> {

@@ -28,6 +28,9 @@ export const config = {
     '/verify/:path*',
     '/v2',
     '/people',
+    '/people/:path*',
+    '/People',
+    '/People/:path*',
   ],
 };
 
@@ -83,10 +86,10 @@ const PAGES: Record<string, PageMeta> = {
     alt: 'A glass panel showing a Merkle tree diagram, a fingerprint icon, and hex hashes. ObjectPad.fun — how ObjectPad works.',
   },
   people: {
-    title: 'ObjectPad · PEOPLE — work in progress',
-    description: 'Scan yourself into a 3D double. Prove you’re alive. Link your wallet and socials. Fees route only to the verified human. Coming soon.',
-    image: '/og/card-people.jpg',
-    alt: 'Black and white banner: the word PEOPLE beside a human bust made of ASCII characters dissolving into triangle dust. ObjectPad.fun/people — work in progress.',
+    title: 'ObjectPad People — People are next',
+    description: 'Preview: private profile drafts, creator nominations and applications are open. Verification, 3D likeness and launches are being built and stay off until they pass review.',
+    image: '/og/card-people-next.jpg',
+    alt: 'PEOPLE ARE NEXT. A white marble bust dissolving into black dots beside a yellow rubber duck. objectpad.fun/People — preview live, building this week.',
   },
   v2: {
     title: 'ObjectPad · What’s new in V2',
@@ -106,7 +109,7 @@ function pageFor(pathname: string): PageMeta {
   if (pathname.startsWith('/vaults')) return PAGES.vaults;
   if (pathname === '/whitepaper' || pathname === '/docs' || pathname.startsWith('/verify')) return PAGES.whitepaper;
   if (pathname === '/v2') return PAGES.v2;
-  if (pathname === '/people') return PAGES.people;
+  if (/^\/people(\/|$)/i.test(pathname)) return PAGES.people;
   return PAGES.home;
 }
 
@@ -116,6 +119,8 @@ function escapeAttr(value: string): string {
 
 export default async function middleware(request: Request): Promise<Response | undefined> {
   const url = new URL(request.url);
+  // /People is the canonical campaign URL; the lowercase form is a permanent redirect.
+  if (/^\/people(\/|$)/.test(url.pathname)) return Response.redirect(`${url.origin}/People${url.pathname.slice(7)}${url.search}`, 308);
   const meta = pageFor(url.pathname);
 
   const origin = await fetch(request);

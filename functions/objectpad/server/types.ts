@@ -26,6 +26,8 @@ export interface Env {
   OBJECTPAD_FORGE_ADDRESS?: string; OBJECTPAD_BURN_ENGINE_ADDRESS?: string; OBJECTPAD_TOKEN_ADDRESS?: string;
   /** Developer buyback/burn execution mode: 'manual' (default, honest) or 'automatic' once a real automated service is deployed and executing. Never inferred — only this env value flips the label. */
   OBJECTPAD_DEV_EXECUTION_MODE?: string;
+  /** ObjectPad People phase shown on /People: 'preview' (default) or 'pilot'. Feature states are derived from real configuration either way. */
+  OBJECTPAD_PEOPLE_PHASE?: string;
   /** Server-side Privy secret, used only to read the verified account's own wallet address. */
   PRIVY_APP_SECRET?: string; OBJECTPAD_PRIVY_APP_SECRET?: string;
   ROBINHOOD_RPC_URL?: string;

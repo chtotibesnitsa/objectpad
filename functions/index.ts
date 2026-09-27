@@ -26,11 +26,11 @@ export default {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin');
     const allowed = originAllowed(env, origin);
-    const isPublicRead = request.method === 'GET' && /^\/api\/(status|market|house|coins|tokens|curves|objects|activity|trending|messages|artifacts|creators|items|logos|burns|pipeline|engine|bounties|rewards|treasury|earn|social)(\/|$)/.test(url.pathname);
+    const isPublicRead = request.method === 'GET' && /^\/api\/(status|market|house|coins|tokens|curves|objects|activity|trending|messages|artifacts|creators|items|logos|burns|pipeline|engine|bounties|rewards|treasury|earn|social|people)(\/|$)/.test(url.pathname);
 
     if (request.method === 'OPTIONS') {
       if (!allowed) return new Response(null, { status: 403, headers: baseHeaders() });
-      return new Response(null, { status: 204, headers: { ...baseHeaders(), 'Access-Control-Allow-Origin': origin!, 'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS', 'Access-Control-Allow-Headers': ALLOWED_HEADERS, 'Access-Control-Max-Age': '600' } });
+      return new Response(null, { status: 204, headers: { ...baseHeaders(), 'Access-Control-Allow-Origin': origin!, 'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS', 'Access-Control-Allow-Headers': ALLOWED_HEADERS, 'Access-Control-Max-Age': '600' } });
     }
     if (url.pathname === '/ping') return Response.json({ ok: true, service: 'objectpad', now: new Date().toISOString() }, { headers: { ...baseHeaders(), 'Access-Control-Allow-Origin': '*' } });
     if (!url.pathname.startsWith('/api/')) return Response.json({ error: 'NOT_FOUND' }, { status: 404, headers: baseHeaders() });
