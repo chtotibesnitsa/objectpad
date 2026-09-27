@@ -17,6 +17,7 @@ export default {
         azure: "#4A5261",
         up: "#12A150",
         down: "#E5484D",
+        blue: "#2F7BF2",
         // Legacy token names, remapped to the calm palette so no page falls back to neon.
         sky: "#E4E9F2",
         moss: "#12A150",

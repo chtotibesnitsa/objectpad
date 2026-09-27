@@ -87,6 +87,9 @@ export default function HomeView() {
       <GlassIcon name="glass_burn" size={54} float/><span className="flex-1"><Lab className="!text-white/55">Buyback & burn</Lab><span className="mt-0.5 block text-[16px] font-extrabold">{Fmt.compact(burned)} $OBJECTPAD burned</span><span className="block text-[12.5px] font-semibold text-white/60">{app.burns?.burns ?? 0} burns · every trade feeds the fire</span></span><ChevronRight size={18} className="text-white/50"/>
     </button></Enter>
 
+    <Enter delay={0.38}><button type="button" onPointerDown={() => Feedback.tap()} onClick={() => app.push('/app/vaults')} className="ap-press ap-raised flex w-full items-center gap-3.5 rounded-[24px] p-4 text-left">
+      <GlassIcon name="glass_coins" size={50}/><span className="flex-1"><span className="ap-mono block text-[10px] font-black uppercase text-[#12A150]">New · V2</span><span className="block text-[16px] font-extrabold">Object Vaults</span><span className="block text-[13px] font-semibold text-[#6A6E78]">Buy a category, not a ticker. One transaction.</span></span><ChevronRight size={18} className="text-ink/35"/>
+    </button></Enter>
     <Enter delay={0.4}><button type="button" onPointerDown={() => Feedback.tap()} onClick={() => app.push('/app/earn')} className="ap-press ap-raised flex w-full items-center gap-3.5 rounded-[24px] p-4 text-left">
       <GlassIcon name="glass_coins" size={50}/><span className="flex-1"><span className="block text-[16px] font-extrabold">Post & earn</span><span className="block text-[13px] font-semibold text-[#6A6E78]">Get paid for verified X posts about ObjectPad.</span></span><ChevronRight size={18} className="text-[#6A6E78]"/>
     </button></Enter>

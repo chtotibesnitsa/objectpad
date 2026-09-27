@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 const SECTIONS = [
   ['abstract', 'Abstract'], ['problem', '1. The problem'], ['capture', '2. Capture pipeline'], ['hashing', '3. Hashing & commitments'],
   ['uniqueness', '4. Uniqueness v2'], ['math', '5. Collision math'], ['reconstruction', '6. 3D reconstruction'], ['identity', '7. Identity & anti-impersonation'],
-  ['proof', '8. Proof v2 (Merkle + EIP-191)'], ['launch', '9. Launch on Pons V2'], ['vaults', '10. Object Vaults & indexes'], ['custody', '11. Proof of custody'],
+  ['proof', '8. Proof v2 (Merkle + EIP-191)'], ['launch', '9. Launch on Pons V2'], ['vaults', '10. Object Vaults'], ['vault-calculation', '10.2 Index math'], ['vault-router', '10.3 Basket router'], ['vault-backed', '10.4 Backed vaults'], ['vault-earn', '10.5 Fees & points'], ['custody', '11. Proof of custody'],
   ['economy', '12. $OBJECTPAD economy'], ['threats', '13. Threat model'], ['limits', '14. What it does not prove'], ['roadmap', '15. Roadmap'],
 ] as const;
 
@@ -72,6 +72,51 @@ function IndexFigure() {
   const a = Array.from({ length: 48 }, (_, i) => 1 + 0.4 * Math.sin(i / 7) + i / 60); const b = Array.from({ length: 48 }, (_, i) => 2 + 0.6 * Math.cos(i / 5) - i / 90);
   const idx = a.map((v, i) => 1000 * (v + b[i]) / (a[0] + b[0])); const path = (s: number[], min: number, max: number) => s.map((v, i) => `${i ? 'L' : 'M'}${i * 13 + 10},${190 - ((v - min) / (max - min)) * 170}`).join('');
   return <svg viewBox="0 0 640 200" className="w-full"><path d={path(a, 0, 3)} fill="none" stroke="#2F7BF2" strokeWidth="2.5" strokeOpacity=".6" pathLength={1} className="chart-draw"/><path d={path(b, 0, 3)} fill="none" stroke="#B7791F" strokeWidth="2.5" strokeOpacity=".6" pathLength={1} className="chart-draw"/><path d={path(idx, Math.min(...idx) - 60, Math.max(...idx) + 60)} fill="none" stroke="#12A150" strokeWidth="4.5" pathLength={1} className="chart-draw"/><text x="630" y="22" textAnchor="end" fontSize="14" fontWeight="800" fill="#12A150">vault index I(t)</text><text x="630" y="42" textAnchor="end" fontSize="12" fill="#2F7BF2">coin A price</text><text x="630" y="58" textAnchor="end" fontSize="12" fill="#B7791F">coin B price</text></svg>;
+}
+
+/** Three product lanes. */
+function ProductsFigure() {
+  const lanes: [string, string, string, string][] = [['Index', 'prices → level', '#0C0D10', 'tracks only'], ['Object Basket', 'ETH → N coins → your wallet', '#12A150', 'executes'], ['Backed Vault', 'assets → contract → shares', '#6A6E78', 'holds & redeems']];
+  return <svg viewBox="0 0 1200 300" className="w-full">{lanes.map(([a, b, c, d], i) => <g key={a} className="card-pop" style={{ ['--delay' as string]: `${i * 160}ms` }}>
+    <rect x={30 + i * 390} y={30} width={360} height={240} rx={28} fill="#fff" stroke={c} strokeWidth="3" strokeDasharray={i === 2 ? '10 8' : undefined}/>
+    <circle cx={90 + i * 390} cy={90} r={26} fill={c} className="wp-pulse"/>
+    <text x={130 + i * 390} y={84} fontSize="30" fontWeight="800" fill="#0C0D10">{a}</text><text x={130 + i * 390} y={112} fontSize="17" fontWeight="700" fill={c}>{d}</text>
+    <text x={60 + i * 390} y={180} fontSize="19" fontWeight="700" fill="#6A6E78">{b}</text>
+    <line x1={60 + i * 390} y1={220} x2={360 + i * 390} y2={220} stroke={c} strokeWidth="4" className="wp-flow"/>
+  </g>)}</svg>;
+}
+/** Capped weights: raw share vs final share. */
+function WeightFigure() {
+  const raw = [0.46, 0.22, 0.14, 0.10, 0.08]; const cap = 0.25; const w = [...raw]; const capped = w.map(() => false);
+  for (let k = 0; k < 5; k++) { let ex = 0; w.forEach((x, i) => { if (!capped[i] && x > cap) { ex += x - cap; w[i] = cap; capped[i] = true; } }); if (ex < 1e-9) break; const free = w.reduce((a, x, i) => a + (capped[i] ? 0 : x), 0); w.forEach((x, i) => { if (!capped[i]) w[i] = x + ex * x / free; }); }
+  return <svg viewBox="0 0 640 240" className="w-full"><line x1={20} x2={620} y1={210 - cap * 380} y2={210 - cap * 380} stroke="#E5484D" strokeWidth="2" strokeDasharray="6 6"/><text x={560} y={200 - cap * 380} fontSize="14" fontWeight="800" fill="#E5484D">cap 25%</text>
+    {raw.map((r, i) => <g key={i}><rect x={50 + i * 115} y={210 - r * 380} width={38} height={r * 380} rx={6} fill="#0C0D10" fillOpacity=".14" className="wp-rise" style={{ animationDelay: `${i * 90}ms` }}/><rect x={92 + i * 115} y={210 - w[i] * 380} width={38} height={w[i] * 380} rx={6} fill="#12A150" className="wp-rise" style={{ animationDelay: `${500 + i * 90}ms` }}/><text x={60 + i * 115} y={232} fontSize="14" fontWeight="800" fill="#0C0D10">{(w[i] * 100).toFixed(0)}%</text></g>)}</svg>;
+}
+/** ETH fans out to curves inside one tx. */
+function RouterFigure() {
+  const legs = ['$SHIBA', '$QUACK', '$PEPE', '$PLUSH', '$TAPE'];
+  return <svg viewBox="0 0 1200 340" className="w-full">
+    <g className="card-pop"><rect x={30} y={130} width={200} height={80} rx={22} fill="#0C0D10"/><text x={130} y={165} textAnchor="middle" fontSize="20" fontWeight="800" fill="#fff">Your wallet</text><text x={130} y={190} textAnchor="middle" fontSize="14" fill="#fff" fillOpacity=".6">1 signature</text></g>
+    <g className="card-pop" style={{ ['--delay' as string]: '150ms' }}><rect x={330} y={120} width={220} height={100} rx={22} fill="#fff" stroke="#12A150" strokeWidth="3"/><text x={440} y={162} textAnchor="middle" fontSize="20" fontWeight="800">Multicall3</text><text x={440} y={188} textAnchor="middle" fontSize="13" fill="#6A6E78">aggregate3Value · atomic</text></g>
+    <line x1={230} y1={170} x2={330} y2={170} stroke="#12A150" strokeWidth="4" className="wp-flow"/>
+    {legs.map((l, i) => { const y = 30 + i * 60; return <g key={l} className="card-pop" style={{ ['--delay' as string]: `${300 + i * 90}ms` }}><line x1={550} y1={170} x2={680} y2={y + 20} stroke="#12A150" strokeWidth="3" className="wp-flow"/><rect x={680} y={y} width={180} height={40} rx={12} fill="#fff" stroke="#0C0D10" strokeOpacity=".15"/><text x={770} y={y + 26} textAnchor="middle" fontSize="15" fontWeight="800">{l} curve</text><line x1={860} y1={y + 20} x2={1000} y2={170} stroke="#2F7BF2" strokeWidth="2.5" className="wp-flow"/></g>; })}
+    <g className="card-pop" style={{ ['--delay' as string]: '900ms' }}><rect x={1000} y={130} width={170} height={80} rx={22} fill="#12A150"/><text x={1085} y={165} textAnchor="middle" fontSize="18" fontWeight="800" fill="#fff">Coins → you</text><text x={1085} y={190} textAnchor="middle" fontSize="13" fill="#fff" fillOpacity=".8">recipient = buyer</text></g>
+    <g className="card-pop" style={{ ['--delay' as string]: '700ms' }}><line x1={440} y1={220} x2={440} y2={290} stroke="#2F7BF2" strokeWidth="3" className="wp-flow"/><rect x={340} y={290} width={200} height={40} rx={12} fill="#2F7BF2"/><text x={440} y={316} textAnchor="middle" fontSize="15" fontWeight="800" fill="#fff">creator fee f·ETH</text></g>
+  </svg>;
+}
+/** Backed vault lifecycle. */
+function BackedFigure() {
+  const steps: [string, string][] = [['Deposit', 'basket or ETH'], ['Vault contract', 'holds balances'], ['Shares', 'ERC-20, fungible'], ['NAV', 'Σ bal·P, live'], ['Redeem', 'in kind, pro-rata']];
+  return <svg viewBox="0 0 1200 200" className="w-full">{steps.map(([a, b], i) => <g key={a} className="card-pop" style={{ ['--delay' as string]: `${i * 130}ms` }}>{i < 4 && <line x1={170 + i * 235} y1={100} x2={245 + i * 235} y2={100} stroke="#6A6E78" strokeWidth="3" className="wp-flow"/>}<rect x={20 + i * 235} y={50} width={150} height={100} rx={22} fill={i === 1 ? '#0C0D10' : '#fff'} stroke="#0C0D10" strokeOpacity=".15" strokeDasharray="8 6"/><text x={95 + i * 235} y={96} textAnchor="middle" fontSize="18" fontWeight="800" fill={i === 1 ? '#fff' : '#0C0D10'}>{a}</text><text x={95 + i * 235} y={120} textAnchor="middle" fontSize="13" fill={i === 1 ? '#fff' : '#6A6E78'} fillOpacity=".8">{b}</text></g>)}<text x={600} y={185} textAnchor="middle" fontSize="14" fontWeight="800" fill="#6A6E78">SPECIFIED · AWAITING AUDIT · NOT DEPLOYED</text></svg>;
+}
+/** Fee and points flow. */
+function EarnFigure() {
+  return <svg viewBox="0 0 1200 220" className="w-full">
+    <g className="card-pop"><rect x={40} y={70} width={220} height={80} rx={22} fill="#0C0D10"/><text x={150} y={116} textAnchor="middle" fontSize="20" fontWeight="800" fill="#fff">Basket trade</text></g>
+    <line x1={260} y1={95} x2={520} y2={50} stroke="#2F7BF2" strokeWidth="4" className="wp-flow"/><line x1={260} y1={125} x2={520} y2={170} stroke="#12A150" strokeWidth="4" className="wp-flow"/><line x1={260} y1={110} x2={520} y2={110} stroke="#0C0D10" strokeOpacity=".3" strokeWidth="3" className="wp-flow"/>
+    {([['Creator wallet', 'f · volume in ETH', 20, '#2F7BF2'], ['Coins → trader', 'underlying, self-custody', 90, '#0C0D10'], ['Trader points', '1 pt / 0.001 ETH', 140, '#12A150']] as [string, string, number, string][]).map(([a, b, y, c], i) => <g key={a} className="card-pop" style={{ ['--delay' as string]: `${200 + i * 140}ms` }}><rect x={520} y={y} width={300} height={60} rx={18} fill="#fff" stroke={c} strokeWidth="2.5"/><text x={545} y={y + 27} fontSize="18" fontWeight="800">{a}</text><text x={545} y={y + 48} fontSize="13" fill="#6A6E78">{b}</text></g>)}
+    <g className="card-pop" style={{ ['--delay' as string]: '700ms' }}><line x1={820} y1={110} x2={900} y2={110} stroke="#12A150" strokeWidth="3" className="wp-flow"/><rect x={900} y={70} width={260} height={80} rx={22} fill="#12A150"/><text x={1030} y={106} textAnchor="middle" fontSize="18" fontWeight="800" fill="#fff">Verified from chain</text><text x={1030} y={130} textAnchor="middle" fontSize="13" fill="#fff" fillOpacity=".85">tx.from · CurveBuy/Sell logs</text></g>
+  </svg>;
 }
 
 /** /whitepaper: the ObjectPad technical white paper. */
@@ -165,11 +210,48 @@ export default function Whitepaper() {
           <p>With V2 pairing, a coin can be quoted in a tokenized stock instead of ETH. Buying with ETH routes through Uniswap V3 into the pair asset and then into the curve, each leg simulated before signing.</p>
         </Sec>
 
-        <Sec id="vaults" n="Section 10" title="Object Vaults & tradable indexes">
-          <p>A vault is a typed basket (Collection, Set, Theme or Creator) of 2 to 12 coins. Because every coin has the same fixed supply, market cap is proportional to price, and the index is computed directly from on-chain trades:</p>
-          <Eq label="Index level">cap-weighted:   I(t) = 1000 · Σᵢ MCᵢ(t) / Σᵢ MCᵢ(t₀)<br/>equal-weighted: I(t) = 1000 · (1/N) · Σᵢ Pᵢ(t) / Pᵢ(t₀)<br/>weights: wᵢ = MCᵢ / Σ MC  (or 1/N)</Eq>
-          <Figure caption="Fig. 7: A vault index (green) rebuilt from its constituents’ trade prices."><IndexFigure/></Figure>
-          <p><b>Buying the index</b> splits the ETH amount by wᵢ and executes one wallet-signed buy per coin on its own curve (stock-paired coins add a swap + approve). Selling sells the same percentage of every holding. There is no wrapper token and no custody: the basket is simply the coins in your wallet. A single-transaction basket router is on the roadmap.</p>
+        <Sec id="vaults" n="Section 10" title="Object Vaults: three products, never conflated">
+          <p><b>Photograph a thing. Launch its market. Group markets into a vault. Buy or sell the whole category in one transaction.</b> ObjectPad’s loop is physical capture → uniqueness proof → token launch → creator market → composable vault. The vault layer is three distinct products, and every card, page and receipt labels which one you are using:</p>
+          <Figure caption="Fig. 7: Index tracks. Basket executes into your wallet. Backed vault holds and issues redeemable shares."><ProductsFigure/></Figure>
+          <Table head={['Product', 'What you hold', 'Custody', 'Status']} rows={[['Index', 'Nothing: it is a published level', 'None', 'Live'], ['Object Basket', 'The underlying coins', 'Your wallet', 'Live'], ['Backed Object Vault', 'Fungible vault shares', 'Audited vault contract', 'Specified, awaiting audit']]}/>
+          <p>Four curated indexes ship first, each capped at five constituents: <b>ObjectPad Originals 5</b>, <b>Trending Objects 5</b>, <b>Creator 5</b> (at most one coin per creator) and <b>Stock-Paired Objects 5</b>. Anyone can also create a community vault of 2–12 coins.</p>
+        </Sec>
+
+        <Sec id="vault-calculation" n="Section 10.2" title="Index math: eligibility, capped score weighting, chain-linking">
+          <p>Market-cap-only weighting is easy to manipulate on thin bonding curves: one buy inflates a coin’s cap and its weight. ObjectPad weights by a score that also needs real float, executable depth and sustained volume, and caps every coin at 25%.</p>
+          <Eq label="1 · Eligibility (all must hold)">proof valid ∧ price source fresh<br/>∧ unique traders ≥ 2 ∧ volume₇d &gt; 0<br/>∧ depth₂% ≥ 0.005 ETH ∧ max wallet ≤ 5% of supply</Eq>
+          <Eq label="2 · Inputs, all read from Robinhood Chain">free-float capᵢ = Pᵢ · (1e9 − curve-held − burned)<br/>depth₂%ᵢ = R · (√1.02 − 1),  R solved from two eth_call quotes<br/>vol₇dᵢ = Σ indexed CurveBuy/CurveSell quote amounts, 7 days</Eq>
+          <Eq label="3 · Score and capped weight">scoreᵢ = √free-floatᵢ × √depth₂%ᵢ × ln(1 + vol₇dᵢ) × (1 − 0.9·HHIᵢ)<br/>wᵢ = min(scoreᵢ / Σscore, c),  c = max(25%, 1/N)<br/>excess above c is redistributed pro-rata until no wᵢ &gt; c</Eq>
+          <Figure caption="Fig. 8: Raw scores (grey) are capped at 25% and the excess flows to the remaining coins (green)."><WeightFigure/></Figure>
+          <p><b>Why square roots and a log?</b> √ dampens size, so a coin four times larger gets only twice the score. ln(1+v) rewards volume with diminishing returns, so wash-trading has sharply falling marginal effect. Multiplying the terms means a coin must be strong on <i>all</i> of them: zero depth or zero volume gives zero weight.</p>
+          <Eq label="4 · Level, chain-linked at each rebalance r (base 1000)">L(t) = L(r) · Σᵢ wᵢ⁽ʳ⁾ · Pᵢ(t) / Pᵢ(r)</Eq>
+          <Figure caption="Fig. 9: A vault index (green) rebuilt hourly from its constituents’ trade prices."><IndexFigure/></Figure>
+          <p><b>Delayed, disclosed rebalances.</b> Target weights are recomputed daily. If any weight drifts by ≥1 percentage point, the new weights are <i>announced</i> and take effect 24 hours later, so nobody can front-run a silent change. Every snapshot is SHA-256 hashed together with the methodology hash. The rulebook itself (formula, thresholds, cap, schedule) is canonical-JSON hashed and shown on every index page. Changing any parameter changes the hash and starts a new chain-linked base.</p>
+          <p><b>Stock-paired indexes</b> convert each coin’s quote-asset price to ETH through the pair asset’s live on-chain price. If any source is missing or stale the calculation <b>halts</b> rather than printing a wrong number. Only Pons-approved quote assets are eligible, and every quote asset is labelled. An object coin tracks its own market. It is not ownership of the referenced company, stock or object. Robinhood stock-token multipliers and corporate-action adjustments are the next integration.</p>
+        </Sec>
+
+        <Sec id="vault-router" n="Section 10.3" title="The basket router: one approval, one atomic transaction">
+          <p>Pons V2 is a per-coin bonding-curve launchpad that graduates to Uniswap v4. It is not a multi-asset router, so ObjectPad composes one. Each curve exposes <code>buy(quoteIn, minTokensOut, recipient)</code>, which means a third-party caller can buy <i>for</i> the user. ObjectPad batches those calls through the canonical Multicall3 contract (<code>0xcA11…CA11</code>, no admin, no storage) with <code>aggregate3Value</code>:</p>
+          <Figure caption="Fig. 10: One signed transaction fans ETH out to every curve. Coins go straight to the buyer. The creator fee rides in the same transaction."><RouterFigure/></Figure>
+          <Eq label="Per-leg quote and impact">legᵢ = (ETH − fee) · wᵢ<br/>outᵢ = eth_call curve.buy(legᵢ)       // exact, at current state<br/>impactᵢ = 1 − (outᵢ/legᵢ) / (probeOut/probeIn)   // fees cancel<br/>aggregate = Σ legᵢ·impactᵢ / Σ legᵢ  ≤  ceiling, else reject<br/>minOutᵢ = outᵢ · (1 − ceiling)</Eq>
+          <Table head={['Guarantee', 'How it is enforced']} rows={[['All-or-nothing', 'allowFailure = false on every call: any leg under its minimum reverts the whole transaction'], ['Coins to the user', 'recipient = msg.sender’s wallet in every curve call; the router never holds tokens'], ['Slippage ceiling', 'Aggregate impact is checked before signing; minOutᵢ is enforced on-chain'], ['No stale routes', 'Quotes older than 30 s are re-quoted before signing; a failed quote rejects the route'], ['Combined receipt', 'CurveBuy events are decoded from the one receipt: tokens, ETH, protocol and creator fees per leg']]}/>
+          <p>Stock-quoted legs can’t ride the same call safely (they need a swap and an approval that would leave tokens in a shared contract), so they route as separate, disclosed transactions. Sells are one transaction per coin, because Pons curves pull tokens from <code>msg.sender</code>.</p>
+        </Sec>
+
+        <Sec id="vault-backed" n="Section 10.4" title="Backed Object Vaults (specification)">
+          <p>A backed vault holds the constituents in a contract and mints fungible shares that are a pro-rata claim on those holdings. The standard is ERC-4626-style accounting over a basket:</p>
+          <Eq label="Shares, NAV and redemption">NAV = Σᵢ balanceᵢ(vault) · Pᵢ           // read on-chain<br/>sharesOut = depositValue · totalShares / NAV<br/>redeem(s): receive s/totalShares of every balanceᵢ  // in kind, always available</Eq>
+          <Figure caption="Fig. 11: Deposit → shares → live NAV → in-kind redemption. Rebalances are delayed, announced and published as transactions."><BackedFigure/></Figure>
+          <ul className="list-disc space-y-1 pl-5"><li>Holdings and balances are public contract state, and NAV is computable by anyone.</li><li>In-kind redemption can’t be paused by the curator.</li><li>Rebalances are timelocked for 24h, and each one emits the methodology hash and the new weights as a transaction.</li><li>The factory is deployed only after an external audit. Until then the product shows as <b>Awaiting audit</b> and nothing is sold as a share.</li></ul>
+        </Sec>
+
+        <Sec id="vault-earn" n="Section 10.5" title="Creator fees and trader points">
+          <p>Anyone can create a vault for free. The creator chooses a fee <b>f ∈ [0, 1%]</b> of basket volume, paid in ETH to their wallet:</p>
+          <Eq label="Fee flow">buy:  fee = ETH_in · f   → sent inside the same Multicall3 tx<br/>sell: fee = ETH_out · f  → settled as the final step of the sell flow<br/>points(trader) = ⌊ verified basket volume / 0.001 ETH ⌋</Eq>
+          <Figure caption="Fig. 12: Each basket trade pays the vault creator and credits the trader’s points, and both are verified from chain."><EarnFigure/></Figure>
+          <p><b>Verification.</b> Clients submit only transaction hashes. The server re-reads each transaction and receipt from Robinhood Chain and credits volume only for CurveBuy/CurveSell events on that vault’s curves whose recipient or sender is <code>tx.from</code>. It credits fees only for calls or transfers to the vault’s recorded fee wallet. Posting someone else’s hash can only credit them. Points are an activity record for leaderboards, not a token, and carry no promised value.</p>
+          <p><b>Partner vaults.</b> The “Official partner vault” label requires an EIP-191 signature from the partner’s official wallet over the vault name and partner name. A vault that names a partner without one is labelled <b>Unaffiliated</b>. A ticker or logo alone never implies a relationship.</p>
+          <p className="rounded-2xl bg-ink/[0.05] p-4 font-bold">Creating can be free. Ownership is transparent. Trading remains a market decision.</p>
         </Sec>
 
         <Sec id="custody" n="Section 11" title="Proof of custody">
@@ -197,7 +279,7 @@ export default function Whitepaper() {
         </Sec>
 
         <Sec id="roadmap" n="Section 15" title="Roadmap">
-          <Table head={['Stage', 'Scope']} rows={[['Shipped', 'Uniqueness v2, Proof v2 + Verify page, OAuth-bound identity, Object Vaults with basket trading, custody status'], ['Next', 'On-chain registry that stores the Merkle root per token; one-transaction basket router'], ['Then', 'Vault leaderboards, custody streak rewards, creator UGC programme, brand bounties'], ['Later', 'LiDAR capture on supported phones for metric-scale geometry']]}/>
+          <Table head={['Stage', 'Scope']} rows={[['Shipped', 'Uniqueness v2, Proof v2 + Verify page, OAuth-bound identity, custody status, Object Vaults v2: capped-score indexes, one-transaction basket router, creator fees, trader points, partner signatures'], ['Next', 'Audited backed-vault share contracts; Robinhood stock-token multipliers & corporate actions; on-chain registry of Merkle roots'], ['Then', 'Creator and partner vault campaigns, custody streak rewards, brand bounties'], ['Later', 'LiDAR capture on supported phones for metric-scale geometry']]}/>
           <div className="mt-6 flex flex-wrap gap-2.5"><Link to="/launch" className="btn press min-h-12 px-6">Scan & launch<ArrowRight size={16}/></Link><Link to="/verify" className="btn-ghost press min-h-12 px-6">Verify a coin</Link><Link to="/docs" className="btn-ghost press min-h-12 px-6">How it works (short)</Link></div>
         </Sec>
       </article>

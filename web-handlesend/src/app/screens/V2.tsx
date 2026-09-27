@@ -7,6 +7,9 @@ import { MergeAnimation } from '../pairs';
 import { CoinAvatar, Display, Lab, PadButton, PAD } from '../ui';
 
 export const APP_NOTES: [string, string, string][] = [
+  ['New', 'Object Vaults: buy a category, not a ticker', 'Four curated indexes (Originals 5, Trending 5, Creator 5, Stock-Paired 5) with capped-score weights, hashed methodology and rebalances announced 24h ahead. Buy a whole basket in one atomic transaction, and the coins land in your wallet.'],
+  ['New', 'Creator fees & trader points', 'Create a vault for free and earn a 0–1% ETH fee on its basket volume. Traders earn 1 point per 0.001 ETH of verified basket volume. Everything is verified from chain.'],
+  ['New', 'Partner vault signatures', 'The “Official partner vault” label requires a signature from the project’s official wallet. Otherwise a vault is Community or Unaffiliated.'],
   ['New', 'ObjectPad for iPhone, as a web app', 'Add ObjectPad to your iPhone home screen straight from objectpad.fun: the full iOS app, with every screen, animation, sound and wallet feature, free and without the App Store. Use it while the native app is in App Store review.'],
   ['New', 'Stock pairing at launch', 'Pair your coin with any tokenized stock, ETF, commodity or asset Pons V2 approves: NVDA, TSLA, AAPL, SPCX, GME, SPY, GLD, USDG, cbBTC and more. ETH is still the default.'],
   ['New', 'AI pair suggestion', 'After your scan, the AI suggests the stock whose story fits your object. One tap to use it, or keep ETH.'],
@@ -16,7 +19,7 @@ export const APP_NOTES: [string, string, string][] = [
   ['Shipped', 'ObjectPad for iPhone', 'Native iOS app in TestFlight and submitted for App Store review.'],
 ];
 const STATUS: [string, string, string][] = [['Web app', PAD.up, 'V2 live'], ['iPhone web app', PAD.up, 'Add to Home Screen'], ['Android', PAD.up, 'V2 pairing'], ['iOS App Store', PAD.gold, 'In review'], ['Launch engine', PAD.up, 'ETH & stock pairs']];
-const ROADMAP: [string, string][] = [['iOS on the App Store', 'Public release once Apple review clears.'], ['One-signature paired buys', 'Swap, approve and buy in a single confirmation.'], ['Pair performance leaderboard', 'Which stocks carry the strongest object coins.'], ['Crafting Table', 'Combine object coins into new, rarer objects.']];
+const ROADMAP: [string, string][] = [['Backed vault shares', 'Audited contracts: contract-held assets, live NAV, in-kind redemption.'], ['iOS on the App Store', 'Public release once Apple review clears.'], ['One-signature paired buys', 'Swap, approve and buy in a single confirmation.'], ['Pair performance leaderboard', 'Which stocks carry the strongest object coins.'], ['Crafting Table', 'Combine object coins into new, rarer objects.']];
 
 /** ObjectPad V2 release notes and developer log, opened from the gold V2 pill. */
 export default function V2Sheet() {

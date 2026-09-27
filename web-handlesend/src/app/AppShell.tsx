@@ -14,6 +14,7 @@ import WalletView, { LaunchesView } from './screens/Wallet';
 import StudioView from './screens/Studio';
 import ScanFlow from './screens/Scan';
 import V2Sheet from './screens/V2';
+import VaultsView, { VaultDetailView } from './screens/Vaults';
 import { AccountSheet, BurnView, EarnView, SignInSheet } from './screens/Account';
 import { Feedback } from './feedback';
 import './app.css';
@@ -53,6 +54,8 @@ function Screens() {
       <Route path="studio/:id" element={<StudioView/>}/>
       <Route path="burn" element={<BurnView/>}/>
       <Route path="earn" element={<EarnView/>}/>
+      <Route path="vaults" element={<VaultsView/>}/>
+      <Route path="vaults/:slug" element={<VaultDetailView/>}/>
       <Route path="*" element={<HomeView/>}/>
     </Routes>
     <TabBar/>
