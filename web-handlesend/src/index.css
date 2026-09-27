@@ -514,3 +514,17 @@ html.translated .truncate { white-space: normal; overflow: visible; text-overflo
 @keyframes vault-receipt { from { opacity: 0; transform: translateY(12px) rotateX(-18deg); transform-origin: top; } to { opacity: 1; transform: none; } }
 .vault-range { accent-color: #0C0D10; height: 28px; }
 @media (prefers-reduced-motion: reduce) { .vault-hero-orbs span, .vault-loop-step, .vault-loop-arrow, .vault-logo, .vault-sheet, .vault-sticky, .vault-receipt { animation: none !important; } }
+
+/* /people — Black Mirror terminal */
+.people-grid { background-image: linear-gradient(rgba(236,238,241,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(236,238,241,.045) 1px, transparent 1px), radial-gradient(ellipse at 70% 20%, rgba(47,123,242,.10), transparent 55%), radial-gradient(ellipse at 20% 90%, rgba(18,161,80,.07), transparent 50%); background-size: 44px 44px, 44px 44px, 100% 100%, 100% 100%; mask-image: radial-gradient(ellipse at center, #000 45%, transparent 100%); }
+.people-root::after { content: ''; position: absolute; inset: 0; z-index: -5; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); }
+.people-scan { background: linear-gradient(180deg, transparent, rgba(236,238,241,.06), transparent); animation: people-sweep 7s linear infinite; }
+@keyframes people-sweep { from { transform: translateY(-160px); } to { transform: translateY(110vh); } }
+.people-spin { animation: people-rot 18s linear infinite; }
+@keyframes people-rot { to { transform: rotate(360deg); } }
+.people-pop { animation: people-pop .28s cubic-bezier(.2,.9,.3,1.3); }
+@keyframes people-pop { from { opacity: 0; transform: translateY(8px) scale(.97); } }
+.people-news { animation: people-pop .35s ease-out both; }
+.people-card { transition: transform .25s ease, border-color .25s ease; }
+.people-card:hover { transform: translateY(-3px); border-color: rgba(236,238,241,.22); }
+@media (prefers-reduced-motion: reduce) { .people-scan, .people-spin, .people-pop, .people-news { animation: none; } }

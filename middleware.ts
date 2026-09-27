@@ -27,6 +27,7 @@ export const config = {
     '/verify',
     '/verify/:path*',
     '/v2',
+    '/people',
   ],
 };
 
@@ -81,6 +82,12 @@ const PAGES: Record<string, PageMeta> = {
     image: '/og/card-whitepaper.jpg',
     alt: 'A glass panel showing a Merkle tree diagram, a fingerprint icon, and hex hashes. ObjectPad.fun — how ObjectPad works.',
   },
+  people: {
+    title: 'ObjectPad · PEOPLE — work in progress',
+    description: 'Scan yourself into a 3D double. Prove you’re alive. Link your wallet and socials. Fees route only to the verified human. Coming soon.',
+    image: '/og/card-people.jpg',
+    alt: 'Black and white banner: the word PEOPLE beside a human bust made of ASCII characters dissolving into triangle dust. ObjectPad.fun/people — work in progress.',
+  },
   v2: {
     title: 'ObjectPad · What’s new in V2',
     description: 'Anti-impersonation identity, Uniqueness v2, Object Vaults, and the white paper — see what shipped.',
@@ -99,6 +106,7 @@ function pageFor(pathname: string): PageMeta {
   if (pathname.startsWith('/vaults')) return PAGES.vaults;
   if (pathname === '/whitepaper' || pathname === '/docs' || pathname.startsWith('/verify')) return PAGES.whitepaper;
   if (pathname === '/v2') return PAGES.v2;
+  if (pathname === '/people') return PAGES.people;
   return PAGES.home;
 }
 

@@ -35,6 +35,7 @@ const Vaults = lazy(() => import('./pages/Vaults'));
 const VaultDetail = lazy(() => import('./pages/Vaults').then(module => ({ default: module.VaultDetail })));
 const Verify = lazy(() => import('./pages/Verify'));
 const Whitepaper = lazy(() => import('./pages/Whitepaper'));
+const People = lazy(() => import('./pages/People'));
 const AppShell = lazy(() => import('./app/AppShell'));
 const Docs = lazy(() => import('./pages/Information').then(module => ({ default: module.Docs })));
 const Safety = lazy(() => import('./pages/Information').then(module => ({ default: module.Safety })));
@@ -83,7 +84,7 @@ if (typeof window !== 'undefined') {
     location.reload();
   });
 }
-function NavigationEffects() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); const titles: Record<string, string> = { '/': 'The launchpad for real-world objects', '/vaults': 'Object Vaults', '/whitepaper': 'White paper', '/verify': 'Verify a coin', '/v2': 'V2 release notes', '/explore': 'Object coins', '/launch': 'Scan & launch free', '/provenance': 'Provenance', '/status': 'System status', '/safety': 'Safety and rights', '/docs': 'How it works', '/craft': 'Crafting Table', '/inventory': 'Inventory', '/burn': '$OBJECTPAD burn', '/earnings': 'Creator earnings', '/wallet': 'My wallet', '/download': 'Mobile apps', '/earn': 'Earn for verified posts', '/rewards': 'Paid Rewards', '/treasury': 'Launch treasury' }; document.title = `ObjectPad · ${titles[pathname] ?? 'The physical-object launchpad'}`; }, [pathname]); return null; }
+function NavigationEffects() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); const titles: Record<string, string> = { '/': 'The launchpad for real-world objects', '/vaults': 'Object Vaults', '/whitepaper': 'White paper', '/people': 'People · coming soon', '/verify': 'Verify a coin', '/v2': 'V2 release notes', '/explore': 'Object coins', '/launch': 'Scan & launch free', '/provenance': 'Provenance', '/status': 'System status', '/safety': 'Safety and rights', '/docs': 'How it works', '/craft': 'Crafting Table', '/inventory': 'Inventory', '/burn': '$OBJECTPAD burn', '/earnings': 'Creator earnings', '/wallet': 'My wallet', '/download': 'Mobile apps', '/earn': 'Earn for verified posts', '/rewards': 'Paid Rewards', '/treasury': 'Launch treasury' }; document.title = `ObjectPad · ${titles[pathname] ?? 'The physical-object launchpad'}`; }, [pathname]); return null; }
 /** /launch/<session uuid> is the live studio; /launch/<64-hex record id> is the launch status of a sealed record. */
 function LaunchRoute() { const { id = '' } = useParams(); return /^[a-f0-9]{64}$/.test(id) ? <LaunchReview/> : <Studio/>; }
 function Legacy({ to }: { to: string }) { const { id = '' } = useParams(); return <Navigate to={to.replace(':id', id)} replace/>; }
@@ -130,6 +131,7 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="verify" element={<Verify/>}/>
   <Route path="verify/:id" element={<Verify/>}/>
   <Route path="whitepaper" element={<Whitepaper/>}/>
+  <Route path="people" element={<People/>}/>
   <Route path="changelog" element={<Navigate to="/v2" replace/>}/>
   <Route path="*" element={<div className="page py-24"><h1 className="display text-5xl">Nothing here.</h1><p className="mt-4 text-muted">This page doesn’t exist, or the coin isn’t live yet.</p><Link to="/explore" className="mt-6 inline-flex min-h-11 items-center btn px-6 font-semibold ">Explore coins</Link></div>}/>
 </Route></Routes></Suspense></Boundary></BrowserRouter></LanguageProvider></PreferencesProvider></SocialProvider></AuthBoundary><Analytics/></QueryClientProvider>; }
