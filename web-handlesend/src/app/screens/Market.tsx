@@ -7,8 +7,8 @@ import type { ObjectCoin, ObjectRecord } from '@/shared/domain';
 import { api } from '@/lib/api';
 import { readCurve, quoteBuy, quoteSell, withSlippage, ensureAllowance, prepareTx, waitForReceipt, parseAmount, type CurveState } from '@/lib/chain';
 import { useHolders, type CoinTrade } from '@/lib/coins';
-import { buyPairedWithEth, quotePairedBuy } from '@/lib/pairs';
-import { CURVE_ABI } from '@/shared/pons';
+import { buyPairedWithAsset, buyPairedWithEth, quotePairedBuy, sellAssetForEth } from '@/lib/pairs';
+import { CURVE_ABI, ERC20_ABI } from '@/shared/pons';
 import { useApp } from '../store';
 import { isNsfwCoin } from '@/shared/nsfw';
 import { Feedback } from '../feedback';
@@ -151,15 +151,15 @@ export function CoinDetailView() {
 function TradeSheet({ coin, side: initial, curve, onClose, onDone }: { coin: ObjectCoin; side: 'buy' | 'sell' | null; curve: CurveState | undefined; onClose: () => void; onDone: () => void }) {
   const app = useApp(); const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amount, setAmount] = useState<string>(''); const [slippage, setSlippage] = useState<number>(300);
   const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [hash, setHash] = useState<string | null>(null); const [done, setDone] = useState<boolean>(false);
-  const [bal, setBal] = useState<{ eth: bigint; tokens: bigint } | null>(null); const [quote, setQuote] = useState<bigint | null>(null);
+  const [bal, setBal] = useState<{ eth: bigint; tokens: bigint } | null>(null); const [quote, setQuote] = useState<bigint | null>(null); const [asset, setAsset] = useState<bigint>(0n);
   const open = initial !== null; const units = parseAmount(amount); const wallet = app.activeWallet;
   useEffect(() => { if (open) { setSide(initial ?? 'buy'); setAmount(''); setDone(false); setError(null); setHash(null); } }, [open, initial]);
-  useEffect(() => { if (!open || !wallet) return; let c = false; void (async () => { try { const { chain } = await import('@/lib/chain'); const [eth, tokens] = await Promise.all([chain.getBalance({ address: wallet }), app.tokenBalance(coin.token, wallet)]); if (!c) setBal({ eth, tokens }); } catch { /* shown as … */ } })(); return () => { c = true; }; }, [open, wallet, coin.token, done]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!open || !wallet) return; let c = false; void (async () => { try { const { chain } = await import('@/lib/chain'); const [eth, tokens] = await Promise.all([chain.getBalance({ address: wallet }), app.tokenBalance(coin.token, wallet)]); if (!c) setBal({ eth, tokens }); if (coin.pair) { const a = await chain.readContract({ address: coin.pair.address as Address, abi: ERC20_ABI, functionName: 'balanceOf', args: [wallet] }); if (!c) setAsset(a); } } catch { /* shown as … */ } })(); return () => { c = true; }; }, [open, wallet, coin.token, done, busy]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setQuote(null); if (!units || !open) return; let c = false;
     const t = setTimeout(async () => { try {
       const p = coin.pair ? app.pair(coin.pair.address) : undefined;
-      const q = side === 'buy' ? (coin.pair && p ? (await quotePairedBuy(p, coin.curve as Address, units, app.pairs?.router.quoter)).tokensOut : await quoteBuy(coin.curve as Address, units)) : wallet ? await quoteSell(coin.curve as Address, wallet, units) : null;
+      const q = side === 'buy' ? (coin.pair && p ? (await quotePairedBuy(p, coin.curve as Address, units, app.pairs?.router.quoter)).tokensOut : await quoteBuy(coin.curve as Address, units)) : wallet ? await quoteSell(coin.curve as Address, wallet, units, coin.token as Address) : null;
       if (!c) setQuote(q);
     } catch { if (!c) setQuote(null); } }, 350);
     return () => { c = true; clearTimeout(t); };
@@ -174,7 +174,7 @@ function TradeSheet({ coin, side: initial, curve, onClose, onDone }: { coin: Obj
         setHash(h);
       } else {
         setBusy('Quoting…');
-        const expected = side === 'buy' ? await quoteBuy(coin.curve as Address, units) : await quoteSell(coin.curve as Address, signer.address, units); const minimum = withSlippage(expected, slippage);
+        const expected = side === 'buy' ? await quoteBuy(coin.curve as Address, units) : await quoteSell(coin.curve as Address, signer.address, units, coin.token as Address); const minimum = withSlippage(expected, slippage);
         if (minimum <= 0n) throw new Error('The curve would return nothing for this amount.');
         if (side === 'sell') { setBusy('Approving…'); await ensureAllowance(signer.address, coin.token as Address, coin.curve as Address, units, send); }
         setBusy(side === 'buy' ? 'Buying…' : 'Selling…');
@@ -185,10 +185,25 @@ function TradeSheet({ coin, side: initial, curve, onClose, onDone }: { coin: Obj
     } catch (e) { setError((e instanceof Error ? e.message : 'The trade didn’t go through.').split('\n')[0]); Feedback.error(); }
     setBusy(null);
   };
+  const recover = async (mode: 'finish' | 'eth') => {
+    const p = coin.pair ? app.pair(coin.pair.address) : undefined; if (!p || asset <= 0n) return; setError(null);
+    try {
+      const signer = app.signer(); const send = (tx: Parameters<typeof signer.sendPrepared>[0]): Promise<Hex> => signer.sendPrepared(tx);
+      setBusy(mode === 'finish' ? `Buying $${coin.symbol} with ${p.symbol}…` : `Swapping ${p.symbol} → ETH…`);
+      const h = mode === 'finish' ? await buyPairedWithAsset({ wallet: signer.address, pair: p, curve: coin.curve as Address, amount: asset, slippageBps: slippage, send }) : await sellAssetForEth({ wallet: signer.address, pair: p, amount: asset, slippageBps: slippage, send, router: app.pairs?.router.swapRouter, quoter: app.pairs?.router.quoter });
+      setHash(h); setAsset(0n); Feedback.success('coins'); app.show(mode === 'finish' ? 'Buy finished' : 'Swapped back to ETH'); onDone();
+    } catch (e) { setError((e instanceof Error ? e.message : 'That didn’t go through.').split('\n')[0]); Feedback.error(); }
+    setBusy(null);
+  };
   const max = () => { if (side === 'buy') { if (bal) { const v = bal.eth - 3_000_000_000_000_000n; setAmount(v > 0n ? Fmt.units(v, 6).replace(/,/g, '') : ''); } } else if (bal) setAmount(Fmt.units(bal.tokens, 4).replace(/,/g, '')); };
   return <Sheet open={open} onClose={onClose}><div className="flex min-h-full flex-col gap-4 px-[18px]">
     <div className="flex items-center gap-3"><CoinAvatar url={coin.logo} symbol={coin.symbol} size={46}/><div><p className="text-[18px] font-extrabold">${coin.symbol}</p><p className="ap-mono text-[12px] font-bold text-[#6A6E78]">{Fmt.price(curve?.priceEth ?? coin.priceEth, app.ethUsd)}</p></div></div>
     {coin.pair && <div className="flex items-center gap-2 rounded-2xl bg-[#FFF8E6] p-2.5 ring-1 ring-[#F5C542]/50"><CoinAvatar url={coin.pair.logo} symbol={coin.pair.symbol} size={24}/><div><p className="text-[13px] font-extrabold">Paired with {coin.pair.symbol}</p><p className="text-[11.5px] font-semibold text-[#6A6E78]">{side === 'buy' ? `Pay with ETH · routed on-chain into ${coin.pair.symbol} (3 confirmations)` : `Sells pay out in ${coin.pair.symbol}`}</p></div></div>}
+    {coin.pair && asset > 0n && !done && <div className="flex flex-col gap-2 rounded-2xl bg-[#2F7BF2]/[0.07] p-3 ring-1 ring-[#2F7BF2]/30">
+      <p className="text-[13.5px] font-extrabold">You hold {Fmt.units(asset, 6)} {coin.pair.symbol}</p>
+      <p className="text-[12px] font-semibold leading-4 text-[#6A6E78]">Left over from a buy that stopped after the swap step. It’s safe in your wallet. Finish the buy or swap it back to ETH.</p>
+      <div className="grid grid-cols-2 gap-2"><PadButton title="Finish buy" kind="up" height={44} busy={busy !== null} onClick={() => void recover('finish')}/><PadButton title="Swap to ETH" height={44} busy={busy !== null} onClick={() => void recover('eth')}/></div>
+    </div>}
     <InkSegmented options={[['buy', 'Buy'], ['sell', 'Sell']]} value={side} onChange={v => { setSide(v); setAmount(''); }}/>
     {done ? <div className="relative flex flex-1 flex-col items-center justify-center gap-2.5 py-10">
       <ConfettiBurst/><CheckCircle2 size={64} fill={PAD.up} stroke="#fff" className="ap-bounce"/><Display size={34}>{side === 'buy' ? 'Bought.' : 'Sold.'}</Display>

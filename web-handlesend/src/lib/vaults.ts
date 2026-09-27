@@ -152,7 +152,7 @@ export async function executeBasketSell(opts: { wallet: Address; vault: Vault; p
     const balance = await chain.readContract({ address: c.token as Address, abi: ERC20_ABI, functionName: 'balanceOf', args: [wallet] }).catch(() => 0n);
     const amount = balance * BigInt(percent) / 100n; if (amount <= 0n) continue;
     onPhase?.(`Selling $${c.symbol}…`);
-    const out = await quoteSell(c.curve as Address, wallet, amount); const min = withSlippage(out, ceilingBps); if (min <= 0n) continue;
+    const out = await quoteSell(c.curve as Address, wallet, amount, c.token as Address); const min = withSlippage(out, ceilingBps); if (min <= 0n) continue;
     await ensureAllowance(wallet, c.token as Address, c.curve as Address, amount, send);
     const hash = await send(await prepareTx(wallet, { to: c.curve as Address, data: encodeFunctionData({ abi: CURVE_ABI, functionName: 'sell', args: [amount, min, wallet] }) }));
     const rc = await waitForReceipt(hash); hashes.push(hash); gas += Number(formatEther(rc.gasUsed * rc.effectiveGasPrice)); block = rc.blockNumber;

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { concatHex, decodeFunctionResult, encodeFunctionData, numberToHex, parseAbi, type Address, type Hex } from 'viem';
+import { concatHex, decodeFunctionResult, encodeFunctionData, formatUnits, numberToHex, parseAbi, type Address, type Hex } from 'viem';
 import { api } from './api';
 import { chain, ensureAllowance, prepareTx, waitForReceipt, withSlippage, type PreparedTx } from './chain';
 import { CURVE_ABI, ERC20_ABI } from '@/shared/pons';
@@ -77,8 +77,32 @@ export async function buyPairedWithEth(opts: { wallet: Address; pair: PairQuote;
   onStep?.(1); const swapHash = await send(await prepareTx(wallet, { to: router, data: encodeFunctionData({ abi: ROUTER_ABI, functionName: 'multicall', args: [deadline, [swap]] }), value: ethIn })); await waitForReceipt(swapHash); onStep?.(1, swapHash);
   const after = await chain.readContract({ address: stock, abi: ERC20_ABI, functionName: 'balanceOf', args: [wallet] }); const received = after - before;
   if (received <= 0n) throw new Error(`The swap to ${pair.symbol} returned nothing.`);
-  return buyPairedWithAsset({ wallet, pair, curve, amount: received, slippageBps, send, onStep });
+  try { return await buyPairedWithAsset({ wallet, pair, curve, amount: received, slippageBps, send, onStep }); }
+  catch (error) {
+    const why = (error instanceof Error ? error.message : '').split('\n')[0];
+    throw new Error(`Your ETH was swapped into ${formatUnits(received, pair.decimals).slice(0, 10)} ${pair.symbol}, which is safe in your wallet. The coin buy didn’t finish${why ? ` (${why.slice(0, 80)})` : ''}. Use “Finish buy” or “Swap back to ETH” above.`);
+  }
 }
+
+/** Pair-asset (e.g. AAPL) → ETH on Uniswap V3 using the reverse of the buy route; ETH is unwrapped straight to the wallet. */
+export async function quoteAssetToEth(pair: PairQuote, amount: bigint, quoter?: string): Promise<bigint> {
+  if (!pair.route) throw new Error(`No on-chain route from ${pair.symbol} right now.`);
+  return quotePath([...pair.route.tokens].reverse(), [...pair.route.fees].reverse(), amount, quoter);
+}
+export async function sellAssetForEth(opts: { wallet: Address; pair: PairQuote; amount: bigint; slippageBps: number; send: Send; router?: string; quoter?: string }): Promise<Hex> {
+  const { wallet, pair, amount, slippageBps, send } = opts; const router = (opts.router ?? ROUTER_FALLBACK.swapRouter) as Address;
+  if (!pair.route) throw new Error(`No on-chain route from ${pair.symbol} right now.`);
+  const tokens = [...pair.route.tokens].reverse(); const fees = [...pair.route.fees].reverse();
+  const quoted = await quotePath(tokens, fees, amount, opts.quoter); const minimum = withSlippage(quoted, slippageBps); if (minimum <= 0n) throw new Error('The pool would return nothing for this amount.');
+  await ensureAllowance(wallet, pair.address as Address, router, amount, send);
+  const swap = encodeFunctionData({ abi: ROUTER_ABI, functionName: 'exactInput', args: [{ path: encodePath(tokens, fees), recipient: ROUTER_SELF, amountIn: amount, amountOutMinimum: minimum }] });
+  const unwrap = encodeFunctionData({ abi: ROUTER_ABI, functionName: 'unwrapWETH9', args: [minimum, wallet] });
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  const hash = await send(await prepareTx(wallet, { to: router, data: encodeFunctionData({ abi: ROUTER_ABI, functionName: 'multicall', args: [deadline, [swap, unwrap]] }) }));
+  await waitForReceipt(hash); return hash;
+}
+/** SwapRouter02 sentinel: recipient 2 = keep output in the router so unwrapWETH9 can pay out native ETH. */
+const ROUTER_SELF: Address = '0x0000000000000000000000000000000000000002';
 /** Buy a stock-paired coin with the pair asset the buyer already holds (approve exactly, then curve.buy). */
 export async function buyPairedWithAsset(opts: { wallet: Address; pair: PairQuote; curve: Address; amount: bigint; slippageBps: number; send: Send; onStep?: (step: 1 | 2 | 3, hash?: Hex) => void }): Promise<Hex> {
   const { wallet, pair, curve, amount, slippageBps, send, onStep } = opts; const stock = pair.address as Address;

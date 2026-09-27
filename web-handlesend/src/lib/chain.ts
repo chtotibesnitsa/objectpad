@@ -35,12 +35,23 @@ export async function quoteBuy(curve: Address, quoteIn: bigint): Promise<bigint>
   if (!result.data) throw new Error('The curve returned no quote.');
   return decodeAbiParameters([{ type: 'uint256' }], result.data)[0];
 }
-/** Exact sell output simulated from the seller's own balance and allowance. */
-export async function quoteSell(curve: Address, seller: Address, tokensIn: bigint): Promise<bigint> {
-  const result = await chain.call({ to: curve, account: seller, data: encodeFunctionData({ abi: CURVE_ABI, functionName: 'sell', args: [tokensIn, 0n, seller] }) });
-  if (!result.data) throw new Error('The curve returned no quote.');
-  return decodeAbiParameters([{ type: 'uint256' }], result.data)[0];
+/**
+ * Exact sell output from the seller's own balance. A first sell has no allowance yet, so a bare eth_call reverts;
+ * in that case the approve + sell pair is simulated together (eth_simulateV1), exactly as the wallet will send it.
+ */
+export async function quoteSell(curve: Address, seller: Address, tokensIn: bigint, token?: Address): Promise<bigint> {
+  const sell = encodeFunctionData({ abi: CURVE_ABI, functionName: 'sell', args: [tokensIn, 0n, seller] });
+  try {
+    const result = await chain.call({ to: curve, account: seller, data: sell });
+    if (result.data) return decodeAbiParameters([{ type: 'uint256' }], result.data)[0];
+  } catch (error) { if (!token) throw error; }
+  const coin = token ?? await chain.readContract({ address: curve, abi: CURVE_TOKEN_ABI, functionName: 'token' });
+  const sim = await chain.simulateCalls({ account: seller, calls: [{ to: coin, data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'approve', args: [curve, tokensIn] }) }, { to: curve, data: sell }] });
+  const out = sim.results[1];
+  if (out?.status !== 'success' || !out.data || out.data === '0x') throw new Error('The curve returned no quote.');
+  return decodeAbiParameters([{ type: 'uint256' }], out.data)[0];
 }
+const CURVE_TOKEN_ABI = parseAbi(['function token() view returns (address)']);
 export const withSlippage = (amount: bigint, bps: number): bigint => amount * BigInt(10_000 - bps) / 10_000n;
 
 export interface PreparedTx { to: Address; data: Hex; value: bigint; gas: bigint; }

@@ -7,7 +7,7 @@ import { chain, ensureAllowance, formatEth, formatTokens, parseAmount, prepareTx
 import { usePreferences } from '@/hooks/use-preferences';
 import { CURVE_ABI, ERC20_ABI, explorerTx } from '@/shared/pons';
 import { cn } from '@/lib/utils';
-import { buyPairedWithEth, isEthPair, quotePairedBuy, usePair, usePairs } from '@/lib/pairs';
+import { buyPairedWithAsset, buyPairedWithEth, isEthPair, quoteAssetToEth, quoteCurveBuy, quotePairedBuy, sellAssetForEth, usePair, usePairs } from '@/lib/pairs';
 import { PairLogo } from './PairBadge';
 import { formatUnits } from 'viem';
 
@@ -40,11 +40,18 @@ function PairedTradePanel({ token, curve, symbol, state, pairToken }: { token: A
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amount, setAmount] = useState<string>(''); const [slippage, setSlippage] = useState<number>(300); const [lastHash, setLastHash] = useState<Hex | null>(null); const [step, setStep] = useState<number>(0);
   const units = parseAmount(amount); const sym = pair?.symbol ?? 'asset'; const dec = pair?.decimals ?? 18;
   const balances = useQuery({ queryKey: ['objectpad', 'balances', token, auth.wallet, pairToken], enabled: Boolean(auth.wallet), queryFn: async () => { const owner = auth.wallet!; const [eth, tokens, asset] = await Promise.all([chain.getBalance({ address: owner }), chain.readContract({ address: token, abi: ERC20_ABI, functionName: 'balanceOf', args: [owner] }), chain.readContract({ address: pairToken as Address, abi: ERC20_ABI, functionName: 'balanceOf', args: [owner] })]); return { eth, tokens, asset }; }, refetchInterval: 20_000 });
-  const quote = useQuery({ queryKey: ['objectpad', 'pquote', curve, side, units?.toString(), auth.wallet], enabled: Boolean(units && pair && !state?.graduated && (side === 'buy' || auth.wallet)), queryFn: async () => side === 'buy' ? (await quotePairedBuy(pair!, curve, units!, board.data?.router.quoter)).tokensOut : quoteSell(curve, auth.wallet!, units!), retry: false, staleTime: 8_000 });
+  const quote = useQuery({ queryKey: ['objectpad', 'pquote', curve, side, units?.toString(), auth.wallet], enabled: Boolean(units && pair && !state?.graduated && (side === 'buy' || auth.wallet)), queryFn: async () => side === 'buy' ? (await quotePairedBuy(pair!, curve, units!, board.data?.router.quoter)).tokensOut : quoteSell(curve, auth.wallet!, units!, token), retry: false, staleTime: 8_000 });
+  const held = balances.data?.asset ?? 0n;
+  const recoverQuote = useQuery({ queryKey: ['objectpad', 'recover', curve, held.toString()], enabled: Boolean(pair && held > 0n && !state?.graduated), queryFn: async () => ({ tokens: await quoteCurveBuy(curve, held), eth: await quoteAssetToEth(pair!, held, board.data?.router.quoter).catch(() => null) }), retry: false, staleTime: 15_000 });
+  const recover = useMutation({ mutationFn: async (mode: 'finish' | 'eth') => {
+    if (!auth.wallet || !pair || held <= 0n) throw new Error('Nothing to recover.');
+    return mode === 'finish' ? buyPairedWithAsset({ wallet: auth.wallet, pair, curve, amount: held, slippageBps: slippage, send: auth.send, onStep: (_s, h) => { if (h) setLastHash(h); } })
+      : sellAssetForEth({ wallet: auth.wallet, pair, amount: held, slippageBps: slippage, send: auth.send, router: board.data?.router.swapRouter, quoter: board.data?.router.quoter });
+  }, onSuccess: hash => { setLastHash(hash); play('launch'); void qc.invalidateQueries({ queryKey: ['objectpad', 'balances', token] }); void qc.invalidateQueries({ queryKey: ['objectpad', 'curve', curve] }); void qc.invalidateQueries({ queryKey: ['objectpad', 'trades', curve] }); } });
   const trade = useMutation({ mutationFn: async () => {
     if (!auth.wallet || !units || !pair) throw new Error('Connect a wallet and enter an amount.');
     if (side === 'buy') return buyPairedWithEth({ wallet: auth.wallet, pair, curve, ethIn: units, slippageBps: slippage, send: auth.send, router: board.data?.router.swapRouter, quoter: board.data?.router.quoter, onStep: (s, h) => { setStep(s); if (h) setLastHash(h); } });
-    const expected = await quoteSell(curve, auth.wallet, units); const minimum = withSlippage(expected, slippage); if (minimum <= 0n) throw new Error('The curve would return nothing for this amount.');
+    const expected = await quoteSell(curve, auth.wallet, units, token); const minimum = withSlippage(expected, slippage); if (minimum <= 0n) throw new Error('The curve would return nothing for this amount.');
     await ensureAllowance(auth.wallet, token, curve, units, auth.send);
     const hash = await auth.send(await prepareTx(auth.wallet, { to: curve, data: encodeFunctionData({ abi: CURVE_ABI, functionName: 'sell', args: [units, minimum, auth.wallet] }) })); setLastHash(hash); await waitForReceipt(hash); return hash;
   }, onSettled: () => setStep(0), onSuccess: () => { play('launch'); setAmount(''); void qc.invalidateQueries({ queryKey: ['objectpad', 'balances', token] }); void qc.invalidateQueries({ queryKey: ['objectpad', 'curve', curve] }); void qc.invalidateQueries({ queryKey: ['objectpad', 'trades', curve] }); } });
@@ -53,6 +60,16 @@ function PairedTradePanel({ token, curve, symbol, state, pairToken }: { token: A
   const steps = [`Swap ETH → ${sym}`, `Approve ${sym}`, `Buy $${symbol}`];
   return <div>
     <div className="mb-3 flex items-center gap-2 rounded-2xl bg-[#FFF8E6] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(217,165,33,.45)]"><PairLogo src={pair?.logo} symbol={sym} size={26}/><span className="min-w-0 flex-1 text-[13px] font-extrabold">Paired with {sym}<span className="block text-[11.5px] font-semibold text-ink/60">Pay with ETH · routed on-chain into {sym}</span></span>{balances.data && <span className="font-mono text-[11px] font-bold text-ink/60">{Number(formatUnits(balances.data.asset, dec)).toLocaleString('en', { maximumFractionDigits: 4 })} {sym}</span>}</div>
+    {held > 0n && auth.wallet && !state?.graduated && <div className="mb-3 rounded-2xl border-2 border-blue/30 bg-blue/[0.06] p-3.5" role="status">
+      <p className="text-[13.5px] font-extrabold">You hold {Number(formatUnits(held, dec)).toLocaleString('en', { maximumFractionDigits: 6 })} {sym} in this wallet</p>
+      <p className="mt-0.5 text-[12px] font-semibold leading-4 text-ink/60">A {sym} token on Robinhood Chain, left over from a buy that stopped after the swap step. It’s yours. Use it to finish buying ${symbol}, or swap it back to ETH.</p>
+      <div className="mt-2.5 grid grid-cols-2 gap-2">
+        <button type="button" disabled={recover.isPending} onClick={() => recover.mutate('finish')} className="press min-h-11 rounded-xl bg-up px-2 text-[13px] font-extrabold text-white disabled:opacity-40">{recover.isPending && recover.variables === 'finish' ? 'Confirm in wallet…' : `Finish buy${recoverQuote.data ? ` · ${formatTokens(recoverQuote.data.tokens)}` : ''}`}</button>
+        <button type="button" disabled={recover.isPending} onClick={() => recover.mutate('eth')} className="press min-h-11 rounded-xl bg-ink px-2 text-[13px] font-extrabold text-white disabled:opacity-40">{recover.isPending && recover.variables === 'eth' ? 'Confirm in wallet…' : `Swap back${recoverQuote.data?.eth ? ` · ${formatEth(recoverQuote.data.eth)} ETH` : ' to ETH'}`}</button>
+      </div>
+      {recover.isError && <p role="alert" className="mt-2 text-[12.5px] font-bold text-down">{recover.error.message.split('\n')[0]}</p>}
+      {recover.isSuccess && <p className="mt-2 text-[12.5px] font-bold text-up">Done. Check your balance above.</p>}
+    </div>}
     <SideSwitch side={side} onChange={v => { setSide(v); setAmount(''); }}/>
     {state?.graduated ? <p className="mt-4 rounded-2xl bg-ink/[0.06] p-4 text-[15px] font-bold text-ink/75">This coin graduated off its curve. Curve trades are closed.</p> : <>
       <div className="mt-4 rounded-[18px] border-2 border-ink/10 bg-white p-4 focus-within:border-ink">
@@ -66,7 +83,7 @@ function PairedTradePanel({ token, curve, symbol, state, pairToken }: { token: A
       {!auth.configured ? <p className="mt-4 rounded-2xl bg-ink/[0.06] p-4 text-[14px] font-bold text-ink/70">Trading sign-in isn’t switched on yet.</p>
         : !auth.authenticated ? <button type="button" className="press mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-[18px] bg-ink text-[16px] font-extrabold text-white" onClick={() => auth.login()}><Wallet size={18}/>Connect to trade</button>
         : <button type="button" className={cn('press mt-4 flex min-h-14 w-full items-center justify-center rounded-[18px] text-[16px] font-extrabold text-white disabled:opacity-40', side === 'buy' ? 'bg-up' : 'bg-down')} disabled={!units || insufficient || trade.isPending || quote.isError || !pair} onClick={() => trade.mutate()}>{trade.isPending ? 'Confirm in wallet…' : insufficient ? 'Not enough balance' : side === 'buy' ? `Buy $${symbol} with ETH` : `Sell $${symbol} for ${sym}`}</button>}
-      <p className="mt-3 text-[12.5px] font-semibold leading-5 text-ink/60">Buys take up to 3 wallet confirmations: swap, approve, buy. Sells pay out in {sym}.</p>
+      <p className="mt-3 text-[12.5px] font-semibold leading-5 text-ink/60">Buys take up to 3 wallet confirmations: swap, approve, buy. Sells pay out in {sym}. {sym} here is a Robinhood Chain token that the coin trades against. Buying ${symbol} does not buy {sym} shares or give you any claim on the company.</p>
     </>}
     {trade.isError && <p role="alert" className="mt-3 text-[14px] font-bold text-down">{trade.error.message.split('\n')[0]}</p>}
     {lastHash && <a href={explorerTx(lastHash)} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-2 text-[13px] font-extrabold text-ink underline">{trade.isSuccess ? 'Confirmed' : 'Submitted'} · view receipt<ArrowUpRight size={13}/></a>}
@@ -78,10 +95,10 @@ function EthTradePanel({ token, curve, symbol, state }: { token: Address; curve:
   const [side, setSide] = useState<'buy' | 'sell'>('buy'); const [amount, setAmount] = useState<string>(''); const [slippage, setSlippage] = useState<number>(300); const [lastHash, setLastHash] = useState<Hex | null>(null); const [picked, setPicked] = useState<number | null>(null);
   const units = parseAmount(amount);
   const balances = useQuery({ queryKey: ['objectpad', 'balances', token, auth.wallet], enabled: Boolean(auth.wallet), queryFn: async () => { const owner = auth.wallet!; const [eth, tokens] = await Promise.all([chain.getBalance({ address: owner }), chain.readContract({ address: token, abi: ERC20_ABI, functionName: 'balanceOf', args: [owner] })]); return { eth, tokens }; }, refetchInterval: 20_000 });
-  const quote = useQuery({ queryKey: ['objectpad', 'quote', curve, side, units?.toString(), auth.wallet], enabled: Boolean(units && !state?.graduated && (side === 'buy' || auth.wallet)), queryFn: () => side === 'buy' ? quoteBuy(curve, units!) : quoteSell(curve, auth.wallet!, units!), retry: false, staleTime: 8_000 });
+  const quote = useQuery({ queryKey: ['objectpad', 'quote', curve, side, units?.toString(), auth.wallet], enabled: Boolean(units && !state?.graduated && (side === 'buy' || auth.wallet)), queryFn: () => side === 'buy' ? quoteBuy(curve, units!) : quoteSell(curve, auth.wallet!, units!, token), retry: false, staleTime: 8_000 });
   const trade = useMutation({ mutationFn: async () => {
     if (!auth.wallet || !units) throw new Error('Connect a wallet and enter an amount.');
-    const expected = side === 'buy' ? await quoteBuy(curve, units) : await quoteSell(curve, auth.wallet, units); const minimum = withSlippage(expected, slippage);
+    const expected = side === 'buy' ? await quoteBuy(curve, units) : await quoteSell(curve, auth.wallet, units, token); const minimum = withSlippage(expected, slippage);
     if (minimum <= 0n) throw new Error('The curve would return nothing for this amount.');
     if (side === 'sell') await ensureAllowance(auth.wallet, token, curve, units, auth.send);
     const data = encodeFunctionData({ abi: CURVE_ABI, functionName: side, args: [units, minimum, auth.wallet] });

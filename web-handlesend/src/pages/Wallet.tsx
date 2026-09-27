@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { chain, parseAmount } from '@/lib/chain';
+import { ERC20_ABI, explorerTx } from '@/shared/pons';
+import { sellAssetForEth, usePairs } from '@/lib/pairs';
+import { PairLogo } from '@/components/PairBadge';
 import { QRCodeSVG } from 'qrcode.react';
-import { formatEther, type Address } from 'viem';
+import { formatEther, formatUnits, type Address } from 'viem';
 import { ArrowDownLeft, ArrowUpRight, Check, Coins, Copy, ExternalLink, Flame, LoaderCircle, Plus, Repeat, ShieldCheck, Sparkles, Wallet as WalletIcon, X } from 'lucide-react';
 import { ErrorState, Loading, OperatorNotice } from '@/components/Feedback';
 import { GlassIcon } from '@/components/GlassIcon';
@@ -10,9 +14,7 @@ import { useSession } from '@/lib/session';
 import { useMarket } from '@/lib/market';
 import { ACCOUNT_KEY, useAccount, type AccountWallet } from '@/lib/account';
 import { ACTIVITY_KEY, claimCreatorShare, maxSendable, recordActivity, sendEth, splitFees, useCountUp, useSigner, useWalletActivity, type ClaimStep, type WalletActivity } from '@/lib/wallet';
-import { parseAmount } from '@/lib/chain';
 import { copyText, shortAddress, timeAgo, usd } from '@/lib/format';
-import { explorerTx } from '@/shared/pons';
 import { validAddress } from '@/shared/security';
 import { cn } from '@/lib/utils';
 
@@ -94,6 +96,28 @@ function ClaimSheet({ wallet, treasury, ethUsd, onClose }: { wallet: AccountWall
   </SheetFrame>;
 }
 
+/** Robinhood Chain stock tokens (AAPL, NVDA…) held by a wallet, read straight from each token contract. */
+function StockTokens({ address }: { address: string }) {
+  const board = usePairs(); const signerFor = useSigner(); const signer = signerFor(address); const qc = useQueryClient();
+  const assets = useMemo(() => (board.data?.assets ?? []).filter(a => a.kind !== 'native' && /^0x[a-fA-F0-9]{40}$/.test(a.address)), [board.data]);
+  const held = useQuery({ queryKey: ['objectpad', 'stock-tokens', address, assets.length], enabled: assets.length > 0, refetchInterval: 30_000, queryFn: async () => {
+    const res = await chain.multicall({ allowFailure: true, contracts: assets.map(a => ({ address: a.address as Address, abi: ERC20_ABI, functionName: 'balanceOf' as const, args: [address as Address] })) });
+    return assets.map((a, i) => ({ asset: a, balance: res[i].status === 'success' ? res[i].result as bigint : 0n })).filter(x => x.balance > 0n);
+  } });
+  const swap = useMutation({ mutationFn: async (symbol: string) => { const row = held.data?.find(x => x.asset.symbol === symbol); if (!row || !signer) throw new Error('This wallet’s key isn’t on this device.'); return sellAssetForEth({ wallet: signer.address, pair: row.asset, amount: row.balance, slippageBps: 300, send: signer.send, router: board.data?.router.swapRouter, quoter: board.data?.router.quoter }); }, onSuccess: () => { void qc.invalidateQueries({ queryKey: ['objectpad', 'stock-tokens', address] }); void qc.invalidateQueries({ queryKey: ACCOUNT_KEY }); } });
+  if (!held.data?.length) return null;
+  return <section className="mt-8"><div className="flex items-center justify-between"><h2 className="text-[20px] font-extrabold">Stock tokens</h2><span className="font-mono text-[11.5px] font-bold uppercase text-ink/50">Robinhood Chain</span></div>
+    <p className="mt-1 text-[12.5px] font-semibold text-ink/55">Tokens that paired coins trade against. They’re yours and sit in this wallet. Swap them to ETH at any time.</p>
+    <div className="raised mt-3 divide-y divide-ink/[0.06] rounded-[24px] p-2">{held.data.map(({ asset, balance }) => { const n = Number(formatUnits(balance, asset.decimals)); return <div key={asset.address} className="flex items-center gap-3 p-2.5">
+      <PairLogo src={asset.logo} symbol={asset.symbol} size={40}/>
+      <span className="min-w-0 flex-1"><span className="block text-[14px] font-extrabold">{n.toLocaleString('en', { maximumFractionDigits: 6 })} {asset.symbol}</span><span className="block truncate font-mono text-[11.5px] text-ink/55">{asset.priceEth ? `≈ ${ethText(n * asset.priceEth, 5)} ETH` : asset.name}{asset.priceUsd ? ` · ${usd(n * asset.priceUsd)}` : ''}</span></span>
+      <button onClick={() => swap.mutate(asset.symbol)} disabled={!signer || swap.isPending} className="btn press min-h-10 shrink-0 px-3.5 text-[12.5px] disabled:opacity-40">{swap.isPending && swap.variables === asset.symbol ? <LoaderCircle size={14} className="animate-spin"/> : 'Swap to ETH'}</button>
+    </div>; })}</div>
+    {swap.isError && <p role="alert" className="mt-2 text-xs font-bold text-down">{errText(swap.error)}</p>}
+    {swap.data && <a href={explorerTx(swap.data)} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-1 font-mono text-[12px] font-bold text-up underline">Swapped · view receipt<ExternalLink size={12}/></a>}
+  </section>;
+}
+
 const KIND: Record<WalletActivity['kind'], { label: string; icon: typeof ArrowDownLeft; sign: string }> = {
   deposit: { label: 'Deposit', icon: ArrowDownLeft, sign: '+' }, withdraw: { label: 'Withdrawal', icon: ArrowUpRight, sign: '−' }, transfer: { label: 'Moved between wallets', icon: Repeat, sign: '' },
   claim: { label: 'Creator fees claimed', icon: Coins, sign: '+' }, protocol_share: { label: 'Burn + holders share', icon: Flame, sign: '−' },
@@ -138,6 +162,8 @@ export default function Wallet() {
             {!me.wallets.length && <div className="sunk rounded-[24px] p-5 text-[13px] font-bold text-ink/60">No wallet on this account yet. <Link to="/earnings#wallets" className="underline">Link one</Link>.</div>}
           </div>
         </section>
+
+        {wallet && <StockTokens address={wallet.address}/>}
 
         <section className="mt-8"><div className="flex items-center justify-between"><h2 className="text-[20px] font-extrabold">Activity</h2><span className="font-mono text-[11.5px] font-bold uppercase text-ink/50">Verified on-chain</span></div>
           {activity.isPending ? <div className="raised mt-3 space-y-2 rounded-[24px] p-3">{[0, 1, 2].map(i => <div key={i} className="h-14 animate-pulse rounded-2xl bg-ink/[0.05]"/>)}</div>

@@ -465,6 +465,17 @@ html.chat-docked .dock-lang-compact, html.chat-docked .dock-account-compact { di
 
 /* Translated text is longer/shorter than the English it replaces: let hero lines wrap instead of clipping. */
 html.translated h1, html.translated h1 *, html.translated h2 * { white-space: normal !important; overflow-wrap: anywhere; }
+/* Tight display metrics are tuned for Latin caps; translated scripts (CJK, Thai, Arabic, Cyrillic) need air. */
+html.translated .display, html.translated .display-wide { letter-spacing: -0.01em; line-height: 1.14; font-stretch: 100%; }
+html.translated :is(h1, h2, h3, p, li, a, button, span) { overflow-wrap: anywhere; line-break: strict; }
+html.translated .flex > :not(.shrink-0):not(svg):not(img):not(canvas) { min-width: 0; }
+html.translated .truncate { white-space: normal; overflow: visible; text-overflow: clip; }
+@media (max-width: 640px) {
+  html.translated h1 { font-size: min(8.6vw, 40px) !important; }
+  html.translated h2.display, html.translated h2 .display { font-size: min(7.4vw, 32px) !important; }
+}
+/* Larger system/browser text sizes: the same reflow, without translation. */
+@media (max-width: 640px) { .display { overflow-wrap: anywhere; } }
 
 /* Index charts and white paper motion */
 .chart-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: chart-draw 1.6s cubic-bezier(.3,.8,.2,1) forwards; }

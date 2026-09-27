@@ -116,11 +116,15 @@ function translateGroup(block: Element): void {
     else if (value !== state.shown) { state.original = value; state.shown = value; }
     states.push(state);
   }
-  const live = states.filter(st => st.original.trim());
+  /* Numbers, badges and symbols ("1", "$SHDWMR", "25%") are never part of the sentence: they keep their own box. */
+  const fixed = (v: string): boolean => !/\p{L}{2,}/u.test(v) || /^\s*\$[A-Z0-9]+\s*$/.test(v);
+  const live = states.filter(st => st.original.trim() && !fixed(st.original));
   if (live.length < 2) { nodes.forEach((n, i) => { const st = states[i]; const next = lang === 'en' ? st.original : lookup(st.original) ?? st.original; if (next !== n.nodeValue) { st.shown = next; n.nodeValue = next; } }); return; }
-  const combined = states.reduce((acc, st) => acc && st.original && !/\s$/.test(acc) && !/^\s/.test(st.original) && /[\p{L}.,!?]$/u.test(acc) ? `${acc} ${st.original}` : acc + st.original, '');
+  const combined = live.reduce((acc, st) => acc && st.original && !/\s$/.test(acc) && !/^\s/.test(st.original) && /[\p{L}.,!?]$/u.test(acc) ? `${acc} ${st.original}` : acc + st.original, '');
   const translated = lang === 'en' ? null : lookup(combined.trim());
-  nodes.forEach((n, i) => { const st = states[i]; const next = translated === null ? st.original : st === live[0] ? translated : st.original.trim() ? '' : st.original; if (next !== n.nodeValue) { st.shown = next; n.nodeValue = next; } });
+  /* The sentence lands in the longest fragment (the body text), never in a small styled badge. */
+  const host = live.reduce((a, b) => b.original.trim().length > a.original.trim().length ? b : a, live[0]);
+  nodes.forEach((n, i) => { const st = states[i]; const next = translated === null ? st.original : st === host ? translated : live.includes(st) ? '' : st.original; if (next !== n.nodeValue) { st.shown = next; n.nodeValue = next; } });
 }
 
 function translateText(node: Text): void {
