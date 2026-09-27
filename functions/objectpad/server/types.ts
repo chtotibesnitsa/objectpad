@@ -24,6 +24,8 @@ export interface Env {
   /** Optional deterministic per-object fee vault factory; when unset, creator fees go straight to the creator wallet. */
   OBJECTPAD_VAULT_FACTORY_ADDRESS?: string; OBJECTPAD_VAULT_FACTORY_CODE_HASH?: string;
   OBJECTPAD_FORGE_ADDRESS?: string; OBJECTPAD_BURN_ENGINE_ADDRESS?: string; OBJECTPAD_TOKEN_ADDRESS?: string;
+  /** Developer buyback/burn execution mode: 'manual' (default, honest) or 'automatic' once a real automated service is deployed and executing. Never inferred — only this env value flips the label. */
+  OBJECTPAD_DEV_EXECUTION_MODE?: string;
   /** Server-side Privy secret, used only to read the verified account's own wallet address. */
   PRIVY_APP_SECRET?: string; OBJECTPAD_PRIVY_APP_SECRET?: string;
   ROBINHOOD_RPC_URL?: string;
