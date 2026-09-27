@@ -36,55 +36,55 @@ const PAGES: Record<string, PageMeta> = {
   home: {
     title: 'ObjectPad — the launchpad for real-world objects',
     description: 'Scan any real object in 3D and launch its coin for free on Robinhood Chain. No account needed.',
-    image: '/og/og-home.jpg',
+    image: '/og/card-home.jpg',
     alt: 'A liquid-glass browser window scans a duck figurine into a glowing digital coin. ObjectPad.fun — the launchpad for real-world objects.',
   },
   create: {
     title: 'ObjectPad · Create — scan & launch free',
     description: 'Point your phone at any real object, capture it in 3D, and launch its coin free in seconds. No account needed.',
-    image: '/og/og-launch.jpg',
+    image: '/og/card-launch.jpg',
     alt: 'A phone scanning a figurine into a glowing 3D point cloud, with Scan it / Launch it glass cards. ObjectPad.fun — scan, launch, free.',
   },
   market: {
     title: 'ObjectPad · Market — browse live object coins',
     description: 'Every scanned object becomes a tradable coin. Browse live prices, charts, and creators on Robinhood Chain.',
-    image: '/og/og-market.jpg',
+    image: '/og/card-market.jpg',
     alt: 'A grid of glassy object coin cards each with a rising green chart. ObjectPad.fun — browse live object coins.',
   },
   earn: {
     title: 'ObjectPad · Earn — get paid to post',
     description: 'Post about ObjectPad on X, get verified, and get paid in ETH for real engagement.',
-    image: '/og/og-earn.jpg',
+    image: '/og/card-earn.jpg',
     alt: 'Coins raining from a glass X logo into an open glass hand. ObjectPad.fun — get paid to post.',
   },
   burn: {
     title: 'ObjectPad · $OBJECTPAD burn',
     description: 'Every trade fuels the buyback & burn. Track supply, scarcity, and the live burn log.',
-    image: '/og/og-burn.jpg',
+    image: '/og/card-burn.jpg',
     alt: 'A metallic coin engulfed in green digital flame shattering into glass shards. ObjectPad.fun — $OBJECTPAD burn.',
   },
   treasury: {
     title: 'ObjectPad · The launch treasury',
     description: 'The treasury that pays for every free launch. See live balance, inflows, and how it grows.',
-    image: '/og/og-treasury.jpg',
+    image: '/og/card-treasury.jpg',
     alt: 'A glass vault door open with glowing coins inside and a rising balance chart. ObjectPad.fun — the launch treasury.',
   },
   vaults: {
     title: 'ObjectPad · Object Vaults — baskets of coins',
     description: 'Non-custodial baskets of object coins. One buy, weighted exposure across a curated set.',
-    image: '/og/og-vaults.jpg',
+    image: '/og/card-vaults.jpg',
     alt: 'A glass sphere containing several object coins orbiting like a mini solar system, each trailing a green chart line. ObjectPad.fun — Object Vaults.',
   },
   whitepaper: {
     title: 'ObjectPad · White paper — how it works',
     description: 'Fingerprinting, Merkle proofs, and signed attestations — the real cryptography behind every ObjectPad coin.',
-    image: '/og/og-whitepaper.jpg',
+    image: '/og/card-whitepaper.jpg',
     alt: 'A glass panel showing a Merkle tree diagram, a fingerprint icon, and hex hashes. ObjectPad.fun — how ObjectPad works.',
   },
   v2: {
     title: 'ObjectPad · What’s new in V2',
     description: 'Anti-impersonation identity, Uniqueness v2, Object Vaults, and the white paper — see what shipped.',
-    image: '/og/og-v2.jpg',
+    image: '/og/card-v2.jpg',
     alt: 'A glossy glass number 2 orbited by feature icons: fingerprint, shield, basket, scroll. ObjectPad.fun — what’s new in V2.',
   },
 };
@@ -127,7 +127,7 @@ export default async function middleware(request: Request): Promise<Response | u
     .replace(/(<meta property="og:url" content=")[^"]*(")/, `$1${escapeAttr(url.toString())}$2`)
     .replace(/(<meta property="og:image" content=")[^"]*(")/, `$1${imageUrl}$2`)
     .replace(/(<meta property="og:image:width" content=")[^"]*(")/, `$11200$2`)
-    .replace(/(<meta property="og:image:height" content=")[^"]*(")/, `$1800$2`)
+    .replace(/(<meta property="og:image:height" content=")[^"]*(")/, `$1630$2`)
     .replace(/(<meta property="og:image:alt" content=")[^"]*(")/, `$1${alt}$2`)
     .replace(/(<meta name="twitter:title" content=")[^"]*(")/, `$1${title}$2`)
     .replace(/(<meta name="twitter:description" content=")[^"]*(")/, `$1${description}$2`)
