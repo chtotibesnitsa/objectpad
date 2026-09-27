@@ -107,10 +107,17 @@ function escapeAttr(value: string): string {
 }
 
 export default async function middleware(request: Request): Promise<Response | undefined> {
+  // Re-entry guard: subrequests issued by this middleware carry this header and pass through
+  // untouched. Without it, internal hops re-enter middleware and Vercel can 508 with
+  // INFINITE_LOOP_DETECTED.
+  if (request.headers.get('x-objectpad-og')) return undefined;
+
   const url = new URL(request.url);
   const meta = pageFor(url.pathname);
 
-  const origin = await fetch(request);
+  // Never follow redirects from inside middleware: each hop re-enters the routing layer.
+  const origin = await fetch(request, { redirect: 'manual', headers: { 'x-objectpad-og': '1' } });
+  if (origin.status >= 300 && origin.status < 400) return undefined;
   const contentType = origin.headers.get('content-type') ?? '';
   if (!contentType.includes('text/html')) return undefined;
 
@@ -136,5 +143,7 @@ export default async function middleware(request: Request): Promise<Response | u
 
   const headers = new Headers(origin.headers);
   headers.set('content-length', String(new TextEncoder().encode(html).length));
+  // The body was decompressed for rewriting; the stale encoding header would break decoding.
+  headers.delete('content-encoding');
   return new Response(html, { status: origin.status, headers });
 }
