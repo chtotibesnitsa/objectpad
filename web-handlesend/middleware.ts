@@ -120,6 +120,8 @@ function escapeAttr(value: string): string {
 export default async function middleware(request: Request): Promise<Response | undefined> {
   const url = new URL(request.url);
   // /People is the canonical campaign URL; the lowercase form is a permanent redirect.
+  // Static files in public/people/ (images, models) are served as-is, never redirected.
+  if (/^\/people\/.*\.[a-z0-9]{2,5}$/i.test(url.pathname)) return undefined;
   if (/^\/people(\/|$)/.test(url.pathname)) return Response.redirect(`${url.origin}/People${url.pathname.slice(7)}${url.search}`, 308);
   const meta = pageFor(url.pathname);
 
