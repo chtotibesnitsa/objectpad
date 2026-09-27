@@ -201,12 +201,19 @@ export class EarnService {
     const response = await fetch(url, { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
     if (!response) throw new ApiError('X_UNAVAILABLE', 503);
     if (response.status === 429 || response.status >= 500 || response.status === 401 || response.status === 403) { console.warn('objectpad.earn.x', response.status); throw new ApiError('X_UNAVAILABLE', 503); }
-    const data = await response.json() as { data?: { id: string; text: string; author_id: string; created_at: string; note_tweet?: { text?: string }; public_metrics?: Record<string, number>; entities?: { urls?: { expanded_url?: string; unwound_url?: string }[] }; referenced_tweets?: { type: string }[] }; includes?: { users?: { id: string; username: string; name: string; profile_image_url?: string; protected?: boolean }[]; media?: { type: string; url?: string; preview_image_url?: string }[] }; errors?: { title?: string; type?: string }[] };
+    const data = await response.json() as { data?: { id: string; text: string; author_id: string; created_at: string; note_tweet?: { text?: string; entities?: { urls?: { expanded_url?: string; unwound_url?: string }[] } }; public_metrics?: Record<string, number>; entities?: { urls?: { expanded_url?: string; unwound_url?: string }[] }; referenced_tweets?: { type: string }[] }; includes?: { users?: { id: string; username: string; name: string; profile_image_url?: string; protected?: boolean }[]; media?: { type: string; url?: string; preview_image_url?: string }[] }; errors?: { title?: string; type?: string }[] };
     if (!data.data) { const title = data.errors?.[0]?.title ?? ''; throw new ApiError(/authoriz/i.test(title) ? 'POST_PROTECTED' : /not found/i.test(title) || response.status === 404 ? 'POST_NOT_FOUND' : 'X_UNAVAILABLE', 404); }
     const t = data.data; const author = data.includes?.users?.find(u => u.id === t.author_id);
     if (author?.protected) throw new ApiError('POST_PROTECTED', 403);
     const refs = t.referenced_tweets ?? [];
-    return { id: t.id, text: (t.note_tweet?.text || t.text || '').slice(0, 4000), authorId: t.author_id, createdAt: Date.parse(t.created_at) || 0, handle: author?.username ?? '', name: author?.name ?? '', avatar: author?.profile_image_url?.replace('_normal', '_bigger') ?? '', urls: (t.entities?.urls ?? []).map(u => u.unwound_url || u.expanded_url || '').filter(Boolean), reply: refs.some(r => r.type === 'replied_to'), repost: refs.some(r => r.type === 'retweeted'), media: (data.includes?.media ?? []).map(m => ({ type: m.type, url: m.url || m.preview_image_url || '' })).filter(m => /^https:\/\/pbs\.twimg\.com\//.test(m.url)).slice(0, 4), metrics: t.public_metrics ?? null };
+    // Long posts (note_tweet) carry their own link entities; the top-level entities only cover the truncated preview text.
+    const text = (t.note_tweet?.text || t.text || '').slice(0, 4000);
+    const urls = [...(t.entities?.urls ?? []), ...(t.note_tweet?.entities?.urls ?? [])].map(u => u.unwound_url || u.expanded_url || '').filter(Boolean);
+    // Fallback: any t.co link X did not expand in entities is resolved by reading its redirect target (never followed).
+    const shortLinks = [...new Set(text.match(/https?:\/\/t\.co\/[A-Za-z0-9]+/g) ?? [])].slice(0, 5);
+    const resolved = await Promise.all(shortLinks.map(async link => { try { const r = await fetch(link, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(4_000) }); return r.headers.get('location') ?? ''; } catch { return ''; } }));
+    urls.push(...resolved.filter(Boolean));
+    return { id: t.id, text, authorId: t.author_id, createdAt: Date.parse(t.created_at) || 0, handle: author?.username ?? '', name: author?.name ?? '', avatar: author?.profile_image_url?.replace('_normal', '_bigger') ?? '', urls, reply: refs.some(r => r.type === 'replied_to'), repost: refs.some(r => r.type === 'retweeted'), media: (data.includes?.media ?? []).map(m => ({ type: m.type, url: m.url || m.preview_image_url || '' })).filter(m => /^https:\/\/pbs\.twimg\.com\//.test(m.url)).slice(0, 4), metrics: t.public_metrics ?? null };
   }
 
   // ---------------------------------------------------------------- submissions
