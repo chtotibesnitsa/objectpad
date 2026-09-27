@@ -40,6 +40,8 @@ export class SponsorService {
     return this.store.one<{ value: string }>("SELECT value FROM op_secrets WHERE name='sponsor_key'")!.value as Hex;
   }
   get address(): Address { return privateKeyToAccount(this.key()).address; }
+  /** EIP-191 signature by the launch treasury (the `from` of every sponsored launch), used for public ObjectPad proofs. */
+  attest(message: string): Promise<Hex> { return privateKeyToAccount(this.key()).signMessage({ message }); }
   wallet() { return createWalletClient({ account: privateKeyToAccount(this.key()), chain: robinhoodChain, transport: http(rpcUrl(this.runtime.env), { timeout: 20_000 }) }); }
   /** Platform-wide daily safety cap. Each person is separately capped at PER_PERSON_DAILY. */
   dailyLimit(): number { const value = Number(this.runtime.env.OBJECTPAD_DAILY_LAUNCHES); return Number.isFinite(value) && value > 0 ? Math.floor(value) : 100_000; }

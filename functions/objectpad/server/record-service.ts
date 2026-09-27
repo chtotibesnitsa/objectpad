@@ -43,7 +43,32 @@ async function naming(c: ObjectCommitment): Promise<{ objectName: string; object
  * the 1.5% creator-fee recipient. The creator never signs or pays. Every launch is simulated, code-pinned, broadcast
  * from a pre-computed hash (so retries are idempotent) and reconciled from the decoded receipt before publication.
  */
+/** Handle (lowercase, no @) of an https://x.com/<handle> link, or null. */
+export const xHandleOf = (url: string | undefined): string | null => { const m = (url ?? '').match(/^https:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/?$/); return m ? m[1].toLowerCase() : null; };
+export interface VerifiedX { id: string; handle: string; avatar?: string; name?: string; }
 export class RecordService {
+  /** Resolves the verified X account (Privy X OAuth) of an owner; set after the Earn service exists. */
+  identity: ((owner: string) => Promise<VerifiedX | null>) | null = null;
+  /** Uniqueness v2 summary lookup (set by the worker). */
+  uq2: ((sessionId: string) => unknown) | null = null;
+  /** Stored verified X identity (no network): used on every public read. */
+  storedX(owner: string): VerifiedX | null { try { const r = this.store.one<{ x_user_id: string; handle: string; avatar: string; name: string }>('SELECT x_user_id,handle,avatar,name FROM op_x_identities WHERE owner=?', owner); return r ? { id: r.x_user_id, handle: r.handle, avatar: r.avatar, name: r.name } : null; } catch { return null; } }
+  /**
+   * Anti-impersonation: an X link may only be attached to a coin when it is the creator's own X account, proven by X OAuth
+   * (not typed text). Throws X_LINK_UNVERIFIED (no verified X on this account) or X_LINK_NOT_YOURS (a different account).
+   */
+  async assertXLink(owner: string, xUrl: string | undefined): Promise<void> {
+    const handle = xHandleOf(xUrl); if (!xUrl || !handle) return;
+    const x = owner.startsWith('guest:') ? null : await (this.identity?.(owner).catch(() => this.storedX(owner)) ?? Promise.resolve(this.storedX(owner)));
+    if (!x) throw new ApiError('X_LINK_UNVERIFIED', 403);
+    if (x.handle.toLowerCase() !== handle) throw new ApiError('X_LINK_NOT_YOURS', 403);
+  }
+  /** Public identity panel of a coin: fee wallet, verified X account and whether the coin's X link is really theirs. */
+  creatorIdentity(row: RecordRow, c: ObjectCommitment): { wallet: string; guest: boolean; x: VerifiedX | null; linkHandle: string | null; linkStatus: 'verified' | 'mismatch' | 'unverified' | 'none'; boundAt: number | null } {
+    const x = row.owner.startsWith('guest:') ? null : this.storedX(row.owner); const linkHandle = xHandleOf(c.xUrl);
+    const linkStatus = !linkHandle ? 'none' : !x ? 'unverified' : x.handle.toLowerCase() === linkHandle ? 'verified' : 'mismatch';
+    return { wallet: c.creatorWallet, guest: row.owner.startsWith('guest:'), x, linkHandle, linkStatus, boundAt: c.creatorX?.boundAt ?? null };
+  }
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly captures: CaptureService, private readonly sponsor: SponsorService) {
     store.run('CREATE TABLE IF NOT EXISTS op_launch_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, stage TEXT NOT NULL, detail TEXT NOT NULL)');
   }
@@ -77,6 +102,10 @@ export class RecordService {
     const name = publicName(input.publicName); const story = input.story.normalize('NFC').trim();
     if (name.length > 32 || !/^[A-Z0-9]{2,10}$/.test(input.symbol) || story.length < 10 || story.length > 280) throw new ApiError('METADATA_INVALID');
     if (input.xUrl && !safeXUrl(input.xUrl)) throw new ApiError('LINK_INVALID');
+    // Backstop for drafts saved before X verification existed: an unproven X link is dropped instead of sealed on-chain.
+    let xUrl = input.xUrl; try { await this.assertXLink(owner, xUrl); } catch { xUrl = ''; this.store.metric('x_link_dropped_unverified'); }
+    const verifiedX = owner.startsWith('guest:') ? null : this.storedX(owner);
+    const fp = this.uq2?.(session.id) as { geometryHash?: string; surfaceHash?: string } | null | undefined;
     const { wallet, kind } = await this.feeRecipient(owner, input.feeWallet);
     const pair = isEthPair(input.pairToken) ? null : pairAsset(input.pairToken); if (input.pairToken && !isEthPair(input.pairToken) && !pair) throw new ApiError('PAIR_NOT_SUPPORTED');
     const profile = this.store.one<{ public_id: string }>('SELECT public_id FROM op_profiles WHERE owner=?', owner); if (!profile) throw new ApiError('PROFILE_REQUIRED', 409);
@@ -88,7 +117,7 @@ export class RecordService {
     const objectTag = objectTagFrom(await sha256(objectNameSeed(objectName, session.model.originalHash, session.manifestHash)));
     const job = this.store.one<{ provider_id: string }>('SELECT provider_id FROM op_reconstruction_jobs WHERE session_id=? AND state=?', session.id, 'complete'); if (!job) throw new ApiError('MODEL_NOT_READY', 409);
     this.assertUniqueArtifacts(session.id, session.model.originalHash, session.manifestHash);
-    const commitment: ObjectCommitment = { version: 1, objectId, publicName: name, slug: objectId, creatorDid: `did:objectpad:${profile.public_id}`, creatorWallet: wallet, captureSessionId: session.id, captureManifestHash: session.manifestHash, acceptedViewCount: session.views.length, reconstructionProvider: 'Meshy', reconstructionModel: session.model.providerModel, reconstructionTaskReference: await sha256(job.provider_id), canonicalViewIds: [...CANONICAL_VIEWS], originalModelHash: session.model.originalHash, optimizedModelHash: session.model.optimizedHash, thumbnailHash: session.model.thumbnailHash, thesisHash: await sha256(story), story, thesis: story, category: input.category.slice(0, 40), externalWebsite: canonicalUrl, xUrl: input.xUrl, telegram: input.telegram ?? '', downloadAllowed: false, chainId: 4663, createdAt: Date.now(), objectName, objectTag, objectSpecs: objectSpecsText({ triangles: session.model.triangles, bounds: session.model.bounds, textures: session.model.textures, materials: session.suggestion?.materials, colors: session.suggestion?.colors, views: session.views.length }) };
+    const commitment: ObjectCommitment = { version: 1, objectId, publicName: name, slug: objectId, creatorDid: `did:objectpad:${profile.public_id}`, creatorWallet: wallet, captureSessionId: session.id, captureManifestHash: session.manifestHash, acceptedViewCount: session.views.length, reconstructionProvider: 'Meshy', reconstructionModel: session.model.providerModel, reconstructionTaskReference: await sha256(job.provider_id), canonicalViewIds: [...CANONICAL_VIEWS], originalModelHash: session.model.originalHash, optimizedModelHash: session.model.optimizedHash, thumbnailHash: session.model.thumbnailHash, thesisHash: await sha256(story), story, thesis: story, category: input.category.slice(0, 40), externalWebsite: canonicalUrl, xUrl, ...(verifiedX ? { creatorX: { id: verifiedX.id, handle: verifiedX.handle, boundAt: Date.now() } } : {}), ...(fp?.geometryHash && fp.surfaceHash ? { fingerprintV2: { geometry: fp.geometryHash, surface: fp.surfaceHash } } : {}), telegram: input.telegram ?? '', downloadAllowed: false, chainId: 4663, createdAt: Date.now(), objectName, objectTag, objectSpecs: objectSpecsText({ triangles: session.model.triangles, bounds: session.model.bounds, textures: session.model.textures, materials: session.suggestion?.materials, colors: session.suggestion?.colors, views: session.views.length }) + (fp?.geometryHash ? `;fp2=${(await sha256(`${fp.geometryHash}${fp.surfaceHash}`)).slice(0, 16)}` : '') };
     const bytes = canonicalJson(commitment); const metadataHash = await sha256(bytes); const metadataUri = `${this.runtime.apiOrigin}/api/artifacts/${metadataHash}`;
     const key = `objectpad/v1/artifacts/${metadataHash}`; await this.runtime.artifactBucket.put(key, bytes, { httpMetadata: { contentType: 'application/json' } });
     const payload: RecordPayload = { ...(session.icon ? { iconHash: session.icon.hash } : {}), commitment, symbol: input.symbol, metadataHash, metadataUri, canonicalUrl, feeVault: wallet, feeRecipientKind: kind, launchMode: 'sponsored', ...(pair ? { pairToken: pair.address.toLowerCase() } : {}), uniqueness: session.suggestion ? { checkedAt: Date.now(), compared: session.suggestion.compared, model: this.runtime.env.OBJECTPAD_UNIQUENESS_MODEL?.trim() || 'google/gemini-3.8-flash' } : undefined };
@@ -208,10 +237,16 @@ export class RecordService {
   async poll(): Promise<void> { for (const tx of this.store.all<TxRow>("SELECT * FROM op_transactions WHERE tx_hash IS NOT NULL AND state IN ('submitted','confirming','unknown') ORDER BY updated_at ASC LIMIT 5")) await this.reconcile(tx); }
   /** Owner view of a record including its launch progress. */
   ownerRecord(id: string, owner: string): Record<string, unknown> { const { row, payload } = this.load(id, owner); const tx = this.tx(id); return { ...payload, id, state: row.state, launch: tx ? { state: tx.state, hash: tx.tx_hash } : null }; }
+  /** Proof of custody: matched Object Key check-ins (the creator re-photographed the real object) over 30/90 days. */
+  custody(id: string): NonNullable<ObjectRecord['custody']> {
+    const now = Date.now(); const r = this.store.one<{ last: number | null; m30: number; m90: number; total: number }>('SELECT MAX(CASE WHEN matched=1 THEN created_at END) AS last, SUM(CASE WHEN matched=1 AND created_at>? THEN 1 ELSE 0 END) AS m30, SUM(CASE WHEN matched=1 AND created_at>? THEN 1 ELSE 0 END) AS m90, COUNT(*) AS total FROM op_checkins WHERE record_id=?', now - 30 * 86_400_000, now - 90 * 86_400_000, id);
+    const last = r?.last ? Number(r.last) : null;
+    return { last, matched30d: Number(r?.m30 ?? 0), matched90d: Number(r?.m90 ?? 0), total: Number(r?.total ?? 0), status: !last ? 'never' : now - last <= 30 * 86_400_000 ? 'active' : 'lapsed' };
+  }
   publicRecord(id: string): ObjectRecord {
     const { row, payload: p } = this.load(id);
     if (row.moderation_state === 'hidden' || row.state !== 'confirmed' || !p.token || !p.launchHash || !p.verifiedName || !p.launchBlockHash || !p.curve) throw new ApiError('NOT_FOUND', 404);
     const { session } = this.captures.load(row.session_id); if (!session.model) throw new ApiError('NOT_FOUND', 404);
-    return { ...p.commitment, metadataHash: p.metadataHash, metadataUri: p.metadataUri, canonicalUrl: p.canonicalUrl, tokenAddress: p.token, curveAddress: p.curve, symbol: p.symbol, launchTransactionHash: p.launchHash, launchBlockHash: p.launchBlockHash, verifiedName: p.verifiedName, status: 'confirmed', model: session.model, feeVault: p.feeVault, launchMode: 'sponsored', sponsor: p.sponsor, launchDescription: p.launchDescription, launchDataSuffix: p.launchDataSuffix, uniqueness: p.uniqueness, confirmedAt: p.confirmedAt, checkin: p.checkin, iconUrl: p.iconHash ? `${this.runtime.apiOrigin}/api/artifacts/${p.iconHash}` : session.model.thumbnailUrl, ...(p.pairToken ? { pairToken: p.pairToken } : {}) };
+    return { ...p.commitment, metadataHash: p.metadataHash, metadataUri: p.metadataUri, canonicalUrl: p.canonicalUrl, tokenAddress: p.token, curveAddress: p.curve, symbol: p.symbol, launchTransactionHash: p.launchHash, launchBlockHash: p.launchBlockHash, verifiedName: p.verifiedName, status: 'confirmed', model: session.model, feeVault: p.feeVault, launchMode: 'sponsored', sponsor: p.sponsor, launchDescription: p.launchDescription, launchDataSuffix: p.launchDataSuffix, uniqueness: p.uniqueness, confirmedAt: p.confirmedAt, checkin: p.checkin, creatorIdentity: this.creatorIdentity(row, p.commitment), uniquenessV2: (this.uq2?.(row.session_id) ?? null) as ObjectRecord['uniquenessV2'], custody: this.custody(id), iconUrl: p.iconHash ? `${this.runtime.apiOrigin}/api/artifacts/${p.iconHash}` : session.model.thumbnailUrl, ...(p.pairToken ? { pairToken: p.pairToken } : {}) };
   }
 }

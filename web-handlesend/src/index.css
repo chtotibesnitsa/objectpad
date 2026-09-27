@@ -451,3 +451,18 @@ html.touch-lite .app-card::after { display: none; }
 
 /* Translated text is longer/shorter than the English it replaces: let hero lines wrap instead of clipping. */
 html.translated h1, html.translated h1 *, html.translated h2 * { white-space: normal !important; overflow-wrap: anywhere; }
+
+/* Index charts and white paper motion */
+.chart-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: chart-draw 1.6s cubic-bezier(.3,.8,.2,1) forwards; }
+.chart-fade { opacity: 0; animation: chart-fade 1s .5s ease forwards; }
+@keyframes chart-draw { to { stroke-dashoffset: 0; } }
+@keyframes chart-fade { to { opacity: 1; } }
+@keyframes wp-flow { to { stroke-dashoffset: -40; } }
+.wp-flow { stroke-dasharray: 6 14; animation: wp-flow 1.2s linear infinite; }
+@keyframes wp-pulse { 0%,100% { opacity: .35; transform: scale(.96); } 50% { opacity: 1; transform: scale(1); } }
+.wp-pulse { animation: wp-pulse 2.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes wp-scan { 0% { transform: translateY(-10%); } 100% { transform: translateY(110%); } }
+.wp-scan { animation: wp-scan 2.8s cubic-bezier(.5,0,.5,1) infinite alternate; }
+@keyframes wp-rise { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.wp-rise { transform-origin: bottom; transform-box: fill-box; animation: wp-rise .9s cubic-bezier(.2,.9,.3,1.1) both; }
+@media (prefers-reduced-motion: reduce) { .chart-draw, .chart-fade, .wp-flow, .wp-pulse, .wp-scan, .wp-rise { animation: none !important; stroke-dashoffset: 0; opacity: 1; } }

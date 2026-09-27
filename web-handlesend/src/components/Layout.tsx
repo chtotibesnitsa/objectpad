@@ -29,12 +29,13 @@ const TABS: { to: string; label: string; icon: PixelName; match: (p: string, s: 
   { to: '/earn', label: 'Earn', icon: 'earn', match: (p: string) => p.startsWith('/earn') || p.startsWith('/rewards') },
   { to: '/burn', label: 'Burn', icon: 'burn', match: (p: string) => p === '/burn' },
   { to: '/treasury', label: 'Treasury', icon: 'treasury', match: (p: string) => p === '/treasury' },
-  { to: '/docs', label: 'How it works', icon: 'docs', match: (p: string) => p === '/docs' },
+  { to: '/vaults', label: 'Vaults', icon: 'market', match: (p: string) => p.startsWith('/vaults') },
+  { to: '/whitepaper', label: 'White paper', icon: 'docs', match: (p: string) => p === '/docs' || p === '/whitepaper' || p.startsWith('/verify') },
 ];
 const DRAWER: { code: string; title: string; items: { to: string; label: string; icon: GlassName; note: string }[] }[] = [
   { code: '01', title: 'Make', items: [{ to: '/v2', label: 'What’s new in V2', icon: 'chart', note: 'Stock pairing · release log' }, { to: '/launch', label: 'Scan & launch', icon: 'qr', note: 'Phone camera → coin, paired with any stock' }, { to: '/download', label: 'Mobile apps', icon: 'rocket', note: 'Android live · iOS in App Store review' }, { to: '/inventory', label: 'Saved scans', icon: 'mesh', note: 'Resume any scan' }, { to: '/rewards', label: 'Paid Rewards', icon: 'diamond', note: 'Find & scan objects · post your own bounty' }, { to: '/earn', label: 'Post & earn', icon: 'coins', note: 'Get paid for verified X posts' }, { to: '/wallet', label: 'My wallet', icon: 'wallet', note: 'Balance · deposit · withdraw' }, { to: '/earnings', label: 'Creator earnings', icon: 'coins', note: '0.5% of every trade' }] },
   { code: '02', title: 'Market', items: [{ to: '/explore', label: 'Object coins', icon: 'chart', note: 'Every scanned coin' }, { to: '/burn', label: '$OBJECTPAD burn', icon: 'burn', note: 'Buyback & burn log' }, { to: '/treasury', label: 'Launch treasury', icon: 'vault', note: 'Pays every launch' }] },
-  { code: '03', title: 'Protocol', items: [{ to: '/docs', label: 'How it works', icon: 'chain', note: '4 steps · receipt · fees' }, { to: '/provenance', label: 'Provenance', icon: 'fingerprint', note: 'Trace any object' }, { to: '/craft', label: 'Crafting Table', icon: 'diamond', note: 'Launching soon' }, { to: '/safety', label: 'Safety & rights', icon: 'shield', note: 'What we accept' }] },
+  { code: '03', title: 'Protocol', items: [{ to: '/whitepaper', label: 'White paper', icon: 'chain', note: 'Hashing · uniqueness v2 · proofs' }, { to: '/verify', label: 'Verify a coin', icon: 'fingerprint', note: 'Recompute any proof in-browser' }, { to: '/vaults', label: 'Object Vaults', icon: 'vault', note: 'Tradable object indexes' }, { to: '/docs', label: 'How it works', icon: 'chain', note: '4 steps · receipt · fees' }, { to: '/provenance', label: 'Provenance', icon: 'fingerprint', note: 'Trace any object' }, { to: '/craft', label: 'Crafting Table', icon: 'diamond', note: 'Launching soon' }, { to: '/safety', label: 'Safety & rights', icon: 'shield', note: 'What we accept' }] },
 ];
 
 /** Desktop tabs, centred: a raised glass lens slides under the active tab. */

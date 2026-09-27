@@ -60,7 +60,17 @@ export interface ObjectCommitment {
   telegram?: string;
   /** Physical and 3D facts written into the launch transaction (see objectSpecsText). */
   objectSpecs?: string;
+  /** Creator's X account proven by X OAuth at seal time (anti-impersonation). */
+  creatorX?: { id: string; handle: string; boundAt: number };
+  /** Uniqueness v2 fingerprint hashes (geometry + surface), sealed into the commitment. */
+  fingerprintV2?: { geometry: string; surface: string };
 }
+/** Public creator identity panel of a coin. */
+export interface CreatorIdentity { wallet: string; guest: boolean; x: { id: string; handle: string; avatar?: string; name?: string } | null; linkHandle: string | null; linkStatus: 'verified' | 'mismatch' | 'unverified' | 'none'; boundAt: number | null; }
+/** Public Uniqueness v2 summary of a coin. */
+export interface UniquenessV2Summary { version: 2; score: number | null; nearest: number | null; compared: number; geometryHash: string; surfaceHash: string; rule: { combined: number; geometry: number; surface: number }; weights: { geometry: number; surface: number; phash: number }; hasGeometry: boolean; }
+/** Proof-of-custody summary: Object Key check-ins by the creator. */
+export interface CustodySummary { last: number | null; matched30d: number; matched90d: number; total: number; status: 'active' | 'lapsed' | 'never'; }
 /** Append-only transaction envelope; the pre-launch commitment is never rewritten. */
 export interface ObjectRecord extends ObjectCommitment {
   metadataHash: string; metadataUri: string; canonicalUrl: string;
@@ -83,6 +93,9 @@ export interface ObjectRecord extends ObjectCommitment {
   confirmedAt?: number;
   /** Latest successful Object Key check-in: the creator re-photographed an object the AI matched to the original scan. */
   checkin?: { at: number; confidence: number };
+  creatorIdentity?: CreatorIdentity;
+  uniquenessV2?: UniquenessV2Summary | null;
+  custody?: CustodySummary;
   /** The coin logo written into the launch (3D snapshot, the creator's own image, or the model render). */
   iconUrl?: string;
   /** Exact UTF-8 object record appended to the launch calldata (see encodeObjectSuffix). */

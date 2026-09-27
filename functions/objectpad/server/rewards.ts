@@ -72,7 +72,7 @@ export class RewardService {
 
   // ---------- views ----------
   private subView(s: SubRow, viewer: string | null, full: boolean): Record<string, unknown> {
-    return { id: s.id, rewardId: s.reward_id, photo: s.photo, recordId: s.record_id || null, token: s.token || null, coinName: s.coin_name, coinSymbol: s.coin_symbol, coinImage: s.coin_image, note: s.note, state: s.state, reviewNote: s.review_note, payoutTx: s.payout_tx, handle: s.handle, name: s.name, avatar: s.avatar, wallet: full ? s.wallet : `${s.wallet.slice(0, 6)}…${s.wallet.slice(-4)}`, mine: viewer === s.owner, createdAt: s.created_at };
+    return { id: s.id, rewardId: s.reward_id, photo: s.photo, recordId: s.record_id || null, token: s.token || null, coinName: s.coin_name, coinSymbol: s.coin_symbol, coinImage: s.coin_image, note: s.note, state: s.state, reviewNote: s.review_note, payoutTx: s.payout_tx, handle: s.handle, name: s.name, avatar: s.avatar, wallet: s.wallet, xVerified: Boolean(s.handle), mine: viewer === s.owner, createdAt: s.created_at };
   }
   private communityView(r: RewardRow, viewer: string | null, full = false): Record<string, unknown> {
     const subs = this.store.all<SubRow>('SELECT * FROM op_reward_subs WHERE reward_id=? ORDER BY created_at DESC LIMIT 200', r.id);

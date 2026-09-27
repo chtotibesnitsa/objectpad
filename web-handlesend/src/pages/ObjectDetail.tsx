@@ -20,6 +20,7 @@ import { TradePanel } from '@/components/TradePanel';
 import { PairBadge } from '@/components/PairBadge';
 import { usePair, isEthPair } from '@/lib/pairs';
 import { ObjectKey } from '@/components/ObjectKey';
+import { CreatorProof } from '@/components/CreatorProof';
 import { TxPanel, useLaunchTx } from '@/components/TxProof';
 import { ShareCardDialog } from '@/components/ShareCardDialog';
 import type { ObjectRecord, Profile } from '@/shared/domain';
@@ -95,6 +96,7 @@ export function ObjectView({ id }: { id: string }) {
       </div>
     </div>
 
+    <div className="mt-4"><CreatorProof object={object}/></div>
     <div className="mt-4"><Provenance object={object}/></div>
 
 
@@ -106,7 +108,7 @@ export function ObjectView({ id }: { id: string }) {
           <div className="mt-5 grid grid-cols-3 gap-3 border-t border-ink/[0.06] pt-4 text-sm"><div><p className="stat-label">Volume</p><p className="mt-1 font-semibold tnum">{ethUsd ? usd(stats.volume * ethUsd) : eth(stats.volume, 4)}</p></div><div><p className="stat-label">Unique buyers</p><p className="mt-1 font-semibold tnum">{stats.buyers}</p></div><div><p className="stat-label">Buys / sells</p><p className="mt-1 font-semibold tnum">{stats.buys} / {list.length - stats.buys}</p></div></div>
           {list.length > 0 && <div className="mt-4 max-h-72 overflow-auto rounded-2xl bg-ink/[0.025]"><table className="w-full text-left text-xs"><thead className="stat-label sticky top-0 bg-paper/90 backdrop-blur"><tr><th className="px-3 py-2 font-normal">Side</th><th className="font-normal">Amount</th><th className="font-normal">Tokens</th><th className="font-normal">Trader</th><th className="px-3 text-right font-normal">When</th></tr></thead><tbody>{[...list].reverse().slice(0, 50).map(t => <tr key={t.id} className="border-t border-ink/[0.04]"><td className={cn('px-3 py-2 font-medium uppercase', t.side === 'buy' ? 'text-up' : 'text-down')}>{t.side}</td><td className="tnum">{ethUsd ? usd(t.eth * ethUsd) : eth(t.eth, 5)}</td><td className="tnum">{compactNumber(t.tokens)}</td><td className="font-mono text-ink/65">{shortAddress(t.trader, 5, 3)}</td><td className="px-3 text-right"><a className="font-mono text-ink/65 hover:underline" href={explorerTx(t.hash)} target="_blank" rel="noreferrer">{timeAgo(t.at)}</a></td></tr>)}</tbody></table></div>}
         </section>
-        <section className="glass rounded-[26px] p-6"><h2 className="text-lg font-semibold">The object</h2><p className="mt-3 whitespace-pre-line text-[15px] leading-7 text-ink/80">{object.story}</p><div className="mt-4 flex flex-wrap gap-2">{object.xUrl && <a href={object.xUrl} target="_blank" rel="noreferrer nofollow" className="chip">X<ArrowUpRight size={11}/></a>}{object.telegram && <a href={object.telegram} target="_blank" rel="noreferrer nofollow" className="chip">Telegram<ArrowUpRight size={11}/></a>}<span className="chip">{object.category || 'Object'}</span></div></section>
+        <section className="glass rounded-[26px] p-6"><h2 className="text-lg font-semibold">The object</h2><p className="mt-3 whitespace-pre-line text-[15px] leading-7 text-ink/80">{object.story}</p><div className="mt-4 flex flex-wrap gap-2">{object.xUrl && object.creatorIdentity?.linkStatus === 'verified' && <a href={object.xUrl} target="_blank" rel="noreferrer nofollow" className="chip">X<ArrowUpRight size={11}/></a>}{object.telegram && <a href={object.telegram} target="_blank" rel="noreferrer nofollow" className="chip">Telegram<ArrowUpRight size={11}/></a>}<span className="chip">{object.category || 'Object'}</span></div></section>
       </div>
       <aside className="space-y-4">
         <div className="raised rounded-[30px] p-5 sm:p-6"><h2 className="mb-4 text-[18px] font-extrabold">Trade ${object.symbol}</h2><TradePanel token={object.tokenAddress as Address} curve={object.curveAddress as Address} symbol={object.symbol} state={state} pairToken={object.pairToken}/></div>
