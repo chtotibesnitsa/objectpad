@@ -5,15 +5,15 @@ import { OperatorNotice } from '@/components/Feedback';
 import { allocate, pct, type FeatureState, type FeeSplit } from '@/shared/people';
 import { cn } from '@/lib/utils';
 
-const STATE: Record<FeatureState, { label: string; cls: string; dot: string }> = {
-  live: { label: 'Live', cls: 'bg-up/10 text-up', dot: 'bg-up' },
-  pilot: { label: 'Pilot', cls: 'bg-[#F5C400]/20 text-[#7A5E00]', dot: 'bg-[#E0B000]' },
-  planned: { label: 'Planned', cls: 'bg-ink/[0.06] text-ink/55', dot: 'bg-ink/30' },
+export const STATE_META: Record<FeatureState, { label: string; hint: string; cls: string; dot: string; bar: string }> = {
+  live: { label: 'Live', hint: 'Try it now', cls: 'bg-[linear-gradient(180deg,#1FC46A,#12A150)] text-white shadow-[0_6px_14px_-6px_rgba(18,161,80,.7),inset_0_1px_0_rgba(255,255,255,.35)]', dot: 'bg-white', bar: '#12A150' },
+  pilot: { label: 'Pilot', hint: 'Testing with first creators', cls: 'bg-[linear-gradient(180deg,#FFD84A,#F5C400)] text-[#3A2A05] shadow-[0_6px_14px_-6px_rgba(224,176,0,.8),inset_0_1px_0_rgba(255,255,255,.5)]', dot: 'bg-[#3A2A05]', bar: '#F5C400' },
+  planned: { label: 'Planned', hint: 'Being built', cls: 'bg-white text-ink/60 shadow-[inset_0_0_0_1.5px_rgba(12,13,16,.14)]', dot: 'bg-ink/35', bar: 'rgba(12,13,16,.14)' },
 };
 /** Planned / Pilot / Live, straight from the server status registry. */
 export const StateChip = memo(function StateChip({ state, className }: { state: FeatureState; className?: string }) {
-  const s = STATE[state];
-  return <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[10.5px] font-extrabold uppercase tracking-wider', s.cls, className)}><span className={cn('size-1.5 rounded-full', s.dot, state === 'live' && 'pulse-dot')}/>{s.label}</span>;
+  const s = STATE_META[state];
+  return <span className={cn('inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-extrabold tracking-[-0.01em]', s.cls, className)}><span className={cn('size-[7px] rounded-full', s.dot, state === 'live' && 'animate-pulse')}/>{s.label}</span>;
 });
 
 export function Blocker({ children }: { children: ReactNode }) {

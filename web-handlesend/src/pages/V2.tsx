@@ -11,8 +11,35 @@ import { Reveal } from '@/components/Reveal';
 import { OBJECTPAD_X_URL } from '@/lib/brand';
 import { pct, usd } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { StateChip } from '@/components/people/PeopleUi';
+import { PEOPLE_X_POST, shareOnX } from '@/components/people/features';
+import { usePeopleStatus } from '@/lib/people';
+
+/** V2 page teaser for ObjectPad People. Progress numbers come from the live People status registry. */
+function PeopleNext() {
+  const status = usePeopleStatus(); const f = status.data?.features ?? [];
+  const live = f.filter(x => x.state === 'live').length; const pilot = f.filter(x => x.state === 'pilot').length; const n = f.length || 1;
+  const pctDone = Math.round(((live + pilot * 0.5) / n) * 100);
+  return <section id="people" className="page mt-8 scroll-mt-24">
+    <div className="raised relative overflow-hidden rounded-[34px]">
+      <div className="grid items-center lg:grid-cols-[1.15fr_1fr]">
+        <Link to="/People" className="block"><img src="/people/banner-double-v1.jpg" alt="Your digital double is next. A marble bust dissolving into dots beside a rubber duck. objectpad.fun/People" className="w-full" loading="lazy"/></Link>
+        <div className="p-6 sm:p-9">
+          <div className="flex items-center gap-2"><span className="lab">Next up · V3</span>{status.data && <StateChip state="pilot"/>}</div>
+          <h2 className="display mt-3 text-[clamp(38px,5vw,64px)] leading-[0.9]">People are next.</h2>
+          <p className="mt-3 text-[16px] font-bold leading-snug text-ink/65">Selfie to 3D double, prove it’s you, launch your own coin and keep 90% of the creator fees. Building in public.</p>
+          <div className="mt-5"><div className="flex items-baseline justify-between"><span className="text-[13px] font-extrabold text-ink/55">Build progress</span><span className="display text-[28px] leading-none tnum">{status.data ? `${pctDone}%` : '…'}</span></div>
+            <div className="mt-2 flex h-3 gap-0.5 overflow-hidden rounded-full bg-ink/[0.07]"><span className="bar-grow h-full rounded-full bg-[#12A150]" style={{ width: `${(live / n) * 100}%` }}/><span className="bar-grow h-full rounded-full bg-[#F5C400]" style={{ width: `${(pilot / n) * 100}%` }}/></div>
+            <p className="mt-2 text-[12.5px] font-bold text-ink/45">{live} live · {pilot} in pilot · {Math.max(0, f.length - live - pilot)} planned</p></div>
+          <div className="mt-6 flex flex-wrap gap-2.5"><Link to="/People" className="btn press min-h-[54px] px-6 text-[15px]">Watch it build<ArrowRight size={16}/></Link><Link to="/People/start" className="btn-ghost press min-h-[54px] px-5 text-[14.5px]">Make my 3D double</Link><a href={shareOnX(PEOPLE_X_POST)} target="_blank" rel="noreferrer" className="btn-ghost press min-h-[54px] px-5 text-[14.5px]">Share on X</a></div>
+        </div>
+      </div>
+    </div>
+  </section>;
+}
 
 export const V2_POSTS: string[] = [
+  PEOPLE_X_POST,
   'Object Vaults are live on ObjectPad.\n\nBuy a category, not a ticker.\n\nPhotograph a thing. Launch its market. Group markets into a vault. Buy the whole category in one transaction, with the coins going straight to your wallet.\n\nCreators earn up to 1% of vault volume. Traders earn points.\n\nobjectpad.fun/vaults',
   'ObjectPad V2, part two: the social update is live.\n\nLive chat on every page. Usernames and profiles with real P&L. Tip anyone ETH or a coin you hold. Make it rain on the first 100 people in chat.\n\nA launchpad that is now an economy.\n\nobjectpad.fun',
   'ObjectPad V2 is live.\n\nScan any real object, pair it with a tokenized stock, and launch it as a coin on Robinhood Chain. Free.\n\nNVDA. TSLA. AAPL. SPCX. GME. SPY. GLD. 70+ assets.\n\nobjectpad.fun',
@@ -188,6 +215,7 @@ export default function V2() {
         <div className="enter" style={{ '--delay': '100ms' } as CSSProperties}><FusionStage className="h-[460px] sm:h-[540px]"/></div>
       </div>
     </section>
+    <PeopleNext/>
     <LogoWall/>
 
     <section className="page mt-10 grid gap-4 lg:grid-cols-[1.08fr_1fr]">

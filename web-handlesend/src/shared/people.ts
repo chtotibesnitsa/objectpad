@@ -23,12 +23,36 @@ export const CONSENT_TEXT: Record<ConsentKind, string> = {
   public_likeness: 'After I review and approve it, ObjectPad may publish my 3D likeness and profile. A public likeness identifies me, and copies other people download cannot be reliably recalled.',
 };
 export type CaptureMode = 'photo_relief' | 'stylized_head' | 'multi_view_head' | 'clothed_body';
-export const CAPTURE_MODES: { id: CaptureMode; label: string; fidelity: string }[] = [
-  { id: 'photo_relief', label: 'Photo relief', fidelity: 'One front photo. Depth and hidden sides are AI-inferred, not measured.' },
-  { id: 'stylized_head', label: 'Stylized head', fidelity: 'One photo, deliberately stylized. Resemblance is loose by design.' },
-  { id: 'multi_view_head', label: 'Multi-view head', fidelity: 'Front, left, right and back photos. Better shape, still an AI reconstruction.' },
-  { id: 'clothed_body', label: 'Clothed full body', fidelity: 'Guided full-body photos while clothed. AI reconstruction; fine detail varies.' },
+export const CAPTURE_MODES: { id: CaptureMode; label: string; short: string; fidelity: string; minutes: string }[] = [
+  { id: 'photo_relief', label: 'Quick selfie', short: '1 photo', fidelity: 'One front photo. Depth and hidden sides are AI-inferred, not measured.', minutes: '~1 min' },
+  { id: 'stylized_head', label: 'Stylized head', short: '1 photo', fidelity: 'One photo, deliberately stylized. Resemblance is loose by design.', minutes: '~1 min' },
+  { id: 'multi_view_head', label: 'Best head', short: '3–4 photos', fidelity: 'Front, left, right (and back) photos. Better shape, still an AI reconstruction.', minutes: '~2 min' },
+  { id: 'clothed_body', label: 'Full body', short: '2–3 photos', fidelity: 'Full-body photos while clothed. AI reconstruction; fine detail varies.', minutes: '~2 min' },
 ];
+
+export type CaptureView = 'front' | 'left' | 'right' | 'back' | 'body_front' | 'body_side' | 'body_back';
+/** Photos each mode asks for, in the order sent to the 3D engine (it accepts 1–4 images). `required` must be present. */
+export const CAPTURE_PLAN: Record<CaptureMode, { views: CaptureView[]; required: CaptureView[] }> = {
+  photo_relief: { views: ['front'], required: ['front'] },
+  stylized_head: { views: ['front'], required: ['front'] },
+  multi_view_head: { views: ['front', 'left', 'right', 'back'], required: ['front', 'left', 'right'] },
+  clothed_body: { views: ['body_front', 'body_side', 'body_back'], required: ['body_front'] },
+};
+export const VIEW_GUIDE: Record<CaptureView, { title: string; tip: string }> = {
+  front: { title: 'Face the camera', tip: 'Look straight ahead, neutral face, hair off your face.' },
+  left: { title: 'Turn to your left', tip: 'Turn your head about 45° to your left. Keep your eyes level.' },
+  right: { title: 'Turn to your right', tip: 'Turn your head about 45° to your right.' },
+  back: { title: 'Back of your head', tip: 'Optional. Ask a friend, or skip it.' },
+  body_front: { title: 'Full body, front', tip: 'Stand back so head to feet fit. Clothed, arms slightly out.' },
+  body_side: { title: 'Full body, side', tip: 'Turn 90°. Same distance.' },
+  body_back: { title: 'Full body, back', tip: 'Optional. Turn your back to the camera.' },
+};
+/** Generations a draft may run (first try plus rebuilds). Provider failures are not counted against the person. */
+export const MODEL_ATTEMPTS = 3;
+export const MODEL_STATES = ['submitting', 'queued', 'generating', 'validating', 'ready', 'approved', 'rejected', 'failed', 'uncertain'] as const;
+export type ModelJobState = typeof MODEL_STATES[number];
+/** A 3D preview job as the subject sees it. Progress comes from the provider; nothing is simulated. */
+export interface ModelJobView { id: string; state: ModelJobState; mode: CaptureMode; progress: number; queue: number | null; attempt: number; attemptsLeft: number; failure: string | null; createdAt: number; updatedAt: number; model: { bytes: number; triangles: number } | null; }
 
 export interface FeeSplit { subjectBps: number; launcherBps: number; platformBps: number; }
 export interface Allocation { subject: bigint; launcher: bigint; platform: bigint; /** Base units the subject received from floor rounding of the other shares. */ dust: bigint; }

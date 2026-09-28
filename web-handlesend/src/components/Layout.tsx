@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 const TABS: { to: string; label: string; icon: PixelName; match: (p: string, s: string) => boolean }[] = [
   { to: '/launch', label: 'Create', icon: 'create', match: (p: string) => p.startsWith('/launch') },
   { to: '/explore', label: 'Market', icon: 'market', match: (p: string) => p === '/explore' || p.startsWith('/coin/') || p.startsWith('/objects/') },
+  { to: '/People', label: 'People', icon: 'people', match: (p: string) => /^\/people(\/|$)/i.test(p) },
   { to: '/earn', label: 'Earn', icon: 'earn', match: (p: string) => p.startsWith('/earn') || p.startsWith('/rewards') },
   { to: '/burn', label: 'Burn', icon: 'burn', match: (p: string) => p === '/burn' },
   { to: '/treasury', label: 'Treasury', icon: 'treasury', match: (p: string) => p === '/treasury' },

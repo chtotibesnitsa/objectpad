@@ -33,6 +33,8 @@ import { UniquenessV2 } from './uniqueness-v2';
 import { VaultService } from './vaults';
 import { DevActivityService } from './dev-activity';
 import { PeopleService } from './people';
+import { PeopleModels } from './people-models';
+import { MeshyProvider } from './meshy';
 import { serverClient } from './chain';
 
 export const OBJECTPAD_CLASS = 'ObjectPad';
@@ -130,7 +132,7 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private readonly people: PeopleService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private readonly people: PeopleService; private readonly peopleModels: PeopleModels; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
@@ -145,7 +147,8 @@ export class ObjectPad extends DurableObject<Env> {
     this.vaults = new VaultService(this.store, this.runtime, owner => this.records.storedX(owner)?.handle ?? null, async owner => { try { await this.ensureProfile(owner); return await this.records.creatorWallet(owner); } catch { return null; } });
     this.devActivity = new DevActivityService(this.store, this.runtime);
     // viem's verifyMessage checks EOA signatures and, through the RPC, contract wallets (ERC-1271 / ERC-6492).
-    this.people = new PeopleService(this.store, this.runtime, { xIdentity: async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { id: x.id, handle: x.handle } : null; }, walletOf: async owner => { try { await this.ensureProfile(owner); return (await this.records.creatorWallet(owner)).toLowerCase(); } catch { return null; } }, verify: (address, message, signature) => serverClient(env).verifyMessage({ address: address as `0x${string}`, message, signature: signature as `0x${string}` }) });
+    this.peopleModels = new PeopleModels(this.store, this.runtime, () => this.runtime.toolkitKey ? new MeshyProvider(this.runtime.toolkitUrl, this.runtime.toolkitKey, { model: env.OBJECTPAD_MESHY_MODEL?.trim() || undefined }) : null);
+    this.people = new PeopleService(this.store, this.runtime, { models: this.peopleModels, xIdentity: async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { id: x.id, handle: x.handle } : null; }, walletOf: async owner => { try { await this.ensureProfile(owner); return (await this.records.creatorWallet(owner)).toLowerCase(); } catch { return null; } }, verify: (address, message, signature) => serverClient(env).verifyMessage({ address: address as `0x${string}`, message, signature: signature as `0x${string}` }) });
     this.records.identity = async owner => { const x = await this.earn.xIdentity(owner); return x ? { id: x.id, handle: x.handle, avatar: x.avatar, name: x.name } : null; };
     this.records.uq2 = sessionId => this.uq2.summary(sessionId);
     void context.blockConcurrencyWhile(async () => { this.store.migrate(); });
@@ -226,8 +229,8 @@ export class ObjectPad extends DurableObject<Env> {
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
     await this.exclusive(async () => {
-      try { this.launchSoon = false; await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.uniquenessStep().catch(error => console.warn('objectpad.uq2', error instanceof Error ? error.message.slice(0, 160) : '')); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); await this.devActivity.run().catch(error => console.warn('objectpad.devActivity', error instanceof Error ? error.message.slice(0, 160) : '')); await this.social.run().catch(error => console.warn('objectpad.social', error instanceof Error ? error.message.slice(0, 160) : '')); const idx = this.indexer.sync(true); try { this.ctx.waitUntil(idx); } catch { /* next request syncs */ } const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
-      finally { const social = this.social.nextDelay(); if (social !== null && social <= 12_000) await this.schedule(social); else if (this.launchSoon) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.uq2.pendingBackfill()) await this.schedule(5_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.devActivity.token() && !(await this.devActivity.summary(0, 1)).backfillComplete) await this.schedule(3_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
+      try { this.launchSoon = false; await this.peopleModels.poll().catch(error => console.warn('objectpad.people.poll', error instanceof Error ? error.message.slice(0, 160) : '')); await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.uniquenessStep().catch(error => console.warn('objectpad.uq2', error instanceof Error ? error.message.slice(0, 160) : '')); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); await this.devActivity.run().catch(error => console.warn('objectpad.devActivity', error instanceof Error ? error.message.slice(0, 160) : '')); await this.social.run().catch(error => console.warn('objectpad.social', error instanceof Error ? error.message.slice(0, 160) : '')); const idx = this.indexer.sync(true); try { this.ctx.waitUntil(idx); } catch { /* next request syncs */ } const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
+      finally { const social = this.social.nextDelay(); if (social !== null && social <= 12_000) await this.schedule(social); else if (this.launchSoon) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs() || this.peopleModels.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.uq2.pendingBackfill()) await this.schedule(5_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.devActivity.token() && !(await this.devActivity.summary(0, 1)).backfillComplete) await this.schedule(3_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
     });
   }
   private async schedule(delay: number): Promise<void> { try { await this.env.DO?.setAlarm(OBJECTPAD_CLASS, OBJECTPAD_INSTANCE, Date.now() + delay); } catch (error) { console.warn('objectpad.alarm.unavailable', error instanceof Error ? error.message.slice(0, 120) : ''); } }
@@ -527,6 +530,13 @@ export class ObjectPad extends DurableObject<Env> {
       this.rewards.setCover(id, `${this.runtime.apiOrigin}/api/artifacts/${hash}`); this.store.metric('reward_cover_ok');
     } catch (error) { console.warn('objectpad.reward.cover', error instanceof Error ? error.message.slice(0, 160) : ''); this.rewards.setCover(id, null); this.store.metric('reward_cover_failed'); }
   }
+  /** People preview polling while the subject watches progress (throttled), in addition to the durable alarm. */
+  private async peoplePollIfDue(): Promise<void> {
+    if (!this.peopleModels.hasActiveJobs()) return;
+    const last = this.store.one<{ value: number }>("SELECT value FROM op_scheduler WHERE name='people_poll'")?.value ?? 0; if (Date.now() - last < 4_000) return;
+    this.store.run("INSERT INTO op_scheduler(name,value) VALUES ('people_poll',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value", Date.now());
+    await this.peopleModels.poll().catch(error => console.warn('objectpad.people.poll', error instanceof Error ? error.message.slice(0, 160) : ''));
+  }
   /** Opportunistic polling while a creator watches progress, in addition to the durable alarm. */
   private async pollIfDue(): Promise<void> {
     if (!this.captures.hasActiveJobs() && !this.records.hasPending() && !this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved','screening') LIMIT 1")) return;
@@ -542,6 +552,7 @@ export class ObjectPad extends DurableObject<Env> {
       if (path === '/people/status') return json(this.people.status());
       const invite = path.match(/^\/people\/invitations\/([a-f0-9]{64})$/); if (invite) { this.store.rate(`people-invite-read:${await this.visitor(request)}`, 60, 3_600_000); return json(this.people.previewInvite(invite[1])); }
       const profile = path.match(/^\/people\/profiles\/([a-f0-9]{20})$/); if (profile) return json(this.people.profile(profile[1]));
+      const pfile = path.match(/^\/people\/profiles\/([a-f0-9]{20})\/(model|thumb)$/); if (pfile) { const f = await this.peopleModels.publicFile(pfile[1], pfile[2] as 'model' | 'thumb'); return new Response(f.bytes, { headers: { 'Content-Type': f.type, 'Cache-Control': 'public,max-age=300', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'", 'Cross-Origin-Resource-Policy': 'cross-origin' } }); }
     }
     if (method === 'POST' && path === '/people/applications') { this.assertOrigin(request); this.store.rate(`people-apply:${await this.visitor(request)}`, 5, 86_400_000); const viewer = await this.identity(request).catch(() => null); return json(await this.people.apply(viewer && !viewer.startsWith('guest:') ? viewer : null, await body(request))); }
     const owner = await this.identity(request); if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
@@ -553,6 +564,21 @@ export class ObjectPad extends DurableObject<Env> {
     if (path === '/people/reports' && method === 'POST') return json(await this.people.report(owner, await body(request)));
     const inv = path.match(/^\/people\/invitations\/([a-f0-9]{64})\/(accept|decline)$/);
     if (inv && method === 'POST') return json(inv[2] === 'accept' ? await this.people.acceptInvite(inv[1], owner) : await this.people.decline(inv[1], owner));
+    const photo = path.match(/^\/people\/drafts\/([0-9a-f-]{36})\/photos(?:\/([a-z_]+))?$/);
+    if (photo) {
+      const [, id, view] = photo;
+      if (!view && method === 'GET') return json({ items: this.peopleModels.photos(id, owner) });
+      if (view && method === 'PUT') { if (!request.headers.get('content-type')?.startsWith('image/jpeg')) throw new ApiError('UNSUPPORTED_IMAGE', 415); return json({ items: await this.peopleModels.putPhoto(id, owner, view, await boundedBody(request, 8 * 1024 * 1024)) }); }
+      if (view && method === 'DELETE') return json({ items: await this.peopleModels.deletePhoto(id, owner, view) });
+    }
+    const model = path.match(/^\/people\/drafts\/([0-9a-f-]{36})\/model(?:\/(approve|reject|model|thumb))?$/);
+    if (model) {
+      const [, id, sub] = model;
+      if (!sub && method === 'GET') { await this.peoplePollIfDue(); return json(this.peopleModels.latest(id, owner)); }
+      if (!sub && method === 'POST') { const out = await this.peopleModels.start(id, owner); await this.schedule(8_000); return json(out); }
+      if ((sub === 'approve' || sub === 'reject') && method === 'POST') return json(await this.peopleModels.decide(id, owner, sub === 'approve'));
+      if ((sub === 'model' || sub === 'thumb') && method === 'GET') { const f = await this.peopleModels.file(id, owner, sub); return new Response(f.bytes, { headers: { 'Content-Type': f.type, 'Cache-Control': 'private,no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" } }); }
+    }
     const d = path.match(/^\/people\/drafts\/([0-9a-f-]{36})(?:\/([a-z-]+))?$/);
     if (d) {
       const [, id, action] = d;

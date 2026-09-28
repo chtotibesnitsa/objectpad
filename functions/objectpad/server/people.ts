@@ -28,6 +28,8 @@ export interface PeopleDeps {
   /** Server-side signature check. Supports EOA and contract-wallet (ERC-1271/6492) signatures. */
   verify(address: string, message: string, signature: string): Promise<boolean>;
   operatorName?: string;
+  /** Capture + 3D preview pipeline; optional so the rules can be tested without storage or the 3D engine. */
+  models?: { purge(id: string): Promise<void>; hasPublicModel(profileId: string): boolean };
 }
 
 interface DraftRow { id: string; creator: string; subject: string | null; relationship: Relationship; state: 'draft' | 'awaiting_subject' | 'published' | 'withdrawn' | 'deleted'; display_name: string; narrative: string; capture_mode: CaptureMode; launcher_bps: number; version: number; profile_id: string | null; created_at: number; updated_at: number; }
@@ -90,14 +92,14 @@ export class PeopleService {
   /** Server-configured status registry. States reflect code and configuration actually present, never aspirations. */
   status(): PeopleStatus {
     const env = this.runtime.env; const xReady = Boolean(this.runtime.privyAppId && (env.OBJECTPAD_PRIVY_APP_SECRET || env.PRIVY_APP_SECRET)); const livenessReady = this.liveness.configured;
-    const noLiveness = 'No commercial liveness provider is contracted yet, so nothing can be published.';
+    const noLiveness = 'No commercial liveness provider is contracted yet, so nothing can be published.'; const meshyReady = Boolean(this.runtime.toolkitKey);
     const f = (id: string, group: PeopleFeature['group'], label: string, state: PeopleFeature['state'], detail: string, blocker: string | null = null): PeopleFeature => ({ id, group, label, state, detail, blocker });
     const features: PeopleFeature[] = [
       f('self_launch', 'foundation', 'Self-launch drafts', xReady ? 'pilot' : 'planned', 'Private draft, separate consents, X account binding and signed wallet proof.', livenessReady ? null : noLiveness),
       f('assisted', 'foundation', 'Authorized assisted launch', 'pilot', 'A collaborator prepares a private draft. The subject accepts an expiring invitation and takes control before anything goes public.', livenessReady ? null : noLiveness),
       f('nominations', 'foundation', 'Nominate a public creator', 'live', 'Private nomination of a public account. Never shown publicly, never tradable, no likeness generated.'),
-      f('capture', 'foundation', 'Face and body capture', 'planned', 'Guided multi-angle capture with quality checks.', 'Starts with a small consenting adult pilot. The face-quality benchmark has not been run.'),
-      f('model_jobs', 'foundation', '3D likeness generation', 'planned', 'Queued AI reconstruction, quality review, retry budget and subject approval.', 'ObjectPad’s 3D engine is object-only today. People mode waits on the pilot benchmark.'),
+      f('capture', 'foundation', 'Face and body capture', meshyReady ? 'pilot' : 'planned', 'Guided selfie, multi-angle and full-body photos with light, sharpness and one-person checks. Private to you.', meshyReady ? 'Pilot: face quality is being benchmarked with the first consenting adults.' : '3D engine not configured.'),
+      f('model_jobs', 'foundation', '3D likeness generation', meshyReady ? 'pilot' : 'planned', 'Your private 3D preview with real progress, a retry budget and your approval before anything is used.', meshyReady ? 'Private previews only until liveness verification is live.' : '3D engine not configured.'),
       f('proofs', 'foundation', 'Separate proofs and scoped badges', 'pilot', 'Account, wallet, consent and liveness are recorded and shown as separate checks.', livenessReady ? null : 'The liveness check is unavailable until a provider is contracted.'),
       f('canonical', 'foundation', 'One canonical profile per subject', 'pilot', 'Enforced with unique keys on X user ID and wallet when a profile is published. Duplicates go to review.'),
       f('fee_split', 'foundation', 'Subject-approved fee split', 'planned', 'The subject can sign an exact split of collected creator fees today. It is recorded, not yet enforced on-chain.', 'Robinhood Chain launches pay creator fees to one wallet. No reviewed splitter contract is deployed.'),
@@ -122,7 +124,7 @@ export class PeopleService {
         { id: 'x', label: 'X sign-in (OAuth via auth provider)', configured: xReady, note: 'Binds the immutable X user ID, not the handle.' },
         { id: 'wallet', label: 'Wallet signatures (EIP-4361)', configured: true, note: 'Verified server-side; contract wallets supported.' },
         { id: 'liveness', label: 'Liveness provider', configured: livenessReady, note: livenessReady ? 'Configured.' : 'Not contracted. Verification and anything depending on it stay off.' },
-        { id: 'meshy', label: '3D reconstruction (Meshy)', configured: Boolean(this.runtime.toolkitKey), note: 'Used for objects today. People face quality not benchmarked.' },
+        { id: 'meshy', label: '3D reconstruction (Meshy)', configured: Boolean(this.runtime.toolkitKey), note: meshyReady ? 'Private People previews in pilot. Face quality is being benchmarked.' : 'Not configured.' },
         { id: 'splitter', label: 'Fee splitter contract', configured: false, note: 'Not deployed or reviewed.' },
       ],
       publishedProfiles: published, genesis: null, updatedAt: Date.now(),
@@ -373,6 +375,7 @@ export class PeopleService {
       this.store.run("UPDATE op_people_consents SET withdrawn_at=COALESCE(withdrawn_at,?) WHERE draft_id=?", Date.now(), id);
       this.store.run("UPDATE op_people_drafts SET state='deleted',display_name='',narrative='',profile_id=NULL,updated_at=? WHERE id=?", Date.now(), id);
     });
+    await this.deps.models?.purge(id).catch(() => undefined);
     await this.audit(owner, id, 'deleted'); return { state: 'deleted', note: 'Hosted draft data is deleted. The audit log keeps only event names and times.' };
   }
   /** Public view of a published profile. Verification evidence, account mappings and private media never appear here. */
@@ -382,7 +385,7 @@ export class PeopleService {
     const social = this.store.one<{ handle_snapshot: string }>('SELECT handle_snapshot FROM op_people_social WHERE draft_id=?', draft.id);
     const wallet = this.store.one<{ address: string }>('SELECT address FROM op_people_wallets WHERE draft_id=?', draft.id);
     const att = this.store.one<{ manifest: string; digest: string; revoked_at: number | null }>('SELECT manifest,digest,revoked_at FROM op_people_attestations WHERE draft_id=? ORDER BY issued_at DESC LIMIT 1', draft.id);
-    return { profileId, displayName: draft.display_name, narrative: draft.narrative, relationship: draft.relationship, handle: social?.handle_snapshot ?? null, wallet: wallet?.address ?? null, split: this.split(draft), checks: this.checks(draft).map(c => ({ id: c.id, label: c.label, passed: c.passed, at: c.at })), attestation: att ? { manifest: JSON.parse(att.manifest), digest: att.digest, revoked: Boolean(att.revoked_at) } : null };
+    return { profileId, displayName: draft.display_name, narrative: draft.narrative, relationship: draft.relationship, handle: social?.handle_snapshot ?? null, wallet: wallet?.address ?? null, split: this.split(draft), hasModel: this.deps.models?.hasPublicModel(profileId) ?? false, checks: this.checks(draft).map(c => ({ id: c.id, label: c.label, passed: c.passed, at: c.at })), attestation: att ? { manifest: JSON.parse(att.manifest), digest: att.digest, revoked: Boolean(att.revoked_at) } : null };
   }
 
   async nominate(owner: string, data: Record<string, unknown>) {

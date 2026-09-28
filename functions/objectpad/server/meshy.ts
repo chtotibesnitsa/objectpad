@@ -53,6 +53,21 @@ export class MeshyProvider implements ReconstructionProvider {
     note('POST', 200, 'created', result.result.slice(0, 13));
     return result.result;
   }
+  /**
+   * People previews: 1–4 photos of one consenting adult (the documented range for multi-image-to-3d). `preserve`
+   * sends image_enhancement:false so the likeness isn't restyled. If the engine rejects that optional field (HTTP 400/422,
+   * so nothing was started or charged) the request is repeated once without it.
+   */
+  async createPeopleTask(images: Uint8Array[], options: { preserve: boolean; polycount: number }): Promise<string> {
+    if (images.length < 1 || images.length > 4) throw new ApiError('PEOPLE_VIEW_COUNT');
+    const image_urls = images.map(raw => { const image = compactForProvider(raw, images.length === 1 ? 1_600_000 : 900_000); let binary = ''; for (let offset = 0; offset < image.length; offset += 8192) binary += String.fromCharCode(...image.subarray(offset, offset + 8192)); return `data:image/jpeg;base64,${btoa(binary)}`; });
+    const base = { image_urls, ai_model: this.model, geometry_resolution: this.options.geometry ?? 'standard', should_texture: true, enable_pbr: false, texture_resolution: '2k', should_remesh: true, topology: 'triangle', target_polycount: options.polycount, symmetry_mode: 'auto' };
+    let result: { result?: string };
+    try { result = await this.request('', 'POST', { ...base, image_enhancement: !options.preserve }) as { result?: string }; }
+    catch (error) { if (!(error instanceof ApiError) || error.code !== 'PROVIDER_REJECTED_INPUT') throw error; result = await this.request('', 'POST', base) as { result?: string }; }
+    if (!result.result || !/^[a-zA-Z0-9_-]{8,100}$/.test(result.result)) { note('POST', 200, 'ambiguous', JSON.stringify(result).slice(0, 200)); throw new ApiError('PROVIDER_AMBIGUOUS_CREATE', 502); }
+    note('POST', 200, 'people_created', result.result.slice(0, 13)); return result.result;
+  }
   async getTask(id: string): Promise<ReconstructionTask> { if (!/^[a-zA-Z0-9_-]{8,100}$/.test(id)) throw new ApiError('PROVIDER_ID'); const task = await this.request(`/${id}`) as ReconstructionTask; if (task.id !== id || !['PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'CANCELED'].includes(task.status)) throw new ApiError('PROVIDER_INVALID_RESULT', 502); return task; }
   async cancelTask(_id: string): Promise<{ cancelled: boolean; requiresOperator: boolean }> {
     // The documented DELETE endpoint deletes data; it is not a proven cancellation API. Local polling stops instead.

@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, RequestError } from '@/lib/api';
+import { api, API_BASE, RequestError } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { CHECK_LABELS, type CaptureMode, type CheckId, type FeeSplit, type PeopleStatus, type Relationship } from '@/shared/people';
+import { CHECK_LABELS, VIEW_GUIDE, type CaptureMode, type CaptureView, type CheckId, type FeeSplit, type ModelJobView, type PeopleStatus, type Relationship } from '@/shared/people';
 
 export type DraftState = 'draft' | 'awaiting_subject' | 'published' | 'withdrawn' | 'deleted';
 /** One verification check, evaluated server-side from stored evidence. */
@@ -20,7 +20,9 @@ export interface PeopleDraft {
   profileId: string | null; createdAt: number; updatedAt: number;
 }
 export interface InvitePreview { state: 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired'; expiresAt: number; displayName: string; invitedBy: string; launcherBps: number; scope: string[]; }
-export interface PublicPerson { profileId: string; displayName: string; narrative: string; relationship: Relationship; handle: string | null; wallet: string | null; split: FeeSplit; checks: DraftCheck[]; attestation: { manifest: Record<string, unknown>; digest: string; revoked: boolean } | null; }
+export interface PeoplePhoto { view: CaptureView; width: number; height: number; createdAt: number; }
+export interface ModelStatus { job: ModelJobView | null; attemptsLeft: number; configured: boolean; }
+export interface PublicPerson { profileId: string; displayName: string; narrative: string; relationship: Relationship; handle: string | null; wallet: string | null; split: FeeSplit; hasModel?: boolean; checks: DraftCheck[]; attestation: { manifest: Record<string, unknown>; digest: string; revoked: boolean } | null; }
 
 export const PEOPLE_KEY = ['objectpad', 'people'] as const;
 
@@ -34,7 +36,42 @@ export function usePeopleCall() {
   return useCallback(async <T,>(path: string, method = 'GET', body?: unknown): Promise<T> => api<T>(path, { token: await token(), method, body }), [token]);
 }
 
+/** Authenticated binary GET (private 3D preview files). */
+export function usePeopleBlob() {
+  const { token } = useSession();
+  return useCallback(async (path: string): Promise<Blob> => {
+    const t = await token(); const res = await fetch(`${API_BASE}${path}`, { headers: t ? { Authorization: `Bearer ${t}` } : {}, credentials: 'omit' });
+    if (!res.ok) throw new Error('The preview could not be loaded. Retry.'); return res.blob();
+  }, [token]);
+}
+
 const MESSAGES: Record<string, string> = {
+  ADULT_CONSENT_REQUIRED: 'Confirm you’re 18+ first (step 1).',
+  VIEW_INVALID: 'That photo angle isn’t recognised.',
+  UNSUPPORTED_IMAGE: 'That file isn’t a photo we can read. Try another.',
+  IMAGE_RESOLUTION: 'That photo is too small. Use a sharper photo (at least 720 px).',
+  IMAGE_QUALITY: 'Too blurry, dark or bright. Face a window and retake.',
+  IMAGE_NOT_VALIDATED: 'That photo couldn’t be read. Retake it.',
+  MEDIA_VALIDATION_UNAVAILABLE: 'Our photo check is busy. Tap retry, your progress is saved.',
+  PHOTO_CHILD: 'People is for adults only.',
+  PHOTO_NOT_CLOTHED: 'Please retake fully clothed.',
+  PHOTO_OF_SCREEN: 'That looks like a photo of a screen or print. Use your live camera.',
+  PHOTO_MULTIPLE_PEOPLE: 'Only you in the frame, please.',
+  PHOTO_NO_PERSON: 'We couldn’t see a person. Step into the frame and retake.',
+  PHOTO_NO_FACE: 'We couldn’t see your face clearly. Remove hats or glasses and retake.',
+  RECONSTRUCTION_NOT_CONFIGURED: 'The 3D engine is offline right now. Try again later.',
+  MODEL_JOB_ACTIVE: 'Your 3D double is already being built.',
+  MODEL_ATTEMPTS_USED: 'You’ve used all 3 builds for this draft. Start a new draft or ask support.',
+  PEOPLE_MODEL_BUDGET_REACHED: 'Today’s 3D builds are used up. Your photos are saved: try again tomorrow.',
+  MODEL_NOT_READY: 'The preview isn’t ready yet.',
+  CAPTURE_STORAGE_MISSING: 'A photo went missing. Retake it and try again.',
+  PROVIDER_FAILED: 'The 3D engine couldn’t build this one. Try again (this doesn’t use up a build).',
+  PROVIDER_TIMEOUT: 'The 3D engine took too long. Try again (this doesn’t use up a build).',
+  PROVIDER_CREDITS: 'The 3D engine is paused. Try again later (this doesn’t use up a build).',
+  PROVIDER_RATE_LIMIT: 'The 3D engine is busy. Try again in a minute.',
+  PROVIDER_UNAVAILABLE: 'The 3D engine didn’t answer. Try again.',
+  PROVIDER_REJECTED_INPUT: 'The 3D engine rejected these photos. Retake them in better light.',
+  PROVIDER_SUBMISSION_UNCERTAIN: 'We lost contact with the 3D engine mid-request. Try again.',
   SIGN_IN_REQUIRED: 'Sign in first. Drafts are private to your account.',
   SELF_DRAFT_EXISTS: 'You already have a self-launch draft. Resume it below.',
   DISPLAY_NAME_INVALID: 'Use a display name of 2–60 characters.',
@@ -78,6 +115,7 @@ const MESSAGES: Record<string, string> = {
 /** A plain-language message for any People error. */
 export function peopleError(error: unknown): string {
   if (error instanceof RequestError) {
+    if (error.code.startsWith('PHOTOS_MISSING')) { const v = error.code.split(':')[1]?.split(',') ?? []; return `Take these photos first: ${v.map(x => VIEW_GUIDE[x as CaptureView]?.title ?? x).join(', ')}.`; }
     if (error.code.startsWith('CHECKS_INCOMPLETE')) { const ids = error.code.split(':')[1]?.split(',') ?? []; return `Finish these first: ${ids.map(id => CHECK_LABELS[id as CheckId] ?? id).join(', ')}.`; }
     return MESSAGES[error.code] ?? error.message;
   }
