@@ -1,12 +1,17 @@
-import { lazy, Suspense, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ArrowRight, Box, Briefcase, Camera, ChevronDown, Eye, Fingerprint, Megaphone, Rocket, ScanFace, ShieldCheck, UserPlus, Wallet } from 'lucide-react';
+import { ArrowRight, Briefcase, Building2, FileText, Fingerprint, Handshake, Megaphone, MousePointer2, PiggyBank, ScanFace, ShieldCheck, Target, Trophy, UserPlus, Wallet } from 'lucide-react';
 import { Loading } from '@/components/Feedback';
-import { SplitBar, StateChip, STATE_META } from '@/components/people/PeopleUi';
-import { FALLBACK_ICON, FRIENDLY, PEOPLE_X_POST, shareOnX } from '@/components/people/features';
+import { PointCloud } from '@/components/PointCloud';
+import { AsciiField } from '@/components/AsciiField';
+import { Reveal } from '@/components/Reveal';
+import { PeopleStory, tickerOf } from '@/components/people/PeopleStory';
+import { BuildTimeline, ChainLedger, PhotoPipeline, SplitCalculator } from '@/components/people/PeopleInfographics';
+import { PEOPLE_X_POST, shareOnX } from '@/components/people/features';
 import { usePeopleStatus } from '@/lib/people';
-import { defaultSplit, type FeatureState, type PeopleFeature } from '@/shared/people';
 import { cn } from '@/lib/utils';
+
+const HalfHuman = lazy(() => import('@/components/people/HalfHuman').then(m => ({ default: m.HalfHuman })));
 
 const PeopleStart = lazy(() => import('./PeopleStart'));
 const PeopleDraftPage = lazy(() => import('./PeopleStart').then(m => ({ default: m.PeopleDraftPage })));
@@ -16,6 +21,7 @@ const Invite = lazy(() => import('./PeopleForms').then(m => ({ default: m.Invite
 const PersonProfile = lazy(() => import('./PeopleProfile'));
 const PeopleDemo = lazy(() => import('./PeopleProfile').then(m => ({ default: m.PeopleDemo })));
 const PeopleAdmin = lazy(() => import('./PeopleProfile').then(m => ({ default: m.PeopleAdmin })));
+const PeoplePhone = lazy(() => import('./PeoplePhone'));
 
 /**
  * /People is canonical. Router matching is case-insensitive, so any lowercase /people URL is redirected here
@@ -33,144 +39,167 @@ export default function PeopleRoutes() {
     <Route path="apply" element={<Apply/>}/>
     <Route path="p/:id" element={<PersonProfile/>}/>
     <Route path="demo" element={<PeopleDemo/>}/>
+    <Route path="phone/:token" element={<PeoplePhone/>}/>
     <Route path="admin" element={<PeopleAdmin/>}/>
     <Route path="*" element={<Navigate to="/People" replace/>}/>
   </Routes></Suspense>;
 }
 
+const HERO_FALLBACK = <div className="absolute inset-0"><PointCloud src="/models/points/human.json" mode="swirl" size={1.7} speed={0.5}/></div>;
 
-/** One feature tile. Plain name + one line; the precise detail and blocker sit behind "Details". */
-function FeatureTile({ f, i }: { f: PeopleFeature; i: number }) {
-  const meta = FRIENDLY[f.id]; const Icon = meta?.icon ?? FALLBACK_ICON; const live = f.state === 'live';
-  return <li className={cn('card-pop group relative overflow-hidden rounded-[26px] p-4 sm:p-5', live ? 'bg-ink text-white shadow-[0_30px_50px_-30px_rgba(12,13,16,.8)]' : 'raised')} style={{ ['--delay' as string]: `${i * 35}ms` }}>
-    {live && <span aria-hidden className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-[#12A150]/25 blur-2xl"/>}
-    <div className="relative flex items-start justify-between gap-3">
-      <span className={cn('flex size-11 items-center justify-center rounded-[14px]', live ? 'bg-white/10' : f.state === 'pilot' ? 'bg-[#F5C400]/20 text-[#7A5E00]' : 'bg-ink/[0.05] text-ink/55')}><Icon size={20} strokeWidth={2.2}/></span>
-      <StateChip state={f.state}/>
-    </div>
-    <p className="relative mt-4 text-[17px] font-extrabold leading-tight tracking-[-0.02em]">{meta?.title ?? f.label}</p>
-    <p className={cn('relative mt-1 text-[14px] font-semibold leading-5', live ? 'text-white/65' : 'text-ink/55')}>{meta?.line ?? f.detail}</p>
-    <details className="relative mt-3">
-      <summary className={cn('flex cursor-pointer list-none items-center gap-1 text-[12.5px] font-bold [&::-webkit-details-marker]:hidden', live ? 'text-white/50' : 'text-ink/40')}>{f.state === 'live' ? 'Details' : 'What’s left'}<ChevronDown size={13} className="transition-transform group-open:rotate-180"/></summary>
-      <p className={cn('mt-2 text-[12.5px] font-semibold leading-5', live ? 'text-white/60' : 'text-ink/55')}>{f.detail}{f.blocker && f.state !== 'live' ? ` ${f.blocker}` : ''}</p>
-    </details>
-  </li>;
-}
-
-const LANES: { state: FeatureState; title: string; sub: string }[] = [
-  { state: 'live', title: 'Live now', sub: 'Open to everyone. Try it tonight.' },
-  { state: 'pilot', title: 'In pilot', sub: 'Working, being tested with the first creators.' },
-  { state: 'planned', title: 'Planned', sub: 'Being built next, in this order.' },
+const INCOME: { icon: typeof Wallet; title: string; line: string; math: string; when: string }[] = [
+  { icon: Wallet, title: 'Creator fees', line: 'Your share of the fees your coin actually collects.', math: 'you = F − ⌊F·L/10⁴⌋ − ⌊F·P/10⁴⌋', when: 'Split signing works today. Payout routing turns on before any People coin launches.' },
+  { icon: Target, title: 'Paid missions', line: 'Fans fund a task. You accept it, do it, get paid from escrow.', math: 'payout = escrow − fee, released on proof', when: 'Next up' },
+  { icon: Handshake, title: 'Sponsorships', line: 'Brand deals on your profile, always labelled as paid.', math: 'terms published before you accept', when: 'Next up' },
+  { icon: PiggyBank, title: 'Milestone funding', line: 'Holders fund gear and projects in public, step by step.', math: 'release_k only after milestone k is shown', when: 'Next up' },
 ];
 
-/** Animated build progress: live counts fully, pilot counts half. Numbers come from the server registry. */
-function BuildMeter({ features }: { features: PeopleFeature[] }) {
-  const n = features.length || 1; const live = features.filter(f => f.state === 'live').length; const pilot = features.filter(f => f.state === 'pilot').length; const planned = n - live - pilot;
-  const pctDone = Math.round(((live + pilot * 0.5) / n) * 100);
-  return <div className="smoke relative overflow-hidden rounded-[32px] p-6 sm:p-8">
-    <div aria-hidden className="grid-smoke absolute inset-0 opacity-50"/>
-    <div className="relative flex flex-wrap items-end justify-between gap-4">
-      <div><p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.16em] text-white/50">Build progress · updates live</p><p className="display mt-2 text-[clamp(56px,9vw,96px)] leading-[0.85] tnum">{pctDone}<span className="text-[0.5em] text-white/40">%</span></p></div>
-      <a href={shareOnX(PEOPLE_X_POST)} target="_blank" rel="noreferrer" className="press inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-[14px] font-extrabold text-ink">Share progress on X<ArrowRight size={15}/></a>
-    </div>
-    <div className="relative mt-6 flex h-4 gap-1 overflow-hidden rounded-full bg-white/[0.08] p-[3px]">
-      <span className="bar-grow h-full rounded-full" style={{ width: `${(live / n) * 100}%`, background: 'linear-gradient(90deg,#12A150,#2EE584)' }}/>
-      <span className="bar-grow h-full rounded-full" style={{ width: `${(pilot / n) * 100}%`, background: 'linear-gradient(90deg,#E0B000,#FFD84A)', ['--delay' as string]: '200ms' }}/>
-    </div>
-    <div className="relative mt-4 grid grid-cols-3 gap-2">
-      {([['live', live], ['pilot', pilot], ['planned', planned]] as const).map(([s, v]) => <div key={s} className="rounded-2xl bg-white/[0.06] px-3 py-3 sm:px-4"><p className="flex items-center gap-1.5 text-[12px] font-extrabold text-white/60"><span className="size-2 rounded-full" style={{ background: s === 'planned' ? 'rgba(255,255,255,.3)' : STATE_META[s].bar }}/>{STATE_META[s].label}</p><p className="display mt-1 text-[30px] leading-none tnum">{v}</p></div>)}
-    </div>
-  </div>;
-}
-
-const STEPS: { icon: typeof Eye; title: string; line: string; feature: string }[] = [
-  { icon: Camera, title: 'Snap a selfie', line: 'One photo, or four angles for a better match. Private to you.', feature: 'capture' },
-  { icon: Box, title: 'Get your 3D double', line: 'AI builds it in about 2 minutes. You approve it, or rebuild.', feature: 'model_jobs' },
-  { icon: ShieldCheck, title: 'Prove it’s you', line: 'Connect X and your wallet, then a quick live check.', feature: 'proofs' },
-  { icon: Rocket, title: 'Launch your coin', line: 'You sign your fee split. 90% of collected creator fees go to you.', feature: 'fee_split' },
+const ROLES: { title: string; where: string; what: string }[] = [
+  { title: 'Genesis creators', where: 'Remote', what: 'Be among the first doubles on People. Paid pilot terms are posted before anyone is accepted.' },
+  { title: 'Streamers & KOLs', where: 'Remote', what: 'Go live from your profile and run missions with your community.' },
+  { title: 'UGC & 3D artists', where: 'Remote or SF', what: 'Direct captures, clean up doubles, make launch content.' },
+  { title: 'Community & engineering', where: 'San Francisco', what: 'Build People with us, in the office.' },
 ];
 
-/** /People landing. Every status shown comes from the server status registry; there are no demo figures on this page. */
+/** /People landing. Feature progress comes from the server registry; the 3D person shown is a fictional sample scan. */
 function PeopleLanding() {
   useEffect(() => { document.title = 'ObjectPad People · People are next'; }, []);
   const status = usePeopleStatus(); const s = status.data;
-  const byState = useMemo(() => ({ live: s?.features.filter(f => f.state === 'live') ?? [], pilot: s?.features.filter(f => f.state === 'pilot') ?? [], planned: s?.features.filter(f => f.state === 'planned') ?? [] }), [s]);
-  const stateOf = (id: string): FeatureState | null => s?.features.find(f => f.id === id)?.state ?? null;
+  const [name, setName] = useState<string>(''); const ticker = tickerOf(name);
 
-  return <div className="page py-6 sm:py-10">
-    <section className="raised relative overflow-hidden rounded-[36px] sm:rounded-[44px]">
-      <div aria-hidden className="grid-paper pointer-events-none absolute inset-0 opacity-70"/>
-      <div className="relative grid items-end lg:grid-cols-[1.05fr_1fr]">
-        <div className="relative z-10 p-6 pb-0 sm:p-10 lg:pb-12">
-          <div className="flex flex-wrap items-center gap-2.5"><img src="/brand/duck-mark-96.png" alt="" className="size-8"/><span className="font-mono text-[11px] font-extrabold uppercase tracking-[0.16em] text-ink/55">ObjectPad People</span>{s && <StateChip state={s.phase === 'live' ? 'live' : 'pilot'} className="ml-1"/>}</div>
-          <h1 className="display mt-6 text-[clamp(64px,11vw,148px)] uppercase leading-[0.84] tracking-[-0.04em]"><span className="word-in block">People</span><span className="word-in block" style={{ animationDelay: '90ms' }}>are</span><span className="word-in block" style={{ animationDelay: '180ms' }}>next<span className="text-[#E0B000]">.</span></span></h1>
-          <p className="mt-6 max-w-[32rem] text-[clamp(18px,1.8vw,22px)] font-extrabold leading-snug tracking-[-0.015em] text-ink/80">Turn yourself into a 3D double. Prove it’s really you. Launch your own coin and keep 90% of the creator fees.</p>
-          <p className="mt-3 text-[13.5px] font-bold text-ink/50">{s ? (s.phase === 'pilot' ? 'Pilot open · first creators this week' : 'Building in public · drafts, selfies and 3D previews work tonight') : 'Loading…'}</p>
+  return <div className="page py-5 sm:py-8">
+    {/* HERO: black mirror */}
+    <section className="relative overflow-hidden rounded-[36px] bg-[#08090B] text-white shadow-[0_50px_100px_-50px_rgba(12,13,16,.9)] sm:rounded-[44px]">
+      <AsciiField className="absolute inset-0 opacity-70" cell={18} density={0.06} tone={0.1} rgb="46,229,132"/>
+      <div aria-hidden className="absolute inset-0 bg-[radial-gradient(50%_60%_at_72%_50%,rgba(120,130,145,.28),transparent_70%)]"/>
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(255,255,255,.022)_0_1px,transparent_1px_3px)]"/>
+      <div className="relative grid lg:grid-cols-[1fr_1fr]">
+        <div className="relative z-10 flex flex-col justify-center p-6 pb-2 sm:p-10 lg:py-16">
+          <div className="flex items-center gap-2.5"><img src="/brand/duck-mark-96.png" alt="" className="size-8"/><span className="font-mono text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/55">ObjectPad People</span></div>
+          <h1 className="display mt-6 text-[clamp(60px,10.5vw,142px)] uppercase leading-[0.82] tracking-[-0.045em]"><span className="word-in block">People</span><span className="word-in block" style={{ animationDelay: '90ms' }}>are</span><span className="word-in block" style={{ animationDelay: '180ms' }}>next<span className="text-[#2EE584]">.</span></span></h1>
+          <p className="mt-6 max-w-[31rem] text-[clamp(18px,1.7vw,22px)] font-extrabold leading-snug tracking-[-0.015em] text-white/85">Scan yourself into a 3D double. Prove it’s really you. Launch your own coin and keep up to 90% of its creator fees.</p>
           <div className="mt-7 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
-            <Link to="/People/start" className="btn press min-h-[54px] px-7 text-[15.5px]"><ScanFace size={18}/>Make my 3D double</Link>
-            <Link to="/People/nominate" className="btn-ghost press min-h-[54px] px-5 text-[14.5px]"><UserPlus size={16}/>Nominate a creator</Link>
-            <Link to="/People/apply" className="btn-ghost press min-h-[54px] px-5 text-[14.5px]"><Briefcase size={16}/>Apply as a creator</Link>
+            <Link to="/People/start" className="press group inline-flex min-h-[56px] items-center justify-center gap-2 rounded-full bg-[#2EE584] px-7 text-[16px] font-extrabold text-ink shadow-[0_18px_40px_-14px_rgba(46,229,132,.7)]"><ScanFace size={19}/>Make my 3D double<ArrowRight size={17} className="transition-transform group-hover:translate-x-1"/></Link>
+            <Link to="/People/apply" className="press inline-flex min-h-[56px] items-center justify-center gap-2 rounded-full bg-white/[0.08] px-6 text-[15px] font-extrabold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,.14)]"><Briefcase size={16}/>Apply as a creator</Link>
+          </div>
+          <div className="mt-8 grid max-w-md grid-cols-3 gap-2">
+            {[['90%', 'max creator-fee share'], ['~2 min', 'selfie to 3D'], ['0', 'face data on-chain']].map(([v, l]) => <div key={l} className="rounded-2xl bg-white/[0.05] px-3 py-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,.06)]"><p className="display text-[26px] leading-none tnum">{v}</p><p className="mt-1 text-[11.5px] font-bold leading-4 text-white/50">{l}</p></div>)}
           </div>
         </div>
-        <div className="relative -mt-4 lg:mt-0"><img src="/people/hero-bust-v1.jpg" alt="A white marble bust dissolving into black dots on one side" className="mx-auto w-full max-w-[640px] mix-blend-multiply [mask-image:linear-gradient(to_top,transparent,black_18%)]" draggable={false}/></div>
+        <div className="relative h-[440px] sm:h-[560px] lg:h-auto lg:min-h-[640px]">
+          <Suspense fallback={HERO_FALLBACK}><HalfHuman src="/models/people/human-v1.glb" fallback={HERO_FALLBACK} dark camera={[0, 0.1, 3.6]}/></Suspense>
+          <p className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full bg-black/50 px-3 py-1.5 font-mono text-[10px] font-extrabold uppercase tracking-[0.14em] text-white/60 backdrop-blur"><MousePointer2 size={11}/>Drag to spin · fictional sample scan</p>
+        </div>
       </div>
     </section>
 
-    <section className="mt-10 sm:mt-14">
-      <p className="lab">How it works</p>
-      <h2 className="display mt-3 text-[clamp(32px,4.6vw,56px)] leading-[0.95]">Four steps. About five minutes.</h2>
-      <ol className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {STEPS.map((step, i) => { const st = stateOf(step.feature); return <li key={step.title} className="raised card-pop relative overflow-hidden rounded-[28px] p-5" style={{ ['--delay' as string]: `${i * 60}ms` }}>
-          <span aria-hidden className="display pointer-events-none absolute -right-2 -top-6 text-[120px] leading-none text-ink/[0.04]">{i + 1}</span>
-          <div className="relative flex items-center justify-between"><span className="flex size-12 items-center justify-center rounded-2xl bg-ink text-white"><step.icon size={22}/></span>{st && <StateChip state={st}/>}</div>
-          <p className="relative mt-5 text-[19px] font-extrabold tracking-[-0.02em]">{step.title}</p>
-          <p className="relative mt-1.5 text-[14px] font-semibold leading-5 text-ink/55">{step.line}</p>
-        </li>; })}
-      </ol>
-    </section>
-
-    <section className="mt-10 sm:mt-14">
-      {status.isPending ? <Loading label="Loading build progress…"/> : status.isError || !s ? <p className="raised rounded-[28px] p-6 text-[15px] font-bold text-ink/60">Build progress couldn’t load. Everything is treated as off until it does.</p> : <>
-        <BuildMeter features={s.features}/>
-        {LANES.map(lane => byState[lane.state].length > 0 && <div key={lane.state} className="mt-10">
-          <div className="flex flex-wrap items-end justify-between gap-2"><div><h3 className="display text-[clamp(26px,3.4vw,40px)] leading-none">{lane.title}</h3><p className="mt-1.5 text-[14px] font-bold text-ink/50">{lane.sub}</p></div><StateChip state={lane.state}/></div>
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{byState[lane.state].map((f, i) => <FeatureTile key={f.id} f={f} i={i}/>)}</ul>
-        </div>)}
-      </>}
-    </section>
-
-    <section className="mt-14 grid gap-4 lg:grid-cols-[1fr_1.1fr] lg:items-center">
-      <div><p className="lab">Your money</p><h2 className="display mt-3 text-[clamp(32px,4.6vw,56px)] leading-[0.95]">You sign the split.</h2>
-        <p className="mt-4 max-w-xl text-[16px] font-semibold leading-relaxed text-ink/65">Launch yourself and you get 90% of the creator fees your coin collects. If a collaborator set it up, you choose their cut, up to 20%. ObjectPad keeps 10%. It’s a share of fees actually collected, not trading volume.</p>
-        {s && (() => { const f = s.features.find(x => x.id === 'fee_split'); return f && f.state !== 'live' ? <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-ink/[0.05] py-1.5 pl-1.5 pr-4 text-[13px] font-bold text-ink/60"><StateChip state={f.state}/>You can sign it now. On-chain payout routing comes next.</p> : null; })()}
+    {/* 4-STEP STORY */}
+    <section className="relative mt-4 overflow-hidden rounded-[36px] bg-[#0E1013] p-5 text-white sm:mt-5 sm:rounded-[44px] sm:p-10">
+      <div aria-hidden className="grid-smoke absolute inset-0 opacity-40"/>
+      <div className="relative flex flex-wrap items-end justify-between gap-4">
+        <div><p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2EE584]">How you become a coin</p><h2 className="display mt-3 text-[clamp(34px,5vw,64px)] leading-[0.92]">Four steps.<br className="sm:hidden"/> One of you.</h2></div>
+        <label className="w-full max-w-[300px]"><span className="font-mono text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-white/45">Try it with your name</span>
+          <span className="mt-1.5 flex items-center gap-2 rounded-2xl bg-white/[0.07] px-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,.1)] focus-within:shadow-[inset_0_0_0_2px_#2EE584]"><input value={name} onChange={e => setName(e.target.value.slice(0, 28))} placeholder="Your name" className="min-h-[50px] min-w-0 flex-1 bg-transparent text-[16px] font-bold text-white outline-none placeholder:text-white/30" autoComplete="off"/><span className="font-mono text-[13px] font-extrabold text-[#2EE584]">${ticker}</span></span></label>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="raised rounded-[26px] p-5"><p className="text-[15px] font-extrabold">You launch it</p><div className="mt-3"><SplitBar split={defaultSplit('self')}/></div></div>
-        <div className="raised rounded-[26px] p-5"><p className="text-[15px] font-extrabold">A collaborator helps</p><div className="mt-3"><SplitBar split={defaultSplit('assisted')}/></div></div>
+      <div className="relative mt-8"><PeopleStory name={name.trim()} ticker={ticker}/></div>
+    </section>
+
+    {/* IMAGE TRIPTYCH */}
+    <section className="mt-14 sm:mt-20">
+      <Reveal><p className="lab">What it feels like</p><h2 className="display mt-3 max-w-3xl text-[clamp(32px,4.6vw,58px)] leading-[0.94]">A phone, three photos, and a double that’s actually yours.</h2></Reveal>
+      <div className="mt-7 grid gap-3 md:grid-cols-3">
+        {[['/people/capture-v1.jpg', '01 · Capture', 'Guided shots from your own phone. Live light and focus checks, before anything uploads.'], ['/people/body-v1.jpg', '02 · Reconstruct', 'The 3D engine builds a textured double. It renders; it never decides who you are.'], ['/people/coin-v2.jpg', '03 · Launch', 'Your approved double on your coin, with your ticker and your signed split.']].map(([src, t, d], i) => <Reveal key={t} delay={i * 90}><figure className="group relative overflow-hidden rounded-[30px] bg-ink">
+          <img src={src} alt="" loading="lazy" className="aspect-[4/5] w-full object-cover opacity-90 transition-transform duration-700 group-hover:scale-[1.04]"/>
+          <div aria-hidden className="absolute inset-0 bg-[linear-gradient(to_top,rgba(8,9,11,.92),transparent_55%)]"/>
+          <figcaption className="absolute inset-x-0 bottom-0 p-5 text-white"><p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#2EE584]">{t}</p><p className="mt-1.5 text-[15px] font-bold leading-5 text-white/80">{d}</p></figcaption>
+        </figure></Reveal>)}
       </div>
+      <p className="mt-3 text-[12px] font-semibold text-ink/40">Illustrations generated for this page. No real person is pictured.</p>
     </section>
 
-    <section className="mt-14 grid gap-3 md:grid-cols-3">
-      {[[Eye, 'Your photos stay private', 'Only you see your photos and preview. They’re deleted once you approve your 3D double. No face data goes on-chain.'],
-        [Fingerprint, 'Badges mean something', 'Each badge says exactly which check passed and when. No one can claim to be you: copycats go to review.'],
-        [ShieldCheck, 'You stay in control', 'A coin never means someone owns you. Withdraw or delete any time. Copies others already downloaded can’t be recalled.']].map(([I, a, b]) => { const Icon = I as typeof Eye; return <div key={a as string} className="raised flex gap-3.5 rounded-[26px] p-5"><span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-ink/[0.05]"><Icon size={19}/></span><div><p className="text-[16px] font-extrabold">{a as string}</p><p className="mt-1 text-[13.5px] font-semibold leading-5 text-ink/55">{b as string}</p></div></div>; })}
+    {/* ROADMAP */}
+    <section className="mt-16 sm:mt-24">
+      <Reveal><p className="lab">Roadmap · building in public</p><h2 className="display mt-3 text-[clamp(32px,4.6vw,58px)] leading-[0.94]">Watch it get built.</h2></Reveal>
+      <div className="mt-8">{status.isPending ? <Loading label="Loading the build…"/> : status.isError || !s ? <p className="raised rounded-[28px] p-6 text-[15px] font-bold text-ink/60">The roadmap couldn’t load. Everything counts as off until it does.</p> : <BuildTimeline features={s.features}/>}</div>
+      <div className="mt-8 flex flex-wrap gap-2"><a href={shareOnX(PEOPLE_X_POST)} target="_blank" rel="noreferrer" className="btn press min-h-12 px-6 text-[14.5px]">Share the build on X<ArrowRight size={15}/></a><Link to="/whitepaper#people" className="btn-ghost press min-h-12 px-6 text-[14.5px]"><FileText size={15}/>Read the maths</Link></div>
     </section>
 
-    <section className="mt-4">
-      <div className="raised rounded-[28px] p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-[17px] font-extrabold">Genesis creator program</p><StateChip state={s?.genesis ? 'pilot' : 'planned'}/></div>
-        {s?.genesis ? <><p className="display mt-3 text-[34px] tnum">{s.genesis.remaining} / {s.genesis.slots} places</p><p className="mt-1 text-[14px] font-bold text-ink/60">{s.genesis.awardDisplay} per accepted creator · <a href={s.genesis.termsUrl} className="underline underline-offset-2">terms</a></p></>
-          : <p className="mt-2 text-[14.5px] font-semibold leading-6 text-ink/60">Rewards for the first creators are coming. The budget, number of places and terms will be posted here before anyone is accepted. You’ll never need to buy a token to apply. <Link to="/People/apply" className="font-extrabold text-ink underline underline-offset-2">Apply now to be first in line</Link>.</p>}
+    {/* PAYOUTS */}
+    <section className="relative mt-16 overflow-hidden rounded-[36px] bg-[#0B0C0F] p-5 text-white sm:mt-24 sm:rounded-[44px] sm:p-10">
+      <AsciiField className="absolute inset-0 opacity-40" cell={20} density={0.05} tone={0.08} rgb="255,216,74"/>
+      <div className="relative">
+        <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#FFD84A]">Payouts · exact integer maths</p>
+        <h2 className="display mt-3 max-w-2xl text-[clamp(32px,4.8vw,60px)] leading-[0.92]">You sign the split. The numbers can’t drift.</h2>
+        <p className="mt-4 max-w-2xl text-[15.5px] font-semibold leading-relaxed text-white/60">Shares are integer basis points of creator fees actually collected, never trading volume. ObjectPad’s 1,000 bps is fixed, a collaborator can get at most 2,000, and every leftover wei of rounding goes to you.</p>
+        <div className="mt-8"><SplitCalculator/></div>
       </div>
     </section>
 
-    <section className="smoke relative mt-12 overflow-hidden rounded-[36px] px-6 py-12 sm:py-16">
-      <div aria-hidden className="grid-smoke absolute inset-0 opacity-60"/>
-      <h2 className="display relative text-center text-[clamp(34px,5vw,60px)] leading-[0.95]">Be one of the first.</h2>
-      <div className="relative mt-8 grid gap-4 md:grid-cols-3">
-        {[[ScanFace, 'Make my 3D double', 'Private draft. Selfie to 3D preview in minutes. Saves as you go.', '/People/start'], [Megaphone, 'Nominate a creator', 'Tell us who should be on People. It stays private.', '/People/nominate'], [Wallet, 'Apply as a creator', 'Remote or San Francisco. Paid roles for selected creators.', '/People/apply']].map(([I, t, d, to]) => { const Icon = I as typeof Eye; return <Link key={t as string} to={to as string} className="press group rounded-[26px] bg-white/[0.07] p-5 text-white transition-colors hover:bg-white/[0.12]"><Icon size={22}/><p className="mt-4 text-[19px] font-extrabold">{t as string}</p><p className="mt-1 text-[13.5px] font-semibold leading-5 text-white/60">{d as string}</p><span className="mt-4 inline-flex items-center gap-1.5 text-[13.5px] font-extrabold">Open<ArrowRight size={14} className="transition-transform group-hover:translate-x-1"/></span></Link>; })}
+    {/* INCOME STACK */}
+    <section className="mt-16 sm:mt-24">
+      <Reveal><p className="lab">Ways to earn</p><h2 className="display mt-3 text-[clamp(32px,4.6vw,58px)] leading-[0.94]">More than a chart.</h2></Reveal>
+      <div className="mt-7 grid gap-3 sm:grid-cols-2">
+        {INCOME.map((it, i) => <Reveal key={it.title} delay={i * 70}><div className="raised relative h-full overflow-hidden rounded-[30px] p-6">
+          <div className="flex items-start gap-4"><span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-ink text-white"><it.icon size={21}/></span><div className="min-w-0"><p className="text-[20px] font-extrabold tracking-[-0.02em]">{it.title}</p><p className="mt-1 text-[14px] font-semibold leading-5 text-ink/55">{it.line}</p></div></div>
+          <p className="mt-5 overflow-x-auto rounded-2xl bg-ink px-4 py-3 font-mono text-[12.5px] font-bold text-[#2EE584]">{it.math}</p>
+          <p className="mt-3 text-[12.5px] font-bold text-ink/45">{it.when}</p>
+        </div></Reveal>)}
       </div>
-      <p className="relative mt-8 text-center text-[12.5px] font-bold text-white/45"><Link to="/People/demo" className="underline underline-offset-2">See the illustrative demo</Link> · a made-up person with made-up numbers, not tradable.</p>
+    </section>
+
+    {/* OFFICE + JOBS */}
+    <section className="mt-16 overflow-hidden rounded-[36px] bg-ink text-white sm:mt-24 sm:rounded-[44px]">
+      <div className="grid lg:grid-cols-[1.1fr_1fr]">
+        <div className="relative min-h-[300px] sm:min-h-[420px]">
+          <img src="/people/office-v1.jpg" alt="A creator studio loft at night" loading="lazy" className="absolute inset-0 size-full object-cover"/>
+          <div aria-hidden className="absolute inset-0 bg-[linear-gradient(to_right,transparent_40%,#0C0D10),linear-gradient(to_top,#0C0D10,transparent_45%)] lg:bg-[linear-gradient(to_right,transparent_45%,#0C0D10)]"/>
+          <div className="absolute bottom-4 left-4 h-[150px] w-[110px] sm:h-[190px] sm:w-[140px]"><PointCloud src="/models/points/human.json" mode="wire" size={1.3} speed={0.8}/></div>
+        </div>
+        <div className="relative p-6 sm:p-10">
+          <p className="flex items-center gap-2 font-mono text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/50"><Building2 size={13}/>ObjectPad office · San Francisco</p>
+          <h2 className="display mt-3 text-[clamp(32px,4.4vw,54px)] leading-[0.92]">Get paid to be early.</h2>
+          <p className="mt-3 text-[15px] font-semibold leading-6 text-white/60">Selected creators can take paid roles and pilots, remote or in the SF office. Every role is posted with its pay, term and deadline before anyone is hired. You never need to buy a token to apply.</p>
+          <ul className="mt-6 grid gap-2">{ROLES.map(r => <li key={r.title} className="rounded-2xl bg-white/[0.06] p-4"><div className="flex items-center justify-between gap-3"><p className="text-[16px] font-extrabold">{r.title}</p><span className="shrink-0 font-mono text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-white/45">{r.where}</span></div><p className="mt-1 text-[13px] font-semibold leading-5 text-white/55">{r.what}</p></li>)}</ul>
+          <Link to="/People/apply" className="press mt-6 inline-flex min-h-[52px] items-center gap-2 rounded-full bg-white px-6 text-[15px] font-extrabold text-ink"><Briefcase size={16}/>Apply now<ArrowRight size={15}/></Link>
+        </div>
+      </div>
+    </section>
+
+    {/* PIPELINE */}
+    <section className="mt-16 sm:mt-24">
+      <Reveal><p className="lab">Your photos, step by step</p><h2 className="display mt-3 max-w-3xl text-[clamp(32px,4.6vw,58px)] leading-[0.94]">Seven gates. Then your photos are gone.</h2></Reveal>
+      <div className="raised mt-8 rounded-[32px] px-4 py-8 sm:px-8"><PhotoPipeline/></div>
+    </section>
+
+    {/* TRUST */}
+    <section className="relative mt-16 overflow-hidden rounded-[36px] bg-[#0B0C0F] p-5 text-white sm:mt-24 sm:rounded-[44px] sm:p-10">
+      <div aria-hidden className="grid-smoke absolute inset-0 opacity-40"/>
+      <div className="relative grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div>
+          <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2EE584]">Proof, not promises</p>
+          <h2 className="display mt-3 text-[clamp(32px,4.6vw,56px)] leading-[0.92]">A coin never means someone owns you.</h2>
+          <ul className="mt-6 grid gap-3">{[[Fingerprint, 'One official profile per person', 'Unique keys on your X account ID and wallet. A second claim goes to human review.'], [ShieldCheck, 'Badges say exactly what passed', 'Each badge names its check and date. A live check from an independent provider is required to publish.'], [Trophy, 'You stay in control', 'Withdraw or delete any time. Copies others already downloaded can’t be recalled.']].map(([I, t, d]) => { const Icon = I as typeof Wallet; return <li key={t as string} className="flex gap-3.5"><span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.08]"><Icon size={18}/></span><div><p className="text-[16px] font-extrabold">{t as string}</p><p className="mt-0.5 text-[13.5px] font-semibold leading-5 text-white/55">{d as string}</p></div></li>; })}</ul>
+        </div>
+        <ChainLedger/>
+      </div>
+    </section>
+
+    {/* GENESIS SLOT + FINAL CTA */}
+    <section className="mt-16 grid gap-4 sm:mt-24 lg:grid-cols-[0.9fr_1.1fr]">
+      <div className="relative overflow-hidden rounded-[36px] bg-[#0E1013] p-6 text-white sm:p-8">
+        <div className="relative mx-auto h-[260px] w-[200px]"><PointCloud src="/models/points/human-bust.json" mode="scan" size={1.4} speed={0.6}/><div aria-hidden className="absolute inset-0 rounded-[28px] shadow-[inset_0_0_0_2px_rgba(46,229,132,.35)]"/></div>
+        <p className="mt-5 font-mono text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2EE584]">Creator No. 001</p>
+        <p className="display mt-2 text-[34px] leading-none">This spot is waiting.</p>
+        <p className="mt-2 text-[14px] font-semibold leading-5 text-white/55">The first creator appears here only after they scan themselves, pass every check and approve their own double.{s?.genesis ? ` ${s.genesis.remaining} of ${s.genesis.slots} genesis places left · ${s.genesis.awardDisplay} each.` : ' Genesis rewards and terms are posted before anyone is accepted.'}</p>
+      </div>
+      <div className="smoke relative flex flex-col justify-between overflow-hidden rounded-[36px] p-6 sm:p-10">
+        <div aria-hidden className="grid-smoke absolute inset-0 opacity-60"/>
+        <h2 className="display relative text-[clamp(38px,5.6vw,72px)] leading-[0.9]">Be one of<br/>the first.</h2>
+        <div className="relative mt-8 grid gap-2.5">
+          {[[ScanFace, 'Make my 3D double', 'Private draft. Shoot on your phone. Saves as you go.', '/People/start'], [Megaphone, 'Nominate a creator', 'Tell us who should be on People next.', '/People/nominate'], [UserPlus, 'Set up someone you work with', 'You prepare it. They accept and take control.', '/People/start']].map(([I, t, d, to], i) => { const Icon = I as typeof Wallet; return <Link key={t as string} to={to as string} className={cn('press group flex items-center gap-4 rounded-[24px] p-4 transition-colors', i === 0 ? 'bg-white text-ink' : 'bg-white/[0.07] text-white hover:bg-white/[0.12]')}><Icon size={22} className="shrink-0"/><span className="min-w-0 flex-1"><span className="block text-[17px] font-extrabold">{t as string}</span><span className={cn('block text-[13px] font-semibold leading-5', i === 0 ? 'text-ink/55' : 'text-white/55')}>{d as string}</span></span><ArrowRight size={17} className="shrink-0 transition-transform group-hover:translate-x-1"/></Link>; })}
+        </div>
+        <p className="relative mt-6 text-[12px] font-bold text-white/40"><Link to="/People/demo" className="underline underline-offset-2">Illustrative demo profile</Link> · a made-up person, not tradable.</p>
+      </div>
     </section>
   </div>;
 }

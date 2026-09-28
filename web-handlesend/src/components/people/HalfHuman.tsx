@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { MeshSurfaceSampler } from 'three/examples/jsm/math/MeshSurfaceSampler.js';
 import { CANVAS_DPR, IS_TOUCH } from '@/lib/perf';
 import { usePreferences } from '@/hooks/use-preferences';
+import { useInView } from '@/hooks/use-in-view';
 
 const GLYPHS = '01#%@+/▲';
 
@@ -31,7 +32,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }`;
 const FRAG = /* glsl */ `
-uniform sampler2D uAtlas; uniform float uTime; uniform float uSplit;
+uniform sampler2D uAtlas; uniform float uTime; uniform float uSplit; uniform vec3 uInk;
 varying float vSeed; varying float vSide; varying float vEdge;
 void main() {
   if (vSide < 0.0 && vEdge <= 0.0) discard;
@@ -39,7 +40,7 @@ void main() {
   vec2 uv = vec2((gl_PointCoord.x + idx) / 8.0, 1.0 - gl_PointCoord.y);
   float a = texture2D(uAtlas, uv).a;
   if (a < 0.2) discard;
-  vec3 ink = vec3(0.047, 0.051, 0.063);
+  vec3 ink = uInk;
   vec3 green = vec3(0.07, 0.63, 0.31);
   float seam = smoothstep(0.06, 0.0, abs(vSide));
   vec3 col = mix(ink, green, max(seam, step(0.93, vSeed) * 0.9));
@@ -69,12 +70,12 @@ function build(scene: THREE.Object3D, count: number): Built {
   return { mesh: holder, points: geo, plane };
 }
 
-function Figure({ src, paused }: { src: string; paused: boolean }) {
+function Figure({ src, paused, tint }: { src: string; paused: boolean; tint: [number, number, number] }) {
   const { scene } = useGLTF(src);
-  const built = useMemo(() => build(scene, IS_TOUCH ? 9000 : 16000), [scene]);
+  const built = useMemo(() => build(scene, IS_TOUCH ? 4200 : 7800), [scene]);
   const atlas = useMemo(() => glyphAtlas(), []);
   const pulse = useRef<number>(0);
-  const mat = useMemo(() => new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false, uniforms: { uTime: { value: 0 }, uSplit: { value: 0 }, uSize: { value: IS_TOUCH ? 34 : 40 }, uPulse: { value: 0 }, uAtlas: { value: atlas } } }), [atlas]);
+  const mat = useMemo(() => new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false, uniforms: { uTime: { value: 0 }, uSplit: { value: 0 }, uSize: { value: IS_TOUCH ? 40 : 46 }, uPulse: { value: 0 }, uAtlas: { value: atlas }, uInk: { value: new THREE.Vector3(...tint) } } }), [atlas]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { built.points.dispose(); mat.dispose(); atlas.dispose(); }, [built, mat, atlas]);
   useFrame((_, dt) => {
     if (paused) return;
@@ -96,20 +97,24 @@ class Boundary extends Component<{ children: ReactNode; fallback: ReactNode }, {
   render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
 
-/** Draggable 3D person: one half the real textured scan, the other half a live ASCII point cloud that sheds glyph dust. */
-export const HalfHuman = memo(function HalfHuman({ src, fallback }: { src: string; fallback: ReactNode }) {
+/**
+ * Draggable 3D person: one half the real textured scan, the other half a live ASCII point cloud that sheds glyph dust.
+ * Renders only while on screen (frameloop "never" off screen), with a capped pixel ratio and a small point budget.
+ */
+export const HalfHuman = memo(function HalfHuman({ src, fallback, dark = false, camera = [0, 0.05, 4.1] }: { src: string; fallback: ReactNode; dark?: boolean; camera?: [number, number, number] }) {
   const { reducedMotion } = usePreferences();
-  const wrap = useRef<HTMLDivElement>(null);
+  const wrap = useRef<HTMLDivElement>(null); const visible = useInView(wrap, '80px');
+  const tint: [number, number, number] = dark ? [0.86, 0.9, 0.95] : [0.047, 0.051, 0.063];
   return <div ref={wrap} className="absolute inset-0">
     <Boundary fallback={fallback}>
       <Suspense fallback={fallback}>
-        <Canvas className="!touch-pan-y" dpr={CANVAS_DPR} camera={{ position: [0, 0.05, 4.1], fov: 34 }} gl={{ antialias: !IS_TOUCH, alpha: true }}>
+        <Canvas className="!touch-pan-y" frameloop={visible && !reducedMotion ? 'always' : 'demand'} dpr={IS_TOUCH ? [1, 1] : [1, Math.min(CANVAS_DPR[1], 1.25)]} camera={{ position: camera, fov: 34 }} gl={{ antialias: false, alpha: true, powerPreference: 'high-performance' }}>
           <Clipping/>
           <ambientLight intensity={1.1}/>
           <hemisphereLight args={['#ffffff', '#c8ccd6', 0.9]}/>
           <directionalLight position={[3, 4, 4]} intensity={2.4}/>
           <directionalLight position={[-4, 1, -2]} intensity={0.8} color="#dfe8ff"/>
-          <Figure src={src} paused={false}/>
+          <Figure src={src} paused={!visible} tint={tint}/>
           <OrbitControls makeDefault enablePan={false} enableZoom={false} autoRotate={!reducedMotion} autoRotateSpeed={0.9} minPolarAngle={Math.PI * 0.3} maxPolarAngle={Math.PI * 0.62} rotateSpeed={0.7}/>
         </Canvas>
       </Suspense>

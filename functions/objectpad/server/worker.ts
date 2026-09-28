@@ -546,6 +546,7 @@ export class ObjectPad extends DurableObject<Env> {
     if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(12_000);
   }
   /** ObjectPad People. Public: status, invitation preview, published profiles. Everything else needs a signed-in account. */
+  /** People routes. /people/phone/:token is the only account-free write path: a 30-minute, photos-only capture link. */
   private async peopleRoute(request: Request, path: string, method: string): Promise<Response> {
     const origin = request.headers.get('Origin');
     if (method === 'GET') {
@@ -553,6 +554,15 @@ export class ObjectPad extends DurableObject<Env> {
       const invite = path.match(/^\/people\/invitations\/([a-f0-9]{64})$/); if (invite) { this.store.rate(`people-invite-read:${await this.visitor(request)}`, 60, 3_600_000); return json(this.people.previewInvite(invite[1])); }
       const profile = path.match(/^\/people\/profiles\/([a-f0-9]{20})$/); if (profile) return json(this.people.profile(profile[1]));
       const pfile = path.match(/^\/people\/profiles\/([a-f0-9]{20})\/(model|thumb)$/); if (pfile) { const f = await this.peopleModels.publicFile(pfile[1], pfile[2] as 'model' | 'thumb'); return new Response(f.bytes, { headers: { 'Content-Type': f.type, 'Cache-Control': 'public,max-age=300', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'", 'Cross-Origin-Resource-Policy': 'cross-origin' } }); }
+    }
+    const phone = path.match(/^\/people\/phone\/([a-f0-9]{64})(?:\/photos\/([a-z_]+))?$/);
+    if (phone) {
+      const [, token, view] = phone; this.store.rate(`people-phone:${await this.visitor(request)}`, 240, 3_600_000);
+      const link = await this.peopleModels.resolvePhone(token);
+      if (!view && method === 'GET') return json({ draftId: link.id, name: link.name, mode: link.mode, expiresAt: link.expiresAt, items: this.peopleModels.photos(link.id, link.owner) });
+      if (view && method === 'PUT') { this.assertOrigin(request); if (!request.headers.get('content-type')?.startsWith('image/jpeg')) throw new ApiError('UNSUPPORTED_IMAGE', 415); return json({ items: await this.peopleModels.putPhoto(link.id, link.owner, view, await boundedBody(request, 8 * 1024 * 1024)) }); }
+      if (view && method === 'DELETE') { this.assertOrigin(request); return json({ items: await this.peopleModels.deletePhoto(link.id, link.owner, view) }); }
+      throw new ApiError('NOT_FOUND', 404);
     }
     if (method === 'POST' && path === '/people/applications') { this.assertOrigin(request); this.store.rate(`people-apply:${await this.visitor(request)}`, 5, 86_400_000); const viewer = await this.identity(request).catch(() => null); return json(await this.people.apply(viewer && !viewer.startsWith('guest:') ? viewer : null, await body(request))); }
     const owner = await this.identity(request); if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
@@ -596,7 +606,9 @@ export class ObjectPad extends DurableObject<Env> {
         if (action === 'invitation') return json(await this.people.invite(id, owner, origin));
         if (action === 'invitation-revoke') return json(await this.people.revokeInvite(id, owner));
         if (action === 'publish') return json(await this.people.publish(id, owner));
-        if (action === 'withdraw') return json(await this.people.withdraw(id, owner));
+        if (action === 'withdraw') { this.peopleModels.revokePhoneLinks(id, owner); return json(await this.people.withdraw(id, owner)); }
+        if (action === 'phone-link') return json(await this.peopleModels.phoneLink(id, owner));
+        if (action === 'phone-link-revoke') return json(this.peopleModels.revokePhoneLinks(id, owner));
       }
     }
     if (path === '/people/admin' && method === 'GET') { this.operator(owner); return json(this.people.overview()); }

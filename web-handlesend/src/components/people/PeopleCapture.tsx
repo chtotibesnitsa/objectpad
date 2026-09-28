@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Check, ImagePlus, RefreshCw, SwitchCamera, Trash2, X } from 'lucide-react';
+import { Camera, Check, ImagePlus, RefreshCw, Smartphone, SwitchCamera, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { checkFrame } from '@/lib/frameCheck';
@@ -8,6 +8,8 @@ import { CAPTURE_PLAN, VIEW_GUIDE, type CaptureMode, type CaptureView } from '@/
 import { cn } from '@/lib/utils';
 
 const MIN_SIDE = 720; const MAX_PIXELS = 4_000_000;
+/** Phones and tablets get a second route into the native camera app, the most reliable path in installed iOS web apps. */
+const IS_PHONE = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 /** Draws any image source into a JPEG the server accepts: at least 720 px on the short side, at most 4 MP. EXIF is dropped. */
 async function toJpeg(source: CanvasImageSource, w: number, h: number): Promise<Blob> {
@@ -29,9 +31,15 @@ async function fileToJpeg(file: File): Promise<Blob> {
 
 type CamState = 'off' | 'starting' | 'on' | 'denied' | 'none';
 
-/** Guided capture for one People draft. Camera is requested only when the person taps "Open camera". */
-export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled }: { draftId: string; mode: CaptureMode; photos: PeoplePhoto[]; onPhotos: (items: PeoplePhoto[]) => void; disabled?: boolean }) {
+/**
+ * Guided capture for one People draft. Camera is requested only when the person taps "Open camera".
+ * `phoneToken` switches uploads to a short-lived desktop-to-phone link, so the phone needs no sign-in.
+ */
+export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phoneToken }: { draftId: string; mode: CaptureMode; photos: PeoplePhoto[]; onPhotos: (items: PeoplePhoto[]) => void; disabled?: boolean; phoneToken?: string }) {
   const plan = CAPTURE_PLAN[mode]; const session = useSession();
+  const base = phoneToken ? `/people/phone/${phoneToken}/photos` : `/people/drafts/${draftId}/photos`;
+  const auth = useCallback(async (): Promise<string | null> => phoneToken ? null : session.token(), [phoneToken, session]);
+  const nativeRef = useRef<HTMLInputElement | null>(null);
   const has = useCallback((v: CaptureView) => photos.some(p => p.view === v), [photos]);
   const firstMissing = plan.views.find(v => !has(v)) ?? plan.views[0];
   const [active, setActive] = useState<CaptureView>(firstMissing);
@@ -66,19 +74,19 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled }: { d
   const upload = useCallback(async (view: CaptureView, blob: Blob) => {
     setBusy(true); setError(null);
     try {
-      const out = await api<{ items: PeoplePhoto[] }>(`/people/drafts/${draftId}/photos/${view}`, { token: await session.token(), method: 'PUT', binary: blob, timeout: 90_000 });
+      const out = await api<{ items: PeoplePhoto[] }>(`${base}/${view}`, { token: await auth(), method: 'PUT', binary: blob, timeout: 90_000 });
       setPreviews(p => { if (p[view]) URL.revokeObjectURL(p[view]!); return { ...p, [view]: URL.createObjectURL(blob) }; });
       onPhotos(out.items); if ('vibrate' in navigator) navigator.vibrate?.(18);
       const next = plan.views.find(v => v !== view && !out.items.some(p => p.view === v)); if (next) setActive(next); else stop();
     } catch (e) { setError(peopleError(e)); } finally { setBusy(false); }
-  }, [draftId, onPhotos, plan.views, session, stop]);
+  }, [base, auth, onPhotos, plan.views, stop]);
 
   const shoot = async () => {
     const v = videoRef.current; if (!v || !v.videoWidth) return; setFlash(true); window.setTimeout(() => setFlash(false), 160);
     try { await upload(active, await toJpeg(v, v.videoWidth, v.videoHeight)); } catch (e) { setError(e instanceof Error ? e.message : 'Capture failed.'); }
   };
   const pick = async (file: File | undefined) => { if (!file) return; try { await upload(active, await fileToJpeg(file)); } catch (e) { setError(e instanceof Error ? e.message : 'That photo couldn’t be used.'); } };
-  const remove = async (view: CaptureView) => { setBusy(true); try { const out = await api<{ items: PeoplePhoto[] }>(`/people/drafts/${draftId}/photos/${view}`, { token: await session.token(), method: 'DELETE' }); onPhotos(out.items); setPreviews(p => ({ ...p, [view]: undefined })); setActive(view); } catch (e) { setError(peopleError(e)); } finally { setBusy(false); } };
+  const remove = async (view: CaptureView) => { setBusy(true); try { const out = await api<{ items: PeoplePhoto[] }>(`${base}/${view}`, { token: await auth(), method: 'DELETE' }); onPhotos(out.items); setPreviews(p => ({ ...p, [view]: undefined })); setActive(view); } catch (e) { setError(peopleError(e)); } finally { setBusy(false); } };
 
   const guide = VIEW_GUIDE[active]; const body = active.startsWith('body');
   const hint = !live ? null : live.light === 'dark' ? 'Too dark: face a window or lamp' : live.light === 'bright' ? 'Too bright: step out of direct light' : !live.sharp ? 'Hold still: image is blurry' : 'Looks good: take it';
@@ -122,9 +130,11 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled }: { d
         <button type="button" disabled={busy || disabled} onClick={() => void shoot()} className="btn press min-h-[56px] px-8 text-[16px] sm:flex-1">{busy ? <RefreshCw size={18} className="animate-spin"/> : <Camera size={19}/>}{busy ? 'Checking photo…' : has(active) ? 'Retake' : 'Take photo'}</button>
         <button type="button" disabled={busy} onClick={() => { const f = facing === 'user' ? 'environment' : 'user'; setFacing(f); void start(f); }} aria-label="Switch camera" className="btn-ghost press min-h-[56px] px-4"><SwitchCamera size={19}/></button>
       </> : <button type="button" disabled={busy || disabled || cam === 'starting'} onClick={() => { const f = body ? 'environment' : 'user'; setFacing(f); void start(f); }} className="btn press col-span-2 min-h-[56px] px-8 text-[16px] sm:flex-1"><Camera size={19}/>{cam === 'starting' ? 'Opening camera…' : 'Open camera'}</button>}
+      {cam !== 'on' && IS_PHONE && <button type="button" disabled={busy || disabled} onClick={() => nativeRef.current?.click()} className="btn-ghost press col-span-2 min-h-[52px] px-5 text-[14.5px] sm:col-span-1"><Smartphone size={17}/>Use phone camera app</button>}
       <button type="button" disabled={busy || disabled} onClick={() => fileRef.current?.click()} className="btn-ghost press col-span-2 min-h-[52px] px-5 text-[14.5px] sm:col-span-1"><ImagePlus size={17}/>{busy && cam !== 'on' ? 'Checking photo…' : 'Upload a photo'}</button>
       {has(active) && <button type="button" disabled={busy || disabled} onClick={() => void remove(active)} className="btn-ghost press col-span-2 min-h-[52px] px-4 text-[14px] !text-down sm:col-span-1"><Trash2 size={15}/>Remove</button>}
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { void pick(e.target.files?.[0]); e.target.value = ''; }}/>
+      <input ref={nativeRef} type="file" accept="image/*" capture={body ? 'environment' : 'user'} className="hidden" onChange={e => { void pick(e.target.files?.[0]); e.target.value = ''; }}/>
     </div>
     <p className="text-[12.5px] font-semibold leading-5 text-ink/45">Photos are private to you, stripped of location data and checked for light, focus and one clothed adult. They’re deleted once you approve your 3D double. A photo is never treated as proof it’s you.</p>
   </div>;

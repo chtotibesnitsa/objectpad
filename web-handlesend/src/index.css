@@ -531,3 +531,4 @@ html.translated .truncate { white-space: normal; overflow: visible; text-overflo
 @keyframes people-line { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 @media (prefers-reduced-motion: reduce) { .people-halo, .people-float, .people-in, .people-arc, .people-ring, .people-bar, .people-line { animation: none; } }
 html.touch-lite .people-float, html.touch-lite .people-halo { animation: none; }
+.story-flash { animation: flash-pop .35s ease-out; }

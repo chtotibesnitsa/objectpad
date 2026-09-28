@@ -1,5 +1,5 @@
 import { ApiError, sha256 } from '../shared/security';
-import { CAPTURE_PLAN, MODEL_ATTEMPTS, type CaptureMode, type CaptureView, type ModelJobState, type ModelJobView } from '../shared/people';
+import { CAPTURE_PLAN, MODEL_ATTEMPTS, secureNonce, type CaptureMode, type CaptureView, type ModelJobState, type ModelJobView } from '../shared/people';
 import { inspectThumbnail, normalizeImage } from './media';
 import { visionJson } from './ai';
 import type { MeshyProvider } from './meshy';
@@ -13,6 +13,7 @@ const ACTIVE: ModelJobState[] = ['submitting', 'queued', 'generating', 'validati
 /** Engine answers that prove nothing was started or charged: the person may simply try again, at no cost to their budget. */
 const DEFINITE = ['PROVIDER_REJECTED_INPUT', 'PROVIDER_CREDITS', 'PROVIDER_RATE_LIMIT', 'PROVIDER_AUTH', 'PROVIDER_PAYLOAD_TOO_LARGE', 'PROVIDER_UNAVAILABLE', 'RECONSTRUCTION_NOT_CONFIGURED'];
 const JOB_TIMEOUT_MS = 20 * 60_000;
+const PHONE_LINK_TTL_MS = 30 * 60_000;
 
 /**
  * People capture and 3D preview pipeline. Photos are private (subject only), EXIF-stripped, quality-checked and
@@ -26,6 +27,33 @@ export class PeopleModels {
     s('CREATE TABLE IF NOT EXISTS op_people_photos (draft_id TEXT NOT NULL, view TEXT NOT NULL, storage_key TEXT NOT NULL, hash TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(draft_id, view))');
     s('CREATE TABLE IF NOT EXISTS op_people_model_jobs (id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, state TEXT NOT NULL, mode TEXT NOT NULL, views TEXT NOT NULL, provider_id TEXT UNIQUE, attempt INTEGER NOT NULL, counted INTEGER NOT NULL DEFAULT 1, progress INTEGER NOT NULL DEFAULT 0, queue INTEGER, failure TEXT, model_key TEXT, thumb_key TEXT, model_hash TEXT, bytes INTEGER, triangles INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
     s('CREATE INDEX IF NOT EXISTS op_people_model_jobs_draft ON op_people_model_jobs(draft_id, created_at)');
+    s('CREATE TABLE IF NOT EXISTS op_people_phone_links (token_hash TEXT PRIMARY KEY, draft_id TEXT NOT NULL, owner TEXT NOT NULL, expires INTEGER NOT NULL, revoked_at INTEGER, used_at INTEGER, created_at INTEGER NOT NULL)');
+  }
+
+  /**
+   * Desktop-to-phone capture link. 32 random bytes, stored only as a SHA-256 hash, valid 30 minutes, scoped to one
+   * draft and to photos only: no consents, wallet, fee policy, 3D jobs or publishing. A new link revokes older ones.
+   */
+  async phoneLink(id: string, owner: string): Promise<{ token: string; expiresAt: number }> {
+    this.subject(id, owner); this.adult(id, owner);
+    this.store.rate(`people-phone-link:${owner}`, 30, 3_600_000);
+    const token = secureNonce(); const now = Date.now(); const expiresAt = now + PHONE_LINK_TTL_MS;
+    this.store.run('UPDATE op_people_phone_links SET revoked_at=? WHERE draft_id=? AND revoked_at IS NULL', now, id);
+    this.store.run('INSERT INTO op_people_phone_links(token_hash,draft_id,owner,expires,created_at) VALUES (?,?,?,?,?)', await sha256(`people-phone:${token}`), id, owner, expiresAt, now);
+    return { token, expiresAt };
+  }
+  revokePhoneLinks(id: string, owner: string): { ok: true } { this.subject(id, owner, false); this.store.run('UPDATE op_people_phone_links SET revoked_at=? WHERE draft_id=? AND revoked_at IS NULL', Date.now(), id); return { ok: true }; }
+  /** Resolves a phone link to its draft and subject, re-checking that the draft is still editable and consented. */
+  async resolvePhone(token: string): Promise<{ id: string; owner: string; mode: CaptureMode; name: string; expiresAt: number }> {
+    if (!/^[a-f0-9]{64}$/.test(token)) throw new ApiError('PHONE_LINK_INVALID', 404);
+    const hash = await sha256(`people-phone:${token}`);
+    const row = this.store.one<{ draft_id: string; owner: string; expires: number; revoked_at: number | null }>('SELECT draft_id,owner,expires,revoked_at FROM op_people_phone_links WHERE token_hash=?', hash);
+    if (!row || row.revoked_at) throw new ApiError('PHONE_LINK_INVALID', 404);
+    if (row.expires < Date.now()) throw new ApiError('PHONE_LINK_EXPIRED', 410);
+    const d = this.subject(row.draft_id, row.owner); this.adult(d.id, row.owner);
+    this.store.run('UPDATE op_people_phone_links SET used_at=COALESCE(used_at,?) WHERE token_hash=?', Date.now(), hash);
+    const name = this.store.one<{ display_name: string }>('SELECT display_name FROM op_people_drafts WHERE id=?', d.id)?.display_name ?? '';
+    return { id: d.id, owner: row.owner, mode: d.capture_mode, name, expiresAt: row.expires };
   }
 
   private draft(id: string): DraftLite { if (!/^[0-9a-f-]{36}$/.test(id)) throw new ApiError('NOT_FOUND', 404); const row = this.store.one<DraftLite>('SELECT id,creator,subject,state,capture_mode,profile_id FROM op_people_drafts WHERE id=?', id); if (!row || row.state === 'deleted') throw new ApiError('NOT_FOUND', 404); return row; }

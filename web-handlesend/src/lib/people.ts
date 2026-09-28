@@ -111,6 +111,9 @@ const MESSAGES: Record<string, string> = {
   SPLIT_INVALID: 'That split isn’t allowed.',
   REPORT_REASON_REQUIRED: 'Describe the problem in at least 10 characters.',
   RATE_LIMITED: 'Too many attempts. Wait a moment and retry.',
+  PHONE_LINK_INVALID: 'This phone link isn’t valid any more. Scan the new QR code on your computer.',
+  PHONE_LINK_EXPIRED: 'This phone link expired after 30 minutes. Scan a fresh QR code on your computer.',
+  ORIGIN_REJECTED: 'Open this link on objectpad.fun and try again.',
 };
 /** A plain-language message for any People error. */
 export function peopleError(error: unknown): string {

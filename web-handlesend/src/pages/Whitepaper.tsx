@@ -282,6 +282,47 @@ export default function Whitepaper() {
           <p>People lets a consenting adult build a profile about themselves, or accept one a collaborator prepared. What runs today: private drafts; separate, versioned consents for age, verification processing and public likeness; single-use invitations that expire after 7 days; binding an X account by its immutable user ID; and wallet proof using an EIP-4361 message tied to the domain, chain 4663, the draft, a 32-byte random nonce and a 10-minute expiry. Each nonce is marked used before its signature is checked, so a replay always fails. Signatures are verified server-side, including contract wallets.</p>
           <p>The subject can sign an exact fee split in integer basis points summing to 10,000, over <b>creator fees actually collected</b>, not trading volume. The proposed default is 70% subject, up to 20% collaborator, 10% ObjectPad; a self-launch is 90/0/10. Robinhood Chain launches currently pay creator fees to a single wallet and no reviewed splitter is deployed, so the signed split is recorded but not enforced on-chain, and People token launches are off.</p>
           <p>Publishing requires every check to pass, including a liveness check from a commercial provider with presentation-attack detection. None is contracted yet, so nothing can be published. When a profile is published, unique keys on the X user ID and wallet prevent a second canonical profile; collisions go to human review. The public attestation holds a random subject reference and the digest of the approved model: no face images, liveness media, embeddings or biometric hashes. SHA-256 proves byte integrity, not that two photos show the same person. A public 3D likeness is identifying, and copies others have downloaded cannot be recalled.</p>
+
+          <h3 className="display mt-8 text-[24px]">14.1.1 Fee allocation</h3>
+          <p>Let F be the creator fees actually received for a People coin, in integer base units (wei). A split is a triple of integers (S, L, P) in basis points. The launcher and platform shares round down; the subject receives the remainder, so the three parts always sum to F exactly and no unit is created or lost.</p>
+          <Eq label="Constraints">S + L + P = 10 000 · P = 1 000 · 0 ≤ L ≤ 2 000 · S, L, P ∈ ℤ≥0</Eq>
+          <Eq label="Allocation">a_L = ⌊F·L / 10⁴⌋ · a_P = ⌊F·P / 10⁴⌋ · a_S = F − a_L − a_P</Eq>
+          <Eq label="Rounding dust">d = a_S − ⌊F·S / 10⁴⌋ ∈ {'{'}0, 1{'}'} wei, always paid to the subject</Eq>
+          <p>Because ⌊x⌋ + ⌊y⌋ ≥ ⌊x + y⌋ − 1, the subject can receive at most one extra wei per allocation and never less than ⌊F·S/10⁴⌋. A self-launch has S = 9 000, L = 0; the assisted default is S = 7 000, L = 2 000; so the subject's share lies in [7 000, 9 000] bps for every valid split. Worked example for F = 1 ETH = 10¹⁸ wei, assisted default: a_L = 2·10¹⁷, a_P = 10¹⁷, a_S = 7·10¹⁷, d = 0. For F = 10¹⁸ + 7 wei: a_L = 2·10¹⁷ + 1, a_P = 10¹⁷, a_S = 7·10¹⁷ + 6, d = 1.</p>
+          <p>The signed policy is an EIP-191 message over the canonical draft ID, relationship, (S, L, P), both recipient wallets, the draft version and a fresh nonce. Any change to any field increments the version and invalidates the previous signature (FEE_POLICY_STALE). The denominator is always creator fees collected, never trading volume and never all transaction fees.</p>
+
+          <h3 className="display mt-8 text-[24px]">14.1.2 Challenges, invitations and phone links</h3>
+          <Table head={['Token', 'Entropy', 'Lifetime', 'Scope', 'Stored as']} rows={[
+            ['SIWE wallet nonce', '256 bits', '10 min, single use', 'one draft, chain 4663, this domain', 'SHA-256(nonce)'],
+            ['Fee-policy nonce', '256 bits', '10 min, single use', 'one draft version', 'SHA-256(nonce)'],
+            ['Invitation', '256 bits', '7 days, single use', 'accept or decline one draft', 'SHA-256(token)'],
+            ['Phone capture link', '256 bits', '30 min, newest only', 'add/remove photos on one draft', 'SHA-256(token)'],
+          ]}/>
+          <p>A guess succeeds with probability q / 2²⁵⁶ for q guesses; at the rate limit of 240 phone-link requests per visitor per hour, the expected time to hit one live link exceeds 10⁷³ years. Nonces are marked used before the signature is verified, so a replayed signature always fails even if verification is slow. Minting a new phone link revokes older ones, and withdrawing a draft revokes all of them. The phone link cannot give consent, bind accounts, sign a split, start or approve a 3D build, or publish.</p>
+
+          <h3 className="display mt-8 text-[24px]">14.1.3 Capture quality gates</h3>
+          <p>The phone measures each frame on a 128×96 downscale before a photo is taken. Brightness is the mean luma Y = 0.299R + 0.587G + 0.114B of the centre box; focus is the variance of the 4-neighbour Laplacian ∇²Y over the same box.</p>
+          <Eq label="Client gate (live)">48 ≤ mean(Y) ≤ 222 · Var(∇²Y) &gt; 26</Eq>
+          <Eq label="Server gate (authoritative)">short side ≥ 720 px · pixels ≤ 4·10⁶ · blur ≥ 6 · 16 ≤ exposure ≤ 246 · JPEG re-encoded, EXIF/GPS dropped</Eq>
+          <p>The client gate is guidance only; the server re-decodes and re-measures every photo and rejects anything outside its bounds. A vision screen then checks for exactly one clothed adult, a real camera photo rather than a screen or print, and a visible face on face views. This is a capture-quality and safety screen. It is not liveness and not identity.</p>
+
+          <h3 className="display mt-8 text-[24px]">14.1.4 3D build budget</h3>
+          <p>Each draft may run at most A = 3 counted builds. A build counts only if the engine accepted the job; definite provider refusals (credits, rate limits, auth, payload size, unavailability, rejected input) are not counted. A global daily cap B (default 60) bounds spend. A job not finished within 20 minutes is failed and not counted if the provider never confirmed it.</p>
+          <Eq label="Builds left">left = max(0, A − Σ counted_i) · accepted today ≤ B</Eq>
+          <p>The resulting GLB is validated for structure and finite bounds, hashed with SHA-256, and shown only to the subject. On approval the source photos are deleted from storage; the model digest becomes part of the attestation. The 3D engine is a rendering service. Its output is never used as evidence that a person is who they claim to be.</p>
+
+          <h3 className="display mt-8 text-[24px]">14.1.5 Publishing predicate</h3>
+          <Eq label="Publish if and only if">adult ∧ verificationConsent ∧ likenessConsent ∧ subjectAccepted ∧ account ∧ wallet ∧ liveness ∧ model ∧ feePolicy</Eq>
+          <p>Every term is checked server-side at publish time, not cached from the client. Today liveness evaluates to false for everyone because no provider is contracted, so the predicate is false and nothing publishes. Uniqueness is enforced with database unique keys on the immutable X user ID and on the wallet address; a collision does not publish and opens a review case.</p>
+
+          <h3 className="display mt-8 text-[24px]">14.1.6 Build progress metric</h3>
+          <p>The People page shows progress = (n_live + ½·n_pilot) / n over the server's feature registry. It measures how many listed features are available, not quality, adoption or market value.</p>
+          <Table head={['Stage', 'People scope']} rows={[
+            ['Today', 'Private drafts, consents, invitations, nominations, creator applications, X account binding, SIWE wallet proof, signed fee policy'],
+            ['Testing', 'Guided face and body capture, desktop-to-phone QR capture, private 3D doubles with subject approval, photo deletion on approval'],
+            ['Blocked on vendors', 'Independent liveness with presentation-attack detection; reviewed on-chain fee splitter'],
+            ['Next', 'Public profiles, paid missions from escrow, sponsorship labels, milestone funding, creator roles with published pay terms'],
+          ]}/>
         </Sec>
 
         <Sec id="roadmap" n="Section 15" title="Roadmap">
