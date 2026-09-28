@@ -31,6 +31,8 @@ export const config = {
     '/people/:path*',
     '/People',
     '/People/:path*',
+    '/hiring',
+    '/hiring/:path*',
   ],
 };
 
@@ -91,6 +93,12 @@ const PAGES: Record<string, PageMeta> = {
     image: '/og/card-people-next.jpg',
     alt: 'PEOPLE ARE NEXT. A white marble bust dissolving into black dots beside a yellow rubber duck. objectpad.fun/People — preview live, building this week.',
   },
+  hiring: {
+    title: 'ObjectPad — Now Recruiting',
+    description: 'Build the physical world onchain. ObjectPad is hiring across engineering, mobile, product design and growth.',
+    image: '/og/card-hiring.jpg',
+    alt: 'NOW RECRUITING. Build the physical world onchain. Four glass workstations for code, mobile, design and growth on a glass platform above the clouds. objectpad.fun/hiring',
+  },
   v2: {
     title: 'ObjectPad · What’s new in V2',
     description: 'Anti-impersonation identity, Uniqueness v2, Object Vaults, and the white paper — see what shipped.',
@@ -110,6 +118,7 @@ function pageFor(pathname: string): PageMeta {
   if (pathname === '/whitepaper' || pathname === '/docs' || pathname.startsWith('/verify')) return PAGES.whitepaper;
   if (pathname === '/v2') return PAGES.v2;
   if (/^\/people(\/|$)/i.test(pathname)) return PAGES.people;
+  if (pathname === '/hiring') return PAGES.hiring;
   return PAGES.home;
 }
 
@@ -128,7 +137,14 @@ export default async function middleware(request: Request): Promise<Response | u
   // Static files in public/people/ (images, models) are served as-is, never redirected.
   if (/^\/people\/.*\.[a-z0-9]{2,5}$/i.test(url.pathname)) return undefined;
   if (/^\/people(\/|$)/.test(url.pathname)) return Response.redirect(`${url.origin}/People${url.pathname.slice(7)}${url.search}`, 308);
-  const meta = pageFor(url.pathname);
+  let meta = pageFor(url.pathname);
+  // /hiring stays dark (home card, noindex) until HIRING_PAGE_ENABLED is on server-side. Fails closed.
+  const hiringPath = /^\/hiring(\/|$)/.test(url.pathname);
+  let hiringLive = false;
+  if (hiringPath) {
+    try { const r = await fetch('https://objectpad-backend.rork.app/api/hiring', { signal: AbortSignal.timeout(1500) }); hiringLive = r.ok && (await r.json() as { enabled?: boolean }).enabled === true; } catch { hiringLive = false; }
+    if (!hiringLive || url.pathname !== '/hiring') meta = PAGES.home;
+  }
 
   // Never follow redirects from inside middleware: each hop re-enters the routing layer.
   const origin = await fetch(request, { redirect: 'manual', headers: { 'x-objectpad-og': '1' } });
@@ -160,5 +176,6 @@ export default async function middleware(request: Request): Promise<Response | u
   headers.set('content-length', String(new TextEncoder().encode(html).length));
   // The body was decompressed for rewriting; the stale encoding header would break decoding.
   headers.delete('content-encoding');
+  if (hiringPath && (!hiringLive || url.pathname !== '/hiring')) headers.set('X-Robots-Tag', 'noindex, nofollow');
   return new Response(html, { status: origin.status, headers });
 }

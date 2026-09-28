@@ -28,6 +28,8 @@ export interface Env {
   OBJECTPAD_DEV_EXECUTION_MODE?: string;
   /** ObjectPad People phase shown on /People: 'preview' (default) or 'pilot'. Feature states are derived from real configuration either way. */
   OBJECTPAD_PEOPLE_PHASE?: string;
+  /** Hiring page kill switch. 'false' forces /hiring off regardless of the operator flag stored in SQLite. */
+  HIRING_PAGE_ENABLED?: string;
   /** Server-side Privy secret, used only to read the verified account's own wallet address. */
   PRIVY_APP_SECRET?: string; OBJECTPAD_PRIVY_APP_SECRET?: string;
   ROBINHOOD_RPC_URL?: string;

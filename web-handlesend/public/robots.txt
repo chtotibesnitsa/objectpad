@@ -2,4 +2,5 @@ User-agent: *
 Disallow: /capture/
 Disallow: /studio/
 Disallow: /operator
+Disallow: /hiring/admin
 Disallow: /api/

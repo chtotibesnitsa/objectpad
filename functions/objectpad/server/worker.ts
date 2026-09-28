@@ -34,6 +34,7 @@ import { VaultService } from './vaults';
 import { DevActivityService } from './dev-activity';
 import { PeopleService } from './people';
 import { PeopleModels } from './people-models';
+import { HiringService, RESUME_MAX } from './hiring';
 import { MeshyProvider } from './meshy';
 import { serverClient } from './chain';
 
@@ -132,7 +133,7 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private readonly people: PeopleService; private readonly peopleModels: PeopleModels; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private readonly people: PeopleService; private readonly peopleModels: PeopleModels; private readonly hiring: HiringService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
@@ -147,6 +148,7 @@ export class ObjectPad extends DurableObject<Env> {
     this.vaults = new VaultService(this.store, this.runtime, owner => this.records.storedX(owner)?.handle ?? null, async owner => { try { await this.ensureProfile(owner); return await this.records.creatorWallet(owner); } catch { return null; } });
     this.devActivity = new DevActivityService(this.store, this.runtime);
     // viem's verifyMessage checks EOA signatures and, through the RPC, contract wallets (ERC-1271 / ERC-6492).
+    this.hiring = new HiringService(this.store, this.runtime);
     this.peopleModels = new PeopleModels(this.store, this.runtime, () => this.runtime.toolkitKey ? new MeshyProvider(this.runtime.toolkitUrl, this.runtime.toolkitKey, { model: env.OBJECTPAD_MESHY_MODEL?.trim() || undefined }) : null);
     this.people = new PeopleService(this.store, this.runtime, { models: this.peopleModels, xIdentity: async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { id: x.id, handle: x.handle } : null; }, walletOf: async owner => { try { await this.ensureProfile(owner); return (await this.records.creatorWallet(owner)).toLowerCase(); } catch { return null; } }, verify: (address, message, signature) => serverClient(env).verifyMessage({ address: address as `0x${string}`, message, signature: signature as `0x${string}` }) });
     this.records.identity = async owner => { const x = await this.earn.xIdentity(owner); return x ? { id: x.id, handle: x.handle, avatar: x.avatar, name: x.name } : null; };
@@ -223,6 +225,7 @@ export class ObjectPad extends DurableObject<Env> {
       const checkin = path.match(/^\/records\/([a-f0-9]{64})\/checkin$/); if (method === 'PUT' && checkin) return await this.checkin(request, checkin[1]);
       if (path.startsWith('/social/')) { const handled = await this.socialRoute(request, path, method); if (handled) return handled; }
       if (path === '/people' || path.startsWith('/people/')) return await this.peopleRoute(request, path, method);
+      if (path === '/hiring' || path.startsWith('/hiring/')) return await this.hiringRoute(request, path, method);
     } catch (error) { return this.failure(error); }
     return this.exclusive(async () => { try { return await this.route(request, path); } catch (error) { return this.failure(error); } });
   }
@@ -546,6 +549,35 @@ export class ObjectPad extends DurableObject<Env> {
     if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs()) await this.schedule(12_000);
   }
   /** ObjectPad People. Public: status, invitation preview, published profiles. Everything else needs a signed-in account. */
+  /**
+   * Hiring. Visitors see nothing until HIRING_PAGE_ENABLED is on; applications are write-only for the public and
+   * readable only by operators (OBJECTPAD_OPERATOR_DIDS). Every admin action is audited.
+   */
+  private async hiringRoute(request: Request, path: string, method: string): Promise<Response> {
+    const viewer = await this.identity(request).catch(() => null); const op = viewer && !viewer.startsWith('guest:') ? this.isOperator(viewer) : false;
+    if (path === '/hiring' && method === 'GET') return json(this.hiring.publicView(op));
+    if (path === '/hiring/form-token' && method === 'POST') { this.assertOrigin(request); this.store.rate(`hiring-token:${await this.visitor(request)}`, 30, 3_600_000); return json(await this.hiring.formToken()); }
+    if (path === '/hiring/applications' && method === 'POST') { this.assertOrigin(request); const key = `hiring-apply:${await this.visitor(request)}`; this.store.peek(key, 4); const result = await this.hiring.apply(await body(request)); this.store.bump(key, 86_400_000); return json(result); }
+    const resume = path.match(/^\/hiring\/applications\/([a-f0-9-]{36})\/resume$/);
+    if (resume && method === 'PUT') { this.assertOrigin(request); this.store.rate(`hiring-resume:${await this.visitor(request)}`, 10, 3_600_000); if (request.headers.get('content-type') !== 'application/pdf') throw new ApiError('RESUME_INVALID', 415); return json(await this.hiring.attachResume(resume[1], request.headers.get('X-Upload-Token') ?? '', await boundedBody(request, RESUME_MAX))); }
+    if (!path.startsWith('/hiring/admin')) throw new ApiError('NOT_FOUND', 404);
+    if (!viewer || viewer.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401); this.operator(viewer);
+    if (method !== 'GET') { this.assertOrigin(request); this.store.rate(`hiring-admin:${viewer}`, 240, 3_600_000); }
+    if (path === '/hiring/admin' && method === 'GET') return json(this.hiring.admin());
+    if (path === '/hiring/admin/export' && method === 'GET') return await this.hiring.exportCsv(viewer);
+    if (path === '/hiring/admin/roles' && method === 'POST') return json(await this.hiring.saveRole(viewer, null, await body(request)));
+    if (path === '/hiring/admin/reorder' && method === 'POST') return json(await this.hiring.reorder(viewer, await body(request)));
+    if (path === '/hiring/admin/settings' && method === 'POST') return json(await this.hiring.saveSettings(viewer, await body(request)));
+    if (path === '/hiring/admin/flag' && method === 'POST') return json(await this.hiring.setFlag(viewer, await body(request)));
+    const role = path.match(/^\/hiring\/admin\/roles\/([a-f0-9-]{36})(\/status)?$/);
+    if (role && method === 'POST') return json(role[2] ? await this.hiring.setRoleStatus(viewer, role[1], await body(request)) : await this.hiring.saveRole(viewer, role[1], await body(request)));
+    if (role && !role[2] && method === 'DELETE') return json(await this.hiring.deleteRole(viewer, role[1]));
+    const app = path.match(/^\/hiring\/admin\/applications\/([a-f0-9-]{36})(\/resume)?$/);
+    if (app && app[2] && method === 'GET') return await this.hiring.resume(app[1]);
+    if (app && !app[2] && method === 'POST') return json(await this.hiring.updateApplication(viewer, app[1], await body(request)));
+    if (app && !app[2] && method === 'DELETE') return json(await this.hiring.deleteApplication(viewer, app[1]));
+    throw new ApiError('NOT_FOUND', 404);
+  }
   /** People routes. /people/phone/:token is the only account-free write path: a 30-minute, photos-only capture link. */
   private async peopleRoute(request: Request, path: string, method: string): Promise<Response> {
     const origin = request.headers.get('Origin');

@@ -19,6 +19,7 @@ import { usePreferences } from '@/hooks/use-preferences';
 import { useTreasury } from '@/lib/treasury';
 import { useReadiness } from '@/lib/market';
 import { pendingScan } from '@/lib/handoff';
+import { useHiringEnabled } from '@/lib/hiring';
 import { OBJECTPAD_X_URL } from '@/lib/brand';
 import { shortAddress } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -76,6 +77,9 @@ function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const session = useSession(); const { sound, toggleSound } = usePreferences(); const t = useTreasury(); const status = useReadiness(); const resume = pendingScan();
   useEffect(() => { if (!open) return; const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, [open, onClose]);
   const checks = status.data?.checks ?? [];
+  // The hiring entry only exists while HIRING_PAGE_ENABLED is on server-side.
+  const hiring = useHiringEnabled();
+  const groups = hiring ? DRAWER.map(g => g.code === '01' ? { ...g, items: [...g.items, { to: '/hiring', label: 'Now recruiting', icon: 'rocket' as GlassName, note: 'Engineering · mobile · design · growth' }] } : g) : DRAWER;
   return <div className={cn('fixed inset-0 z-[70] transition-[visibility] duration-500', open ? 'visible' : 'invisible')} role="dialog" aria-modal="true" aria-label="Menu" aria-hidden={!open}>
     <button className={cn('absolute inset-0 bg-ink/20 backdrop-blur-[3px] transition-opacity duration-500', open ? 'opacity-100' : 'opacity-0')} aria-label="Close menu" onClick={onClose} tabIndex={open ? 0 : -1}/>
     <aside className={cn('glass-nav absolute inset-y-3 left-3 flex w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-[30px] transition-transform duration-500 ease-[cubic-bezier(.2,.9,.25,1.05)]', open ? 'translate-x-0' : '-translate-x-[110%]')}>
@@ -87,7 +91,7 @@ function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
         <div className="sunk col-span-2 flex items-center gap-2 rounded-2xl px-3 py-2 font-mono text-[11.5px] font-semibold text-ink/60">{checks.length ? checks.map(c => <span key={c.id} title={c.label} className={cn('size-2 rounded-full', c.ready ? 'bg-up' : 'bg-ink/25')}/>) : <span className="size-2 rounded-full bg-ink/25"/>}<span className="ml-1">{checks.filter(c => c.ready).length}/{checks.length || 7} systems live</span><span className="ml-auto">chain 4663</span></div>
       </div>
       {resume && <Link to={`/launch/${resume}`} onClick={onClose} tabIndex={open ? 0 : -1} className="press raised relative mx-4 mt-3 flex items-center gap-3 rounded-2xl p-2 pr-4"><GlassIcon name="mesh" size={40}/><span className="flex-1"><span className="block text-[14px] font-extrabold">Resume your scan</span><span className="block font-mono text-[11.5px] text-ink/65">saved in this browser</span></span><ScanLine size={16}/></Link>}
-      <nav className="relative mt-3 flex-1 space-y-4 overflow-y-auto px-4 pb-4 no-scrollbar">{DRAWER.map(group => <div key={group.code}>
+      <nav className="relative mt-3 flex-1 space-y-4 overflow-y-auto px-4 pb-4 no-scrollbar">{groups.map(group => <div key={group.code}>
         <p className="lab px-1 py-1.5">{group.code} · {group.title}</p>
         <div className="mt-1 space-y-1">{group.items.map(item => <NavLink key={item.to} to={item.to} onClick={onClose} tabIndex={open ? 0 : -1} className={({ isActive }) => cn('group flex min-h-14 items-center gap-3 rounded-2xl px-2 transition-colors', isActive ? 'raised' : 'hover:bg-white/70')}>
           <GlassIcon name={item.icon} size={38} className="transition-transform group-hover:scale-110"/>
