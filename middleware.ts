@@ -33,6 +33,9 @@ export const config = {
     '/People/:path*',
     '/hiring',
     '/hiring/:path*',
+    '/apply',
+    '/apply/:path*',
+    '/admin/:path*',
   ],
 };
 
@@ -93,6 +96,12 @@ const PAGES: Record<string, PageMeta> = {
     image: '/og/card-people-next.jpg',
     alt: 'PEOPLE ARE NEXT. A white marble bust dissolving into black dots beside a yellow rubber duck. objectpad.fun/People — preview live, building this week.',
   },
+  apply: {
+    title: 'ObjectPad — We’re hiring: 100+ creator roles, lead developers from $5,000/month',
+    description: 'Build what the world touches. Lead developer roles from $5,000/month, 100+ creator roles, remote worldwide + San Francisco. No purchase, wallet or token needed to apply.',
+    image: '/og/card-apply.jpg',
+    alt: 'ObjectPad hiring announcement in a bright professional technology studio. A large yellow duck mascot stands before connected phones and a global time-zone map. Text announces 100+ creator roles, lead developer roles from $5,000 per month, remote and San Francisco opportunities, and objectpad.fun/apply.',
+  },
   hiring: {
     title: 'ObjectPad — Now Recruiting',
     description: 'Build the physical world onchain. ObjectPad is hiring across engineering, mobile, product design and growth.',
@@ -119,6 +128,7 @@ function pageFor(pathname: string): PageMeta {
   if (pathname === '/v2') return PAGES.v2;
   if (/^\/people(\/|$)/i.test(pathname)) return PAGES.people;
   if (pathname === '/hiring') return PAGES.hiring;
+  if (pathname === '/apply' || pathname.startsWith('/apply/')) return PAGES.apply;
   return PAGES.home;
 }
 
@@ -176,6 +186,6 @@ export default async function middleware(request: Request): Promise<Response | u
   headers.set('content-length', String(new TextEncoder().encode(html).length));
   // The body was decompressed for rewriting; the stale encoding header would break decoding.
   headers.delete('content-encoding');
-  if (hiringPath && (!hiringLive || url.pathname !== '/hiring')) headers.set('X-Robots-Tag', 'noindex, nofollow');
+  if ((hiringPath && (!hiringLive || url.pathname !== '/hiring')) || url.pathname.startsWith('/admin') || url.pathname.startsWith('/apply/status')) headers.set('X-Robots-Tag', 'noindex, nofollow');
   return new Response(html, { status: origin.status, headers });
 }

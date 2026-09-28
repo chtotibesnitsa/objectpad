@@ -10,7 +10,7 @@ export { ObjectPad } from './objectpad/server/worker';
 
 type WorkerEnv = Env & { DO: NonNullable<Env['DO']> };
 
-const ALLOWED_HEADERS = 'Authorization,Content-Type,X-Upload-Token,X-Capture-Device';
+const ALLOWED_HEADERS = 'Authorization,Content-Type,X-Upload-Token,X-Capture-Device,X-Draft-Secret';
 const baseHeaders = (): Record<string, string> => ({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Origin' });
 
 function withCors(response: Response, origin: string | null, allowed: boolean): Response {
@@ -26,7 +26,7 @@ export default {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin');
     const allowed = originAllowed(env, origin);
-    const isPublicRead = request.method === 'GET' && /^\/api\/(status|market|house|coins|tokens|curves|objects|activity|trending|messages|artifacts|creators|items|logos|burns|pipeline|engine|bounties|rewards|treasury|earn|social|people)(\/|$)/.test(url.pathname);
+    const isPublicRead = request.method === 'GET' && /^\/api\/(status|market|house|coins|tokens|curves|objects|activity|trending|messages|artifacts|creators|items|logos|burns|pipeline|engine|bounties|rewards|treasury|earn|social|people|jobs)(\/|$)/.test(url.pathname);
 
     if (request.method === 'OPTIONS') {
       if (!allowed) return new Response(null, { status: 403, headers: baseHeaders() });

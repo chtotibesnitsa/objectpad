@@ -38,6 +38,11 @@ const Whitepaper = lazy(() => import('./pages/Whitepaper'));
 const People = lazy(() => import('./pages/People'));
 const Hiring = lazy(() => import('./pages/Hiring'));
 const HiringAdmin = lazy(() => import('./pages/HiringAdmin'));
+const Apply = lazy(() => import('./pages/Apply'));
+const ApplyRole = lazy(() => import('./pages/ApplyRole'));
+const ApplyStatus = lazy(() => import('./pages/ApplyStatus'));
+const AdminApplications = lazy(() => import('./pages/AdminApplications'));
+const AdminApplicationDetail = lazy(() => import('./pages/AdminApplications').then(module => ({ default: module.AdminApplicationDetail })));
 const AppShell = lazy(() => import('./app/AppShell'));
 const Docs = lazy(() => import('./pages/Information').then(module => ({ default: module.Docs })));
 const Safety = lazy(() => import('./pages/Information').then(module => ({ default: module.Safety })));
@@ -136,6 +141,12 @@ export default function App() { return <QueryClientProvider client={queryClient}
   <Route path="people/*" element={<People/>}/>
   <Route path="hiring" element={<Hiring/>}/>
   <Route path="hiring/admin" element={<HiringAdmin/>}/>
+  <Route path="apply" element={<Apply/>}/>
+  <Route path="apply/status" element={<ApplyStatus/>}/>
+  <Route path="apply/:roleSlug" element={<ApplyRole/>}/>
+  <Route path="careers" element={<Navigate to="/apply" replace/>}/>
+  <Route path="admin/applications" element={<AdminApplications/>}/>
+  <Route path="admin/applications/:applicationId" element={<AdminApplicationDetail/>}/>
   <Route path="changelog" element={<Navigate to="/v2" replace/>}/>
   <Route path="*" element={<div className="page py-24"><h1 className="display text-5xl">Nothing here.</h1><p className="mt-4 text-muted">This page doesn’t exist, or the coin isn’t live yet.</p><Link to="/explore" className="mt-6 inline-flex min-h-11 items-center btn px-6 font-semibold ">Explore coins</Link></div>}/>
 </Route></Routes></Suspense></Boundary></BrowserRouter></LanguageProvider></PreferencesProvider></SocialProvider></AuthBoundary><Analytics/></QueryClientProvider>; }

@@ -35,6 +35,8 @@ import { DevActivityService } from './dev-activity';
 import { PeopleService } from './people';
 import { PeopleModels } from './people-models';
 import { HiringService, RESUME_MAX } from './hiring';
+import { ApplyService } from './apply';
+import { FILE_RULES } from '../shared/apply';
 import { MeshyProvider } from './meshy';
 import { serverClient } from './chain';
 
@@ -133,7 +135,7 @@ export function readiness(runtime: Runtime, toolkitOk: boolean, sponsor: Sponsor
 
 /** The single ObjectPad Durable Object: API state, private capture storage, public artifacts, launches and schedulers. */
 export class ObjectPad extends DurableObject<Env> {
-  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private readonly people: PeopleService; private readonly peopleModels: PeopleModels; private readonly hiring: HiringService; private queue: Promise<void> = Promise.resolve();
+  private readonly store: Store; private readonly runtime: Runtime; private readonly captures: CaptureService; private readonly records: RecordService; private readonly sponsor: SponsorService; private readonly house: HouseService; private readonly uniqueness: UniquenessService; private readonly market: MarketService; private readonly burns: BurnService; private readonly indexer: TradeIndexer; private readonly accounts: AccountService; private readonly earn: EarnService; private readonly bounties: BountyService; private readonly rewards: RewardService; private readonly pairs: PairService; private readonly social: SocialService; private readonly uq2: UniquenessV2; private readonly vaults: VaultService; private readonly devActivity: DevActivityService; private readonly people: PeopleService; private readonly peopleModels: PeopleModels; private readonly hiring: HiringService; private readonly apply: ApplyService; private queue: Promise<void> = Promise.resolve();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const context = ctx as unknown as ObjectContext; this.store = new Store(context);
@@ -149,6 +151,7 @@ export class ObjectPad extends DurableObject<Env> {
     this.devActivity = new DevActivityService(this.store, this.runtime);
     // viem's verifyMessage checks EOA signatures and, through the RPC, contract wallets (ERC-1271 / ERC-6492).
     this.hiring = new HiringService(this.store, this.runtime);
+    this.apply = new ApplyService(this.store, this.runtime);
     this.peopleModels = new PeopleModels(this.store, this.runtime, () => this.runtime.toolkitKey ? new MeshyProvider(this.runtime.toolkitUrl, this.runtime.toolkitKey, { model: env.OBJECTPAD_MESHY_MODEL?.trim() || undefined }) : null);
     this.people = new PeopleService(this.store, this.runtime, { models: this.peopleModels, xIdentity: async owner => { const x = await this.earn.xIdentity(owner).catch(() => null); return x ? { id: x.id, handle: x.handle } : null; }, walletOf: async owner => { try { await this.ensureProfile(owner); return (await this.records.creatorWallet(owner)).toLowerCase(); } catch { return null; } }, verify: (address, message, signature) => serverClient(env).verifyMessage({ address: address as `0x${string}`, message, signature: signature as `0x${string}` }) });
     this.records.identity = async owner => { const x = await this.earn.xIdentity(owner); return x ? { id: x.id, handle: x.handle, avatar: x.avatar, name: x.name } : null; };
@@ -226,11 +229,14 @@ export class ObjectPad extends DurableObject<Env> {
       if (path.startsWith('/social/')) { const handled = await this.socialRoute(request, path, method); if (handled) return handled; }
       if (path === '/people' || path.startsWith('/people/')) return await this.peopleRoute(request, path, method);
       if (path === '/hiring' || path.startsWith('/hiring/')) return await this.hiringRoute(request, path, method);
+      if (path === '/jobs' || path.startsWith('/jobs/') || path.startsWith('/applications') || path.startsWith('/admin/applications')) return await this.applyRoute(request, path, method);
     } catch (error) { return this.failure(error); }
     return this.exclusive(async () => { try { return await this.route(request, path); } catch (error) { return this.failure(error); } });
   }
   /** Durable alarm: provider polling, automatic launches, chain reconciliation and cleanup. */
   async onAlarm(): Promise<void> {
+    await this.apply.deliver(20).catch(error => console.warn('objectpad.apply.deliver', error instanceof Error ? error.message.slice(0, 120) : ''));
+    await this.apply.maintenance().catch(error => console.warn('objectpad.apply.maintenance', error instanceof Error ? error.message.slice(0, 120) : ''));
     await this.exclusive(async () => {
       try { this.launchSoon = false; await this.peopleModels.poll().catch(error => console.warn('objectpad.people.poll', error instanceof Error ? error.message.slice(0, 160) : '')); await this.captures.poll(); await this.autoReconstructSoon(); this.autoRebuildSoon(); await this.autoLaunch(); await this.records.poll(); await this.uniquenessStep().catch(error => console.warn('objectpad.uq2', error instanceof Error ? error.message.slice(0, 160) : '')); await this.house.run().catch(error => console.warn('objectpad.house', error instanceof Error ? error.message.slice(0, 160) : '')); await this.burns.run().catch(error => console.warn('objectpad.burn', error instanceof Error ? error.message.slice(0, 160) : '')); await this.devActivity.run().catch(error => console.warn('objectpad.devActivity', error instanceof Error ? error.message.slice(0, 160) : '')); await this.social.run().catch(error => console.warn('objectpad.social', error instanceof Error ? error.message.slice(0, 160) : '')); const idx = this.indexer.sync(true); try { this.ctx.waitUntil(idx); } catch { /* next request syncs */ } const now = Date.now(); this.store.run('DELETE FROM op_rate_limits WHERE expires<?', now); this.store.run('DELETE FROM op_wallet_nonces WHERE expires<?', now); this.store.run('DELETE FROM op_upload_tickets WHERE expires<?', now - 3_600_000); }
       finally { const social = this.social.nextDelay(); if (social !== null && social <= 12_000) await this.schedule(social); else if (this.launchSoon) await this.schedule(12_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('review','screening') AND json_array_length(payload,'$.views')>=6 LIMIT 1")) await this.schedule(20_000); else if (this.records.hasPending()) await this.schedule(6_000); else if (this.captures.hasActiveJobs() || this.peopleModels.hasActiveJobs()) await this.schedule(8_000); else if (this.house.pending()) await this.schedule(15_000); else if (this.uq2.pendingBackfill()) await this.schedule(5_000); else if (this.burns.token()) await this.schedule(60_000); else if (this.devActivity.token() && !(await this.devActivity.summary(0, 1)).backfillComplete) await this.schedule(3_000); else if (this.store.one("SELECT id FROM op_capture_sessions WHERE state IN ('model_review','approved') AND json_extract(payload,'$.autoLaunch')=1 AND NOT EXISTS (SELECT 1 FROM op_records r WHERE r.session_id=op_capture_sessions.id AND r.state='confirmed') LIMIT 1")) await this.schedule(300_000); }
@@ -553,6 +559,67 @@ export class ObjectPad extends DurableObject<Env> {
    * Hiring. Visitors see nothing until HIRING_PAGE_ENABLED is on; applications are write-only for the public and
    * readable only by operators (OBJECTPAD_OPERATOR_DIDS). Every admin action is audited.
    */
+  /**
+   * /apply. Public: published jobs, account-free drafts (draft secret in X-Draft-Secret), private file uploads with
+   * single-use tickets, signed status links. Staff (Privy sign-in + HIRING_ADMIN_DIDS / HIRING_REVIEWER_DIDS / operators): review workspace.
+   */
+  private async applyRoute(request: Request, path: string, method: string): Promise<Response> {
+    const url = new URL(request.url); const secret = request.headers.get('X-Draft-Secret');
+    if (path === '/jobs' && method === 'GET') return json(this.apply.publicJobs());
+    const jobGet = path.match(/^\/jobs\/([a-z0-9-]{3,64})$/); if (jobGet && method === 'GET') return json(this.apply.publicJob(jobGet[1]));
+    if (path === '/applications/events' && method === 'POST') { this.assertOrigin(request); this.store.rate(`apply-ev:${await this.visitor(request)}`, 300, 3_600_000); return json(this.apply.track(await body(request))); }
+    if (path === '/applications/draft' && method === 'POST') { this.assertOrigin(request); const key = `apply-draft:${await this.visitor(request)}`; this.store.rate(key, 40, 3_600_000); return json(await this.apply.createDraft(await body(request))); }
+    if (path === '/applications/status' && method === 'POST') { this.assertOrigin(request); this.store.rate(`apply-status:${await this.visitor(request)}`, 120, 3_600_000); return json(await this.apply.status((await body(request)).token)); }
+    if (path === '/applications/status-link' && method === 'POST') { this.assertOrigin(request); this.store.rate(`apply-link:${await this.visitor(request)}`, 6, 3_600_000); const out = await this.apply.requestLink(await body(request)); try { this.ctx.waitUntil(this.apply.deliver(3)); } catch { await this.schedule(2_000); } return json(out); }
+    if (path === '/applications/withdraw' && method === 'POST') { this.assertOrigin(request); this.store.rate(`apply-withdraw:${await this.visitor(request)}`, 20, 3_600_000); const out = await this.apply.withdraw((await body(request)).token); try { this.ctx.waitUntil(this.apply.deliver(3)); } catch { await this.schedule(2_000); } return json(out); }
+    const app = path.match(/^\/applications\/([0-9a-f-]{36})(?:\/(upload-ticket|submit|files\/([0-9a-f-]{36})))?$/);
+    if (app) {
+      this.assertOrigin(request); const id = app[1]; const visitor = await this.visitor(request);
+      if (!app[2] && method === 'GET') { this.store.rate(`apply-get:${visitor}`, 240, 3_600_000); return json(await this.apply.getDraft(id, secret)); }
+      if (!app[2] && method === 'PATCH') { this.store.rate(`apply-patch:${visitor}`, 600, 3_600_000); return json(await this.apply.updateDraft(id, secret, await body(request))); }
+      if (app[2] === 'upload-ticket' && method === 'POST') { this.store.rate(`apply-ticket:${visitor}`, 30, 3_600_000); return json(await this.apply.uploadTicket(id, secret, await body(request))); }
+      if (app[3] && method === 'PUT') { this.store.rate(`apply-put:${visitor}`, 30, 3_600_000); return json(await this.apply.putFile(id, app[3], request.headers.get('X-Upload-Token') ?? '', await boundedBody(request, FILE_RULES.sample.max))); }
+      if (app[3] && method === 'DELETE') return json(await this.apply.deleteFile(id, secret, app[3]));
+      if (app[2] === 'submit' && method === 'POST') {
+        const key = `apply-submit:${visitor}`; this.store.peek(key, 12); const out = await this.apply.submit(id, secret, await body(request), visitor);
+        if (out.ok && !out.receipt.duplicate) { this.store.bump(key, 86_400_000); try { this.ctx.waitUntil(this.apply.deliver(4)); } catch { await this.schedule(2_000); } }
+        return json(out, out.ok ? 200 : 422);
+      }
+      throw new ApiError('NOT_FOUND', 404);
+    }
+    if (!path.startsWith('/admin/applications')) throw new ApiError('NOT_FOUND', 404);
+    const viewer = await this.identity(request).catch(() => null); if (!viewer || viewer.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
+    const role = this.apply.staffRole(viewer); if (!role) throw new ApiError('FORBIDDEN', 403);
+    if (method !== 'GET') { this.assertOrigin(request); this.store.rate(`apply-admin:${viewer}`, 600, 3_600_000); }
+    const p = path.slice('/admin/applications'.length);
+    if (p === '' && method === 'GET') return json(await this.apply.list(url.searchParams));
+    if (p === '/overview' && method === 'GET') return json(this.apply.overview(role));
+    if (p === '/metrics' && method === 'GET') return json(this.apply.metrics());
+    if (p === '/export' && method === 'GET') return await this.apply.exportCsv(viewer, role, url.searchParams);
+    if (p === '/deliveries' && method === 'GET') return json(this.apply.deliveries());
+    const retry = p.match(/^\/deliveries\/([0-9a-f-]{36})\/retry$/); if (retry && method === 'POST') { const out = this.apply.retryDelivery(role, retry[1]); try { this.ctx.waitUntil(this.apply.deliver(5)); } catch { /* alarm */ } return json(out); }
+    if (p === '/filters' && method === 'GET') return json(await this.apply.savedFilters(viewer));
+    if (p === '/filters' && method === 'POST') return json(await this.apply.saveFilter(viewer, await body(request)));
+    const filter = p.match(/^\/filters\/([0-9a-f-]{36})$/); if (filter && method === 'DELETE') return json(await this.apply.deleteFilter(viewer, filter[1]));
+    if (p === '/bulk' && method === 'POST') return json(await this.apply.bulk(viewer, await body(request)));
+    if (p === '/jobs' && method === 'POST') return json(await this.apply.saveJob(viewer, role, null, await body(request)));
+    if (p === '/jobs/reorder' && method === 'POST') return json(await this.apply.reorderJobs(viewer, role, await body(request)));
+    const job = p.match(/^\/jobs\/([0-9a-f-]{36})(\/status)?$/); if (job && method === 'POST') return json(job[2] ? await this.apply.setJobStatus(viewer, role, job[1], await body(request)) : await this.apply.saveJob(viewer, role, job[1], await body(request)));
+    const a = p.match(/^\/([0-9a-f-]{36})(?:\/(assign|transition|preview|notes|score|tags|files\/([0-9a-f-]{36})))?$/);
+    if (a) {
+      if (!a[2] && method === 'GET') return json(await this.apply.detail(viewer, a[1]));
+      if (!a[2] && method === 'DELETE') return json(await this.apply.purgeByStaff(viewer, role, a[1]));
+      if (a[3] && method === 'GET') return await this.apply.download(viewer, a[1], a[3]);
+      const data = method === 'POST' ? await body(request) : {};
+      if (a[2] === 'assign') return json(await this.apply.assign(viewer, a[1], data));
+      if (a[2] === 'preview') return json(this.apply.emailPreview(a[1], data));
+      if (a[2] === 'transition') { const out = await this.apply.transition(viewer, a[1], data); try { this.ctx.waitUntil(this.apply.deliver(3)); } catch { /* alarm */ } return json(out); }
+      if (a[2] === 'notes') return json(await this.apply.note(viewer, a[1], data));
+      if (a[2] === 'score') return json(await this.apply.score(viewer, a[1], data));
+      if (a[2] === 'tags') return json(await this.apply.tags(viewer, a[1], data));
+    }
+    throw new ApiError('NOT_FOUND', 404);
+  }
   private async hiringRoute(request: Request, path: string, method: string): Promise<Response> {
     const viewer = await this.identity(request).catch(() => null); const op = viewer && !viewer.startsWith('guest:') ? this.isOperator(viewer) : false;
     if (path === '/hiring' && method === 'GET') return json(this.hiring.publicView(op));

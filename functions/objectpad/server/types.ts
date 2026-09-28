@@ -30,6 +30,14 @@ export interface Env {
   OBJECTPAD_PEOPLE_PHASE?: string;
   /** Hiring page kill switch. 'false' forces /hiring off regardless of the operator flag stored in SQLite. */
   HIRING_PAGE_ENABLED?: string;
+  /** /apply: optional base64 AES-256 key for applicant contact fields (otherwise a key generated once in durable storage is used). */
+  APPLY_DATA_KEY?: string; HIRING_RETENTION_DAYS?: string;
+  /** /apply notifications: hiring inbox, privacy contact, and the Resend email provider (applicant receipts + status links). */
+  HIRING_NOTIFICATION_EMAIL?: string; HIRING_PRIVACY_EMAIL?: string; RESEND_API_KEY?: string; HIRING_FROM_EMAIL?: string;
+  /** /apply RBAC: comma-separated Privy DIDs. Operators are always hiring admins. */
+  HIRING_ADMIN_DIDS?: string; HIRING_REVIEWER_DIDS?: string;
+  /** Social links shown on /apply only when configured. */
+  OBJECTPAD_TIKTOK_URL?: string; OBJECTPAD_INSTAGRAM_URL?: string;
   /** Server-side Privy secret, used only to read the verified account's own wallet address. */
   PRIVY_APP_SECRET?: string; OBJECTPAD_PRIVY_APP_SECRET?: string;
   ROBINHOOD_RPC_URL?: string;

@@ -4,3 +4,5 @@ Disallow: /studio/
 Disallow: /operator
 Disallow: /hiring/admin
 Disallow: /api/
+Disallow: /admin/
+Disallow: /apply/status
