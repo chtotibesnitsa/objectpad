@@ -28,6 +28,7 @@ import { ESCROW_ABI, PONS_FEE_ESCROW } from '@/shared/economy';
 import { explorerTx } from '@/shared/pons';
 import { shortHash } from '@/shared/security';
 import { cn } from '@/lib/utils';
+import { CoinUpdates } from '@/components/social/CoinUpdates';
 
 const ModelViewer = lazy(() => import('@/components/ModelViewer'));
 const reportSchema = z.object({ reason: z.string().trim().min(10, 'Please describe the concern.').max(1500) });
@@ -102,6 +103,7 @@ export function ObjectView({ id }: { id: string }) {
 
     <div className="mt-4 grid gap-4 lg:grid-cols-[1.45fr_1fr]">
       <div className="space-y-4">
+        <CoinUpdates recordId={id} isCreator={isCreator}/>
         <section className="glass rounded-[26px] p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Chart</h2><span className="font-mono text-[11.5px] uppercase text-ink/65">{trades.data ? `${list.length} trades · last ~3 days` : trades.isError ? 'Unavailable' : 'Reading chain logs…'}</span></div>
           {trades.isError ? <p className="mt-4 text-sm text-ink/65">Trade history is unavailable right now.</p> : trades.isPending ? <div className="mt-4 h-64 animate-pulse rounded-2xl bg-white/50"/> : <PriceChart trades={list} ethUsd={ethUsd} className="mt-4 h-[360px]"/>}

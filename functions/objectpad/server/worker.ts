@@ -719,6 +719,7 @@ export class ObjectPad extends DurableObject<Env> {
     const url = new URL(request.url);
     if (method === 'GET') {
       if (path === '/social/chat') { const viewer = await this.identity(request).catch(() => null); const after = Number(url.searchParams.get('after') ?? 0); return json(this.social.chat(Number.isSafeInteger(after) && after > 0 ? after : 0, viewer && !viewer.startsWith('guest:') ? viewer : null)); }
+      const cu = path.match(/^\/social\/coin\/([a-f0-9]{64})\/updates$/); if (cu) { const viewer = await this.identity(request).catch(() => null); return json(this.social.coinUpdates(cu[1], Boolean(viewer && !viewer.startsWith('guest:') && this.isOperator(viewer)))); }
       if (path === '/social/activity') return json({ items: this.social.activity(), updatedAt: Date.now() });
       if (path === '/social/users') return json({ items: this.social.search(url.searchParams.get('q') ?? '') });
       const user = path.match(/^\/social\/users\/@?([A-Za-z0-9_]{3,20})$/); if (user) return json(await this.social.profile(user[1]));
@@ -733,8 +734,14 @@ export class ObjectPad extends DurableObject<Env> {
     if (method === 'GET' && path === '/social/tips') return json(this.social.tips(owner));
     if (method === 'PUT' && path === '/social/avatar') { const type = request.headers.get('content-type') ?? ''; if (!['image/png', 'image/jpeg'].includes(type)) throw new ApiError('UNSUPPORTED_IMAGE', 415); this.store.rate(`avatar:${owner}`, 12, 86_400_000); return json(await this.social.setAvatar(owner, await boundedBody(request, 4_000_000))); }
     if (method === 'DELETE' && path === '/social/avatar') return json(await this.social.setAvatar(owner, null));
+    const cuVoice = path.match(/^\/social\/coin\/([a-f0-9]{64})\/voice$/);
+    if (method === 'PUT' && cuVoice) { const mime = request.headers.get('content-type') ?? ''; const secs = Number(request.headers.get('x-seconds') ?? 0); const cap = decodeURIComponent(request.headers.get('x-caption') ?? ''); return json(await this.social.postCoinVoice(cuVoice[1], owner, this.isOperator(owner), await boundedBody(request, 2_000_000), mime, secs, cap)); }
     if (method !== 'POST') return null;
     const data = await body(request);
+    const cuText = path.match(/^\/social\/coin\/([a-f0-9]{64})\/updates$/);
+    if (cuText) return json(this.social.postCoinText(cuText[1], owner, this.isOperator(owner), string(data.text, 600)));
+    const cuMod = path.match(/^\/social\/ops\/update\/([a-f0-9-]{36})\/(hide|restore)$/);
+    if (cuMod) { this.operator(owner); if (!this.social.setUpdateHidden(cuMod[1], cuMod[2] === 'hide')) throw new ApiError('NOT_FOUND', 404); await this.store.audit(await sha256(owner), cuMod[1], `update_${cuMod[2]}`, 'admin update moderation'); return json({ ok: true }); }
     if (path === '/social/profile') { await this.ensureProfile(owner); return json(this.social.setProfile(owner, data)); }
     if (path === '/social/chat') return json(this.social.sendChat(owner, string(data.text, 800)));
     const chatMod = path.match(/^\/social\/ops\/chat\/([a-f0-9-]{36})\/(hide|restore)$/);

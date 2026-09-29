@@ -39,6 +39,8 @@ export class SocialService {
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly sponsor: SponsorService, private readonly accounts: AccountService, private readonly indexer: TradeIndexer, private readonly burns: BurnService, private readonly xIdentity: (owner: string) => Promise<{ handle: string; avatar: string } | null>, private readonly defaultWallet: (owner: string) => Promise<string | null>) {
     const t = (sql: string) => store.run(sql);
     t('CREATE TABLE IF NOT EXISTS op_social (owner TEXT PRIMARY KEY, username TEXT NOT NULL, username_lower TEXT NOT NULL UNIQUE, bio TEXT NOT NULL DEFAULT \'\', avatar TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+    t('CREATE TABLE IF NOT EXISTS op_coin_updates (id TEXT PRIMARY KEY, record_id TEXT NOT NULL, owner TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL DEFAULT \'\', audio TEXT, seconds INTEGER, created_at INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0)');
+    t('CREATE INDEX IF NOT EXISTS op_coin_updates_record ON op_coin_updates(record_id, created_at)');
     t('CREATE TABLE IF NOT EXISTS op_chat (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, owner TEXT, kind TEXT NOT NULL, text TEXT NOT NULL, ref TEXT, created_at INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0)');
     t('CREATE TABLE IF NOT EXISTS op_notifications (id TEXT PRIMARY KEY, owner TEXT NOT NULL, kind TEXT NOT NULL, actor TEXT, text TEXT NOT NULL, link TEXT, ref TEXT, read INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)');
     t('CREATE INDEX IF NOT EXISTS op_notifications_owner ON op_notifications(owner, created_at)');
@@ -228,6 +230,35 @@ export class SocialService {
     this.store.metric('chat_message'); return { seq };
   }
   hide(id: string): boolean { const row = this.store.one<{ id: string }>('SELECT id FROM op_chat WHERE id=?', id); if (!row) return false; this.store.run('UPDATE op_chat SET hidden=1 WHERE id=?', id); return true; }
+  // ─── Creator updates on a coin page (text + voice) ───────────────────────────
+  private recordOwner(recordId: string): string { const row = this.store.one<{ owner: string }>('SELECT owner FROM op_records WHERE id=?', recordId); if (!row) throw new ApiError('NOT_FOUND', 404); return row.owner; }
+  /** Public feed of a coin's creator updates. Admins also see hidden items, flagged. */
+  coinUpdates(recordId: string, admin: boolean): Record<string, unknown> {
+    const rows = this.store.all<{ id: string; owner: string; kind: string; text: string; audio: string | null; seconds: number | null; created_at: number; hidden: number }>(`SELECT id,owner,kind,text,audio,seconds,created_at,hidden FROM op_coin_updates WHERE record_id=? ${admin ? '' : 'AND hidden=0'} ORDER BY created_at DESC LIMIT 60`, recordId);
+    const users = this.users(rows.map(r => r.owner));
+    return { items: rows.map(r => ({ id: r.id, kind: r.kind, text: r.text, audio: r.audio, seconds: r.seconds, createdAt: r.created_at, hidden: r.hidden === 1, user: users.get(r.owner) ?? null })) };
+  }
+  /** Only the coin's creator (or an admin) can post. Text is trimmed and control characters are refused. */
+  postCoinText(recordId: string, owner: string, admin: boolean, raw: string): { id: string } {
+    if (!admin && this.recordOwner(recordId) !== owner) throw new ApiError('FORBIDDEN', 403);
+    const text = raw.normalize('NFC').trim();
+    if (text.length < 2 || text.length > 600 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(text)) throw new ApiError('MESSAGE_INVALID');
+    this.store.rate(`coin-update:${owner}`, 20, 3_600_000);
+    const id = crypto.randomUUID(); this.store.run("INSERT INTO op_coin_updates(id,record_id,owner,kind,text,created_at) VALUES (?,?,?,'text',?,?)", id, recordId, owner, text, Date.now()); return { id };
+  }
+  /** A voice message (browser MediaRecorder audio, max ~90 s / 2 MB) stored as a public artifact. */
+  async postCoinVoice(recordId: string, owner: string, admin: boolean, bytes: Uint8Array, mime: string, seconds: number, caption: string): Promise<{ id: string }> {
+    if (!admin && this.recordOwner(recordId) !== owner) throw new ApiError('FORBIDDEN', 403);
+    if (!/^audio\/(webm|mp4|ogg|mpeg|x-m4a|aac)/.test(mime) || bytes.byteLength < 800 || bytes.byteLength > 2_000_000) throw new ApiError('AUDIO_INVALID', 415);
+    this.store.rate(`coin-voice:${owner}`, 10, 3_600_000);
+    const hash = await sha256(bytes); const key = `objectpad/v1/artifacts/${hash}`;
+    await this.runtime.artifactBucket.put(key, bytes, { httpMetadata: { contentType: mime.split(';')[0] } });
+    this.store.run('INSERT OR IGNORE INTO op_artifacts(hash,storage_key,kind,bytes,public,session_id) VALUES (?,?,?,?,1,?)', hash, key, 'voice', bytes.byteLength, `voice:${hash.slice(0, 16)}`);
+    const id = crypto.randomUUID(); const clean = caption.normalize('NFC').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 200);
+    this.store.run("INSERT INTO op_coin_updates(id,record_id,owner,kind,text,audio,seconds,created_at) VALUES (?,?,?,'voice',?,?,?,?)", id, recordId, owner, clean, `${this.runtime.apiOrigin}/api/artifacts/${hash}`, Math.max(1, Math.min(90, Math.round(seconds))), Date.now()); return { id };
+  }
+  /** Admin-only moderation of a coin update. */
+  setUpdateHidden(id: string, hidden: boolean): boolean { const row = this.store.one<{ id: string }>('SELECT id FROM op_coin_updates WHERE id=?', id); if (!row) return false; this.store.run('UPDATE op_coin_updates SET hidden=? WHERE id=?', hidden ? 1 : 0, id); return true; }
   /** Admin-only: restores a hidden chat message to the public feed. */
   restore(id: string): boolean { const row = this.store.one<{ id: string }>('SELECT id FROM op_chat WHERE id=?', id); if (!row) return false; this.store.run('UPDATE op_chat SET hidden=0 WHERE id=?', id); return true; }
   /** Admin-only: recent hidden messages with authors, so a wrong deletion can be reverted. */

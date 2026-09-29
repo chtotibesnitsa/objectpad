@@ -10,7 +10,7 @@ export { ObjectPad } from './objectpad/server/worker';
 
 type WorkerEnv = Env & { DO: NonNullable<Env['DO']> };
 
-const ALLOWED_HEADERS = 'Authorization,Content-Type,X-Upload-Token,X-Capture-Device,X-Draft-Secret';
+const ALLOWED_HEADERS = 'Authorization,Content-Type,X-Upload-Token,X-Capture-Device,X-Draft-Secret,X-Seconds,X-Caption';
 const baseHeaders = (): Record<string, string> => ({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Origin' });
 
 function withCors(response: Response, origin: string | null, allowed: boolean): Response {
