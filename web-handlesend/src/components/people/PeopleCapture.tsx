@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Check, ImagePlus, RefreshCw, Smartphone, SwitchCamera, Trash2, X } from 'lucide-react';
+import { Footprints, Camera, Check, ImagePlus, RefreshCw, Smartphone, SwitchCamera, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { checkFrame } from '@/lib/frameCheck';
 import { peopleError, type PeoplePhoto } from '@/lib/people';
 import { CAPTURE_PLAN, VIEW_GUIDE, type CaptureMode, type CaptureView } from '@/shared/people';
 import { cn } from '@/lib/utils';
+import { TriangleOverlay, VIEW_YAW, sectorOf, useWalkYaw } from './WalkScan';
 
 const MIN_SIDE = 720; const MAX_PIXELS = 4_000_000;
 /** Phones and tablets get a second route into the native camera app, the most reliable path in installed iOS web apps. */
@@ -49,6 +50,11 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
   const [busy, setBusy] = useState<boolean>(false); const [error, setError] = useState<string | null>(null); const [flash, setFlash] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null); const streamRef = useRef<MediaStream | null>(null); const fileRef = useRef<HTMLInputElement | null>(null);
 
+  const walk = useWalkYaw(); const [walking, setWalking] = useState<boolean>(false); const [swept, setSwept] = useState<ReadonlySet<number>>(new Set());
+  const stageRef = useRef<HTMLDivElement | null>(null); const [box, setBox] = useState<{ w: number; h: number }>({ w: 320, h: 400 });
+  useEffect(() => { const el = stageRef.current; if (!el) return; const ro = new ResizeObserver(() => setBox({ w: Math.max(1, el.clientWidth), h: Math.max(1, el.clientHeight) })); ro.observe(el); return () => ro.disconnect(); }, [cam]);
+  useEffect(() => { if (walking && walk.state === 'live') setSwept(prev => { const s = sectorOf(walk.yaw); if (prev.has(s)) return prev; const n = new Set(prev); n.add(s); return n; }); }, [walking, walk.state, walk.yaw]);
+  useEffect(() => { if (cam !== 'on' && walking) { setWalking(false); walk.stop(); } }, [cam]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!plan.views.includes(active)) setActive(firstMissing); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const stop = useCallback(() => { streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null; setCam(c => (c === 'on' || c === 'starting') ? 'off' : c); setLive(null); }, []);
   useEffect(() => () => { streamRef.current?.getTracks().forEach(t => t.stop()); }, []);
@@ -85,6 +91,16 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
     const v = videoRef.current; if (!v || !v.videoWidth) return; setFlash(true); window.setTimeout(() => setFlash(false), 160);
     try { await upload(active, await toJpeg(v, v.videoWidth, v.videoHeight)); } catch (e) { setError(e instanceof Error ? e.message : 'Capture failed.'); }
   };
+  const shootRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!walking || walk.state !== 'live' || busy || shootRef.current) return;
+    const target = plan.views.find(v => !has(v) && Math.min(Math.abs(VIEW_YAW[v] - walk.yaw), 360 - Math.abs(VIEW_YAW[v] - walk.yaw)) < 9 && (v === plan.views[0] || swept.size > 2));
+    const v = videoRef.current; if (!target || !v || !v.videoWidth) return;
+    shootRef.current = true; setFlash(true); window.setTimeout(() => setFlash(false), 160);
+    void toJpeg(v, v.videoWidth, v.videoHeight).then(b => upload(target, b)).catch(e => setError(e instanceof Error ? e.message : 'Capture failed.')).finally(() => { shootRef.current = false; });
+  }, [walking, walk.state, walk.yaw, busy, plan.views, has, swept.size, upload]);
+  const beginWalk = async () => { setSwept(new Set()); const ok = await walk.start(); setWalking(true); if (!ok) setError('Motion sensors are unavailable, so shots are manual. Tap Take photo at each side.'); };
+  const covered = new Set<number>(swept); plan.views.forEach(v => { if (has(v)) covered.add(sectorOf(VIEW_YAW[v])); });
   const pick = async (file: File | undefined) => { if (!file) return; try { await upload(active, await fileToJpeg(file)); } catch (e) { setError(e instanceof Error ? e.message : 'That photo couldn’t be used.'); } };
   const remove = async (view: CaptureView) => { setBusy(true); try { const out = await api<{ items: PeoplePhoto[] }>(`${base}/${view}`, { token: await auth(), method: 'DELETE' }); onPhotos(out.items); setPreviews(p => ({ ...p, [view]: undefined })); setActive(view); } catch (e) { setError(peopleError(e)); } finally { setBusy(false); } };
 
@@ -101,12 +117,14 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
     </button></li>; })}</ul>
 
     <div className="relative overflow-hidden rounded-[28px] bg-ink text-white">
-      <div className={cn('relative w-full', body ? 'aspect-[3/4]' : 'aspect-[4/5] sm:aspect-[4/3]')}>
+      <div ref={stageRef} className={cn('relative w-full', body ? 'aspect-[3/4]' : 'aspect-[4/5] sm:aspect-[4/3]')}>
         {cam === 'on' || cam === 'starting' ? <>
           <video ref={videoRef} playsInline muted autoPlay className={cn('absolute inset-0 size-full object-cover', facing === 'user' && '-scale-x-100')}/>
           <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className={cn('border-[3px] border-dashed transition-colors', body ? 'h-[86%] w-[46%] rounded-[40%]' : 'h-[70%] w-[52%] rounded-[50%]', good ? 'border-[#2EE584]' : 'border-white/70')} style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,.35)' }}/>
           </div>
+          {walking && <TriangleOverlay covered={covered} current={sectorOf(walk.yaw)} shots={photos.length} width={box.w} height={box.h}/>}
+          {walking && <p className="absolute inset-x-4 bottom-3 mx-auto w-fit rounded-full bg-black/60 px-4 py-2 text-[12.5px] font-extrabold">{walk.state === 'live' ? `Walk slowly around the subject \u00b7 ${Math.round(walk.yaw)}\u00b0 \u00b7 ${plan.views.filter(has).length}/${plan.views.length} angles` : 'Manual mode'}</p>}
           {flash && <div className="absolute inset-0 bg-white/80"/>}
           {hint && <p className={cn('absolute inset-x-4 top-4 mx-auto w-fit rounded-full px-4 py-2 text-[13px] font-extrabold backdrop-blur', good ? 'bg-[#12A150]/90' : 'bg-black/60')}>{hint}</p>}
         </> : <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
@@ -128,6 +146,7 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
     <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:flex-wrap">
       {cam === 'on' ? <>
         <button type="button" disabled={busy || disabled} onClick={() => void shoot()} className="btn press min-h-[56px] px-8 text-[16px] sm:flex-1">{busy ? <RefreshCw size={18} className="animate-spin"/> : <Camera size={19}/>}{busy ? 'Checking photo…' : has(active) ? 'Retake' : 'Take photo'}</button>
+        <button type="button" disabled={busy || disabled} onClick={() => { if (walking) { setWalking(false); walk.stop(); } else void beginWalk(); }} className={cn('press min-h-[56px] rounded-full px-5 text-[14.5px] font-extrabold', walking ? 'bg-[#12A150] text-white' : 'btn-ghost')}><Footprints size={18} className="mr-1.5 inline"/>{walking ? 'Triangles on' : 'Triangle scan'}</button>
         <button type="button" disabled={busy} onClick={() => { const f = facing === 'user' ? 'environment' : 'user'; setFacing(f); void start(f); }} aria-label="Switch camera" className="btn-ghost press min-h-[56px] px-4"><SwitchCamera size={19}/></button>
       </> : <button type="button" disabled={busy || disabled || cam === 'starting'} onClick={() => { const f = body ? 'environment' : 'user'; setFacing(f); void start(f); }} className="btn press col-span-2 min-h-[56px] px-8 text-[16px] sm:flex-1"><Camera size={19}/>{cam === 'starting' ? 'Opening camera…' : 'Open camera'}</button>}
       {cam !== 'on' && IS_PHONE && <button type="button" disabled={busy || disabled} onClick={() => nativeRef.current?.click()} className="btn-ghost press col-span-2 min-h-[52px] px-5 text-[14.5px] sm:col-span-1"><Smartphone size={17}/>Use phone camera app</button>}
