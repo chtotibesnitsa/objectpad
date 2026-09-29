@@ -188,19 +188,19 @@ function PhoneHandoff({ draftId, call, count, onRefresh }: { draftId: string; ca
   const url = link.data ? `${window.location.origin}/People/phone/${link.data.token}` : null;
   const live = Boolean(link.data && link.data.expiresAt > Date.now());
   useEffect(() => { if (!live) return; const t = window.setInterval(onRefresh, 3_000); return () => window.clearInterval(t); }, [live, onRefresh]);
-  return <div className="smoke relative overflow-hidden rounded-[26px] p-5 text-white">
-    <div aria-hidden className="grid-smoke absolute inset-0 opacity-50"/>
+  return <div className="raised relative overflow-hidden rounded-[26px] p-5">
+    <div aria-hidden className="dot-grid absolute inset-0 opacity-60"/>
     <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
-      {url ? <div className="shrink-0 self-start rounded-2xl bg-white p-2.5"><QRCodeSVG value={url} size={124}/></div> : <span className="flex size-[124px] shrink-0 items-center justify-center rounded-2xl bg-white/10"><Smartphone size={34}/></span>}
+      {url ? <div className="shrink-0 self-start rounded-2xl bg-white p-2.5"><QRCodeSVG value={url} size={124}/></div> : <span className="flex size-[124px] shrink-0 items-center justify-center rounded-2xl bg-ink/[0.06]"><Smartphone size={34}/></span>}
       <div className="min-w-0 flex-1">
         <p className="text-[17px] font-extrabold">Shoot on your phone</p>
-        <p className="mt-1 text-[13.5px] font-semibold leading-5 text-white/65">{url ? 'Scan with your iPhone or Android camera. No sign-in on the phone: the link only adds photos to this draft and closes in 30 minutes.' : 'Phones take sharper selfies. We’ll make a private QR code that opens the camera on your phone.'}</p>
-        {link.isError && <p className="mt-2 text-[13px] font-bold text-[#FF8A8A]">{peopleError(link.error)}</p>}
+        <p className="mt-1 text-[13.5px] font-semibold leading-5 text-ink/60">{url ? 'Scan with your iPhone or Android camera. No sign-in on the phone: the link only adds photos to this draft and closes in 30 minutes.' : 'Phones take sharper selfies. We’ll make a private QR code that opens the camera on your phone.'}</p>
+        {link.isError && <p className="mt-2 text-[13px] font-bold text-down">{peopleError(link.error)}</p>}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {!url ? <button type="button" disabled={link.isPending} onClick={() => link.mutate()} className="press inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-[14px] font-extrabold text-ink"><Smartphone size={15}/>{link.isPending ? 'Making link…' : 'Show QR code'}</button>
-            : <><span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2 text-[12.5px] font-extrabold"><span className="size-2 animate-pulse rounded-full bg-[#2EE584]"/>Waiting for your phone · {count} photo{count === 1 ? '' : 's'} in</span>
-              <button type="button" onClick={() => void copyText(url)} className="press inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-bold text-white/70"><Copy size={13}/>Copy link</button>
-              <button type="button" onClick={() => link.mutate()} className="press inline-flex min-h-10 items-center rounded-full px-3 text-[12.5px] font-bold text-white/70">New code</button></>}
+          {!url ? <button type="button" disabled={link.isPending} onClick={() => link.mutate()} className="press inline-flex min-h-11 items-center gap-2 rounded-full bg-ink px-5 text-[14px] font-extrabold text-white"><Smartphone size={15}/>{link.isPending ? 'Making link…' : 'Show QR code'}</button>
+            : <><span className="inline-flex items-center gap-2 rounded-full bg-ink/[0.06] px-3.5 py-2 text-[12.5px] font-extrabold"><span className="size-2 animate-pulse rounded-full bg-[#12A150]"/>Waiting for your phone · {count} photo{count === 1 ? '' : 's'} in</span>
+              <button type="button" onClick={() => void copyText(url)} className="press inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-bold text-ink/60"><Copy size={13}/>Copy link</button>
+              <button type="button" onClick={() => link.mutate()} className="press inline-flex min-h-10 items-center rounded-full px-3 text-[12.5px] font-bold text-ink/60">New code</button></>}
         </div>
       </div>
     </div>

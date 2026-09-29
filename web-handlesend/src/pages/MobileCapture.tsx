@@ -11,6 +11,8 @@ import { checkFrame, thumbDiff, thumbnail } from '@/lib/frameCheck';
 import { useViewUrls } from '@/components/ScanSequence';
 import { VIEWS, type CaptureSession, type ViewId } from '@/shared/domain';
 import { cn } from '@/lib/utils';
+import { useArScan } from '@/lib/arScan';
+import { ArOverlay } from '@/components/people/ArOverlay';
 
 type Status = 'queued' | 'uploading' | 'accepted' | 'rejected';
 interface Shot { view: ViewId; url: string; blob: Blob; signature: string; status: Status; error?: string; tries?: number; acceptedAt?: number; }
@@ -159,6 +161,9 @@ export default function MobileCapture() {
   // The upload queue reads shotsRef, so it is updated in the same tick as the state; a render-late copy let the last photo sit unsent.
   const setShots = useCallback((update: (cur: Shot[]) => Shot[]) => { const next = update(shotsRef.current); shotsRef.current = next; setShotsState(next); }, []);
   useEffect(() => { sessionRef.current = session; }, [session]);
+  const ar = useArScan(phase === 'camera' ? 'object' : null, video);
+  const [box, setBox] = useState<{ w: number; h: number }>({ w: typeof window === 'undefined' ? 390 : window.innerWidth, h: typeof window === 'undefined' ? 780 : window.innerHeight });
+  useEffect(() => { const on = () => setBox({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', on); return () => window.removeEventListener('resize', on); }, []);
   const saveOrbit = () => { try { sessionStorage.setItem(`objectpad.orbit.${id}`, JSON.stringify(orbit.current)); } catch { /* ignore */ } };
 
   const adopt = useCallback((next: CaptureSession) => {
@@ -317,6 +322,8 @@ export default function MobileCapture() {
   const rejected = shots.filter(s => s.status === 'rejected');
   return <div className="fixed inset-0 z-[70] h-[100dvh] overflow-hidden bg-black text-white" onClick={() => { if (video.current?.paused) void video.current.play().catch(() => undefined); }}>
     <video ref={video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-cover" aria-label="Live camera"/>
+    {ar.status === 'ready' && <ArOverlay frame={ar.frame} mirror={false} width={box.w} height={box.h}/>}
+    {ar.status === 'ready' && ar.info.label && <p role="status" className="pointer-events-none absolute inset-x-0 top-[calc(env(safe-area-inset-top)+72px)] z-10 mx-auto w-fit max-w-[88%] truncate rounded-full bg-black/60 px-4 py-1.5 text-[12.5px] font-extrabold">{ar.info.label}</p>}
     <div key={flash} className={cn('pointer-events-none absolute inset-0 bg-white', flash ? 'flash-pop' : 'opacity-0')}/>
     <div className={cn('cam-frame pointer-events-none absolute left-[9%] right-[9%] top-[22%] bottom-[33%] rounded-[34px] border-[3px]', green ? 'on' : 'off')}>
       {hud.hold > 0 && <svg className="absolute left-1/2 top-1/2 size-20 -translate-x-1/2 -translate-y-1/2 -rotate-90" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44" fill="none" stroke="white" strokeOpacity=".25" strokeWidth="6"/><circle cx="50" cy="50" r="44" fill="none" stroke="#34D57A" strokeWidth="6" strokeLinecap="round" strokeDasharray={`${hud.hold * 276} 276`}/></svg>}

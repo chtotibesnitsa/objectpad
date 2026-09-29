@@ -187,8 +187,8 @@ function PeopleLanding() {
         <p className="display mt-2 text-[34px] leading-none">This spot is waiting.</p>
         <p className="mt-2 text-[14px] font-semibold leading-5 text-ink/55">The first creator appears here only after they scan themselves, pass every check and approve their own double.{s?.genesis ? ` ${s.genesis.remaining} of ${s.genesis.slots} genesis places left · ${s.genesis.awardDisplay} each.` : ' Genesis rewards and terms are posted before anyone is accepted.'}</p>
       </div>
-      <div className="smoke relative flex flex-col justify-between overflow-hidden rounded-[36px] p-6 sm:p-10">
-        <div aria-hidden className="grid-smoke absolute inset-0 opacity-60"/>
+      <div className="raised relative flex flex-col justify-between overflow-hidden rounded-[36px] p-6 sm:p-10">
+        <div aria-hidden className="dot-grid absolute inset-0 opacity-60"/>
         <h2 className="display relative text-[clamp(38px,5.6vw,72px)] leading-[0.9]">Be one of<br/>the first.</h2>
         <div className="relative mt-8 grid gap-2.5">
           {[[ScanFace, 'Make my 3D double', 'Private draft. Shoot on your phone. Saves as you go.', '/People/start'], [Megaphone, 'Nominate a creator', 'Tell us who should be on People next.', '/People/nominate'], [UserPlus, 'Set up someone you work with', 'You prepare it. They accept and take control.', '/People/start']].map(([I, t, d, to], i) => { const Icon = I as typeof Wallet; return <Link key={t as string} to={to as string} className={cn('press group flex items-center gap-4 rounded-[24px] p-4 transition-colors', i === 0 ? 'bg-ink text-white' : 'raised text-ink')}><Icon size={22} className="shrink-0"/><span className="min-w-0 flex-1"><span className="block text-[17px] font-extrabold">{t as string}</span><span className={cn('block text-[13px] font-semibold leading-5', i === 0 ? 'text-white/65' : 'text-ink/55')}>{d as string}</span></span><ArrowRight size={17} className="shrink-0 transition-transform group-hover:translate-x-1"/></Link>; })}

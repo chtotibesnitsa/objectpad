@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Footprints, Camera, Check, ImagePlus, RefreshCw, Smartphone, SwitchCamera, Trash2, X } from 'lucide-react';
+import { Triangle, Camera, Check, ImagePlus, RefreshCw, Smartphone, SwitchCamera, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { checkFrame } from '@/lib/frameCheck';
+import { useArScan, viewMatches, type ScanKind } from '@/lib/arScan';
 import { peopleError, type PeoplePhoto } from '@/lib/people';
 import { CAPTURE_PLAN, VIEW_GUIDE, type CaptureMode, type CaptureView } from '@/shared/people';
 import { cn } from '@/lib/utils';
-import { TriangleOverlay, VIEW_YAW, sectorOf, useWalkYaw } from './WalkScan';
+import { AngleDial, ArOverlay } from './ArOverlay';
 
 const MIN_SIDE = 720; const MAX_PIXELS = 4_000_000;
+/** How long the subject must hold an angle before the shutter fires on its own. */
+const HOLD_MS = 700;
 /** Phones and tablets get a second route into the native camera app, the most reliable path in installed iOS web apps. */
 const IS_PHONE = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -34,7 +37,9 @@ type CamState = 'off' | 'starting' | 'on' | 'denied' | 'none';
 
 /**
  * Guided capture for one People draft. Camera is requested only when the person taps "Open camera".
- * `phoneToken` switches uploads to a short-lived desktop-to-phone link, so the phone needs no sign-in.
+ * Triangle scan runs a live on-device face or body tracker: green triangles fill in on the subject as each side is seen, and
+ * each required angle is shot automatically once it is held steady. `phoneToken` switches uploads to a short-lived
+ * desktop-to-phone link, so the phone needs no sign-in.
  */
 export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phoneToken }: { draftId: string; mode: CaptureMode; photos: PeoplePhoto[]; onPhotos: (items: PeoplePhoto[]) => void; disabled?: boolean; phoneToken?: string }) {
   const plan = CAPTURE_PLAN[mode]; const session = useSession();
@@ -50,11 +55,11 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
   const [busy, setBusy] = useState<boolean>(false); const [error, setError] = useState<string | null>(null); const [flash, setFlash] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null); const streamRef = useRef<MediaStream | null>(null); const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const walk = useWalkYaw(); const [walking, setWalking] = useState<boolean>(false); const [swept, setSwept] = useState<ReadonlySet<number>>(new Set());
+  const body = plan.views.some(v => v.startsWith('body')); const kind: ScanKind = body ? 'body' : 'face';
+  const [scan, setScan] = useState<boolean>(true); const [hold, setHold] = useState<number>(0);
+  const ar = useArScan(scan && cam === 'on' ? kind : null, videoRef);
   const stageRef = useRef<HTMLDivElement | null>(null); const [box, setBox] = useState<{ w: number; h: number }>({ w: 320, h: 400 });
   useEffect(() => { const el = stageRef.current; if (!el) return; const ro = new ResizeObserver(() => setBox({ w: Math.max(1, el.clientWidth), h: Math.max(1, el.clientHeight) })); ro.observe(el); return () => ro.disconnect(); }, [cam]);
-  useEffect(() => { if (walking && walk.state === 'live') setSwept(prev => { const s = sectorOf(walk.yaw); if (prev.has(s)) return prev; const n = new Set(prev); n.add(s); return n; }); }, [walking, walk.state, walk.yaw]);
-  useEffect(() => { if (cam !== 'on' && walking) { setWalking(false); walk.stop(); } }, [cam]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!plan.views.includes(active)) setActive(firstMissing); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const stop = useCallback(() => { streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null; setCam(c => (c === 'on' || c === 'starting') ? 'off' : c); setLive(null); }, []);
   useEffect(() => () => { streamRef.current?.getTracks().forEach(t => t.stop()); }, []);
@@ -91,22 +96,35 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
     const v = videoRef.current; if (!v || !v.videoWidth) return; setFlash(true); window.setTimeout(() => setFlash(false), 160);
     try { await upload(active, await toJpeg(v, v.videoWidth, v.videoHeight)); } catch (e) { setError(e instanceof Error ? e.message : 'Capture failed.'); }
   };
-  const shootRef = useRef<boolean>(false);
+
+  // Auto-shutter: when the tracked subject sits at a wanted angle, in good light and in focus, for HOLD_MS, take that view.
+  const shootRef = useRef<boolean>(false); const holdRef = useRef<{ view: CaptureView; since: number } | null>(null);
   useEffect(() => {
-    if (!walking || walk.state !== 'live' || busy || shootRef.current) return;
-    const target = plan.views.find(v => !has(v) && Math.min(Math.abs(VIEW_YAW[v] - walk.yaw), 360 - Math.abs(VIEW_YAW[v] - walk.yaw)) < 9 && (v === plan.views[0] || swept.size > 2));
-    const v = videoRef.current; if (!target || !v || !v.videoWidth) return;
-    shootRef.current = true; setFlash(true); window.setTimeout(() => setFlash(false), 160);
+    const reset = () => { holdRef.current = null; setHold(h => h === 0 ? h : 0); };
+    if (!scan || ar.status !== 'ready' || cam !== 'on' || busy || disabled || shootRef.current) { reset(); return; }
+    const yaw = ar.info.yaw; const good = live?.light === 'ok' && live.sharp;
+    const target = ar.info.found && yaw !== null && good ? plan.views.find(v => !has(v) && viewMatches(v, yaw, facing === 'environment')) : undefined;
+    if (!target) { reset(); return; }
+    const now = performance.now(); if (!holdRef.current || holdRef.current.view !== target) holdRef.current = { view: target, since: now };
+    const progress = Math.min(1, (now - holdRef.current.since) / HOLD_MS); setHold(progress); if (progress < 1) return;
+    const v = videoRef.current; if (!v || !v.videoWidth) return;
+    shootRef.current = true; reset(); setFlash(true); window.setTimeout(() => setFlash(false), 160);
     void toJpeg(v, v.videoWidth, v.videoHeight).then(b => upload(target, b)).catch(e => setError(e instanceof Error ? e.message : 'Capture failed.')).finally(() => { shootRef.current = false; });
-  }, [walking, walk.state, walk.yaw, busy, plan.views, has, swept.size, upload]);
-  const beginWalk = async () => { setSwept(new Set()); const ok = await walk.start(); setWalking(true); if (!ok) setError('Motion sensors are unavailable, so shots are manual. Tap Take photo at each side.'); };
-  const covered = new Set<number>(swept); plan.views.forEach(v => { if (has(v)) covered.add(sectorOf(VIEW_YAW[v])); });
+  }, [scan, ar.status, ar.info, cam, busy, disabled, live, plan.views, has, facing, upload]);
+
   const pick = async (file: File | undefined) => { if (!file) return; try { await upload(active, await fileToJpeg(file)); } catch (e) { setError(e instanceof Error ? e.message : 'That photo couldn’t be used.'); } };
   const remove = async (view: CaptureView) => { setBusy(true); try { const out = await api<{ items: PeoplePhoto[] }>(`${base}/${view}`, { token: await auth(), method: 'DELETE' }); onPhotos(out.items); setPreviews(p => ({ ...p, [view]: undefined })); setActive(view); } catch (e) { setError(peopleError(e)); } finally { setBusy(false); } };
 
-  const guide = VIEW_GUIDE[active]; const body = active.startsWith('body');
+  const guide = VIEW_GUIDE[active];
   const hint = !live ? null : live.light === 'dark' ? 'Too dark: face a window or lamp' : live.light === 'bright' ? 'Too bright: step out of direct light' : !live.sharp ? 'Hold still: image is blurry' : 'Looks good: take it';
   const good = live?.light === 'ok' && live.sharp;
+  const nextView = plan.views.find(v => !has(v));
+  const doneCount = plan.views.filter(has).length;
+  const scanLine = ar.status === 'loading' ? 'Loading the scanner…'
+    : ar.status === 'error' ? 'Scanner unavailable here. Use Take photo.'
+    : !ar.info.found ? ar.info.label || (body ? 'Step back so your whole body is in view' : 'Looking for a face…')
+    : hold > 0 ? `Hold still… ${Math.round(hold * 100)}%`
+    : nextView ? `${ar.info.label} · next: ${VIEW_GUIDE[nextView].title}` : `${ar.info.label} · all angles captured`;
 
   return <div className="grid gap-4">
     <ul className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{plan.views.map((v, i) => { const done = has(v); const on = v === active; return <li key={v} className="shrink-0"><button type="button" disabled={disabled || busy} onClick={() => setActive(v)} className={cn('press relative flex h-[92px] w-[76px] flex-col items-center justify-end overflow-hidden rounded-[18px] pb-2 text-[11px] font-extrabold transition-shadow', on ? 'ring-[2.5px] ring-ink ring-offset-2' : '', done ? 'bg-ink text-white' : 'sunk text-ink/55')}>
@@ -120,11 +138,12 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
       <div ref={stageRef} className={cn('relative w-full', body ? 'aspect-[3/4]' : 'aspect-[4/5] sm:aspect-[4/3]')}>
         {cam === 'on' || cam === 'starting' ? <>
           <video ref={videoRef} playsInline muted autoPlay className={cn('absolute inset-0 size-full object-cover', facing === 'user' && '-scale-x-100')}/>
-          <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          {!scan && <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className={cn('border-[3px] border-dashed transition-colors', body ? 'h-[86%] w-[46%] rounded-[40%]' : 'h-[70%] w-[52%] rounded-[50%]', good ? 'border-[#2EE584]' : 'border-white/70')} style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,.35)' }}/>
-          </div>
-          {walking && <TriangleOverlay covered={covered} current={sectorOf(walk.yaw)} shots={photos.length} width={box.w} height={box.h}/>}
-          {walking && <p className="absolute inset-x-4 bottom-3 mx-auto w-fit rounded-full bg-black/60 px-4 py-2 text-[12.5px] font-extrabold">{walk.state === 'live' ? `Walk slowly around the subject \u00b7 ${Math.round(walk.yaw)}\u00b0 \u00b7 ${plan.views.filter(has).length}/${plan.views.length} angles` : 'Manual mode'}</p>}
+          </div>}
+          {scan && ar.status === 'ready' && <ArOverlay frame={ar.frame} mirror={facing === 'user'} width={box.w} height={box.h}/>}
+          {scan && <AngleDial views={plan.views} has={has} yaw={ar.info.found ? ar.info.yaw : null} active={nextView ?? active} className="absolute bottom-14 right-3"/>}
+          {scan && <p role="status" className="absolute inset-x-4 bottom-3 mx-auto w-fit max-w-[92%] truncate rounded-full bg-black/60 px-4 py-2 text-[12.5px] font-extrabold">{scanLine}{!body && ar.info.found && ar.info.coverage > 0 ? ` · mesh ${Math.round(ar.info.coverage * 100)}%` : ''}</p>}
           {flash && <div className="absolute inset-0 bg-white/80"/>}
           {hint && <p className={cn('absolute inset-x-4 top-4 mx-auto w-fit rounded-full px-4 py-2 text-[13px] font-extrabold backdrop-blur', good ? 'bg-[#12A150]/90' : 'bg-black/60')}>{hint}</p>}
         </> : <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
@@ -136,7 +155,7 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
         </div>}
       </div>
       <div className="flex items-center justify-between gap-3 bg-black/40 px-4 py-3">
-        <div className="min-w-0"><p className="truncate text-[14.5px] font-extrabold">{guide.title}</p><p className="truncate text-[12px] font-semibold text-white/55">{guide.tip}</p></div>
+        <div className="min-w-0"><p className="truncate text-[14.5px] font-extrabold">{scan && cam === 'on' ? `Walk slowly around · ${doneCount}/${plan.views.length} angles` : guide.title}</p><p className="truncate text-[12px] font-semibold text-white/55">{scan && cam === 'on' ? (body ? 'Turn, or walk around them, with the whole body in frame.' : 'Keep the face in view. Each side is shot on its own when you hold it.') : guide.tip}</p></div>
         {cam === 'on' && <button type="button" onClick={stop} aria-label="Close camera" className="press flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10"><X size={18}/></button>}
       </div>
     </div>
@@ -146,15 +165,15 @@ export function PeopleCapture({ draftId, mode, photos, onPhotos, disabled, phone
     <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:flex-wrap">
       {cam === 'on' ? <>
         <button type="button" disabled={busy || disabled} onClick={() => void shoot()} className="btn press min-h-[56px] px-8 text-[16px] sm:flex-1">{busy ? <RefreshCw size={18} className="animate-spin"/> : <Camera size={19}/>}{busy ? 'Checking photo…' : has(active) ? 'Retake' : 'Take photo'}</button>
-        <button type="button" disabled={busy || disabled} onClick={() => { if (walking) { setWalking(false); walk.stop(); } else void beginWalk(); }} className={cn('press min-h-[56px] rounded-full px-5 text-[14.5px] font-extrabold', walking ? 'bg-[#12A150] text-white' : 'btn-ghost')}><Footprints size={18} className="mr-1.5 inline"/>{walking ? 'Triangles on' : 'Triangle scan'}</button>
+        <button type="button" disabled={busy || disabled} aria-pressed={scan} onClick={() => setScan(s => !s)} className={cn('press min-h-[56px] rounded-full px-5 text-[14.5px] font-extrabold', scan ? 'bg-[#12A150] text-white' : 'btn-ghost')}><Triangle size={17} className="mr-1.5 inline"/>{scan ? 'Triangles on' : 'Triangle scan'}</button>
         <button type="button" disabled={busy} onClick={() => { const f = facing === 'user' ? 'environment' : 'user'; setFacing(f); void start(f); }} aria-label="Switch camera" className="btn-ghost press min-h-[56px] px-4"><SwitchCamera size={19}/></button>
-      </> : <button type="button" disabled={busy || disabled || cam === 'starting'} onClick={() => { const f = body ? 'environment' : 'user'; setFacing(f); void start(f); }} className="btn press col-span-2 min-h-[56px] px-8 text-[16px] sm:flex-1"><Camera size={19}/>{cam === 'starting' ? 'Opening camera…' : 'Open camera'}</button>}
+      </> : <button type="button" disabled={busy || disabled || cam === 'starting'} onClick={() => { const f = body ? 'environment' : 'user'; setFacing(f); void start(f); }} className="btn press col-span-2 min-h-[56px] px-8 text-[16px] sm:flex-1"><Triangle size={18}/>{cam === 'starting' ? 'Opening camera…' : 'Start triangle scan'}</button>}
       {cam !== 'on' && IS_PHONE && <button type="button" disabled={busy || disabled} onClick={() => nativeRef.current?.click()} className="btn-ghost press col-span-2 min-h-[52px] px-5 text-[14.5px] sm:col-span-1"><Smartphone size={17}/>Use phone camera app</button>}
-      <button type="button" disabled={busy || disabled} onClick={() => fileRef.current?.click()} className="btn-ghost press col-span-2 min-h-[52px] px-5 text-[14.5px] sm:col-span-1"><ImagePlus size={17}/>{busy && cam !== 'on' ? 'Checking photo…' : 'Upload a photo'}</button>
+      <button type="button" disabled={busy || disabled} onClick={() => fileRef.current?.click()} className="btn-ghost press col-span-2 min-h-[52px] px-5 text-[14.5px] sm:col-span-1"><ImagePlus size={17}/>{busy && cam !== 'on' ? 'Checking photo…' : plan.views.length === 1 ? 'Upload one photo' : 'Upload a photo'}</button>
       {has(active) && <button type="button" disabled={busy || disabled} onClick={() => void remove(active)} className="btn-ghost press col-span-2 min-h-[52px] px-4 text-[14px] !text-down sm:col-span-1"><Trash2 size={15}/>Remove</button>}
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { void pick(e.target.files?.[0]); e.target.value = ''; }}/>
       <input ref={nativeRef} type="file" accept="image/*" capture={body ? 'environment' : 'user'} className="hidden" onChange={e => { void pick(e.target.files?.[0]); e.target.value = ''; }}/>
     </div>
-    <p className="text-[12.5px] font-semibold leading-5 text-ink/45">Photos are private to you, stripped of location data and checked for light, focus and one clothed adult. They’re deleted once you approve your 3D double. A photo is never treated as proof it’s you.</p>
+    <p className="text-[12.5px] font-semibold leading-5 text-ink/45">The scanner runs on your device: the camera picture is never sent anywhere until a photo is shot. Photos are private to you, stripped of location data and checked for light, focus and one clothed adult. They’re deleted once you approve your 3D double. A photo is never treated as proof it’s you.</p>
   </div>;
 }

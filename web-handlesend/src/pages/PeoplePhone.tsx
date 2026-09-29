@@ -22,7 +22,7 @@ export default function PeoplePhone() {
 
   if (q.isPending) return <div className="page max-w-xl py-10"><Loading label="Connecting to your computer…"/></div>;
   if (q.isError || !q.data) return <div className="page max-w-xl py-10">
-    <div className="smoke relative overflow-hidden rounded-[32px] p-7 text-white"><Lock size={26}/><h1 className="display mt-4 text-[34px] leading-none">Link closed</h1><p className="mt-3 text-[15px] font-semibold leading-6 text-white/70">{peopleError(q.error)}</p><Link to="/People/start" className="press mt-6 inline-flex min-h-12 items-center rounded-full bg-white px-6 text-[15px] font-extrabold text-ink">Sign in on this phone instead</Link></div>
+    <div className="raised relative overflow-hidden rounded-[32px] p-7"><Lock size={26}/><h1 className="display mt-4 text-[34px] leading-none">Link closed</h1><p className="mt-3 text-[15px] font-semibold leading-6 text-ink/60">{peopleError(q.error)}</p><Link to="/People/start" className="press mt-6 inline-flex min-h-12 items-center rounded-full bg-ink px-6 text-[15px] font-extrabold text-white">Sign in on this phone instead</Link></div>
   </div>;
 
   const s = q.data; const plan = CAPTURE_PLAN[s.mode]; const done = plan.required.every(v => s.items.some(p => p.view === v));

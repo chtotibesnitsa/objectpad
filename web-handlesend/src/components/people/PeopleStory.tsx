@@ -105,7 +105,7 @@ export const PeopleStory = memo(function PeopleStory({ name, ticker }: { name: s
         const yaw = reducedMotion ? 0 : captureYaw(k); const p = bust; const scale = h * 0.82 / (p.maxY - p.minY); const yc = (p.maxY + p.minY) / 2 - 0.02;
         const { X, Y, P } = project(p, yaw, w / 2, h * 0.5, yc, scale, 0, 0, 0);
         const scanY = h * (0.12 + ((time * 0.35) % 1) * 0.76);
-        for (let j = 0; j < p.n; j++) { const i = order[j]; const near = Math.abs(Y[i] - scanY) < 5 * dpr; ctx.globalAlpha = near ? 1 : 0.92; ctx.fillStyle = near ? '#7CFFB2' : p.col[i]; const d = dot * P[i] * (near ? 1.5 : 1); ctx.fillRect(X[i] - d / 2, Y[i] - d / 2, d, d); }
+        for (let j = 0; j < p.n; j++) { const i = order[j]; const near = Math.abs(Y[i] - scanY) < 5 * dpr; ctx.globalAlpha = near ? 1 : 0.92; ctx.fillStyle = near ? '#12A150' : p.col[i]; const d = dot * P[i] * (near ? 1.5 : 1); ctx.fillRect(X[i] - d / 2, Y[i] - d / 2, d, d); }
         ctx.globalAlpha = 0.35; ctx.fillStyle = '#2EE584'; ctx.fillRect(w * 0.12, scanY, w * 0.76, Math.max(1, dpr)); ctx.globalAlpha = 1;
         if (angle.current) angle.current.textContent = `${yaw < 0 ? '−' : yaw > 0 ? '+' : '±'}${String(Math.round(Math.abs(yaw) * 57.3)).padStart(2, '0')}°`;
       } else if (s === 1) {
@@ -119,7 +119,7 @@ export const PeopleStory = memo(function PeopleStory({ name, ticker }: { name: s
           const i = order[j]; const y = p.y[i];
           if (y >= level + 0.16) { built++; ctx.globalAlpha = 0.95; ctx.fillStyle = p.col[i]; const d = dot * P[i]; ctx.fillRect(X[i] - d / 2, Y[i] - d / 2, d, d); }
           else if (y >= level) { built++; const q = 5 * dpr; ctx.globalAlpha = 0.9; ctx.fillStyle = p.col[i]; ctx.fillRect(Math.round(X[i] / q) * q, Math.round(Y[i] / q) * q, q - 1, q - 1); }
-          else if (y >= level - 0.16) { ctx.globalAlpha = 0.55 + p.seed[i] * 0.45; ctx.fillStyle = p.seed[i] > 0.86 ? '#FFFFFF' : '#2EE584'; ctx.fillText(GLYPHS[Math.floor((p.seed[i] * 97 + time * 9) % GLYPHS.length)], X[i] + Math.sin(time * 14 + i) * 1.5 * dpr, Y[i]); }
+          else if (y >= level - 0.16) { ctx.globalAlpha = 0.55 + p.seed[i] * 0.45; ctx.fillStyle = p.seed[i] > 0.86 ? '#0C0D10' : '#12A150'; ctx.fillText(GLYPHS[Math.floor((p.seed[i] * 97 + time * 9) % GLYPHS.length)], X[i] + Math.sin(time * 14 + i) * 1.5 * dpr, Y[i]); }
           else if (p.seed[i] > 0.55) { const m = 0.12 + 0.08 * Math.sin(time + p.seed[i] * 9); ctx.globalAlpha = 0.14; ctx.fillStyle = '#9AA3AE'; const sx = w / 2 + (p.sx[i] + (p.x[i] - p.sx[i]) * m) * scale; const sy = h * 0.5 - (p.sy[i] + (p.y[i] - p.sy[i]) * m - yc) * scale; ctx.fillRect(sx, sy, dpr, dpr); }
         }
         ctx.globalAlpha = 0.8; ctx.fillStyle = '#2EE584'; const ly = h * 0.5 - (level - yc) * scale; ctx.fillRect(w * 0.18, ly, w * 0.64, Math.max(1, dpr * 1.5)); ctx.globalAlpha = 1;
@@ -189,37 +189,37 @@ export const PeopleStory = memo(function PeopleStory({ name, ticker }: { name: s
       </ol>
     </div>
 
-    <div ref={stage} className="order-1 relative mx-auto aspect-[4/5] w-full max-w-[560px] overflow-hidden rounded-[32px] bg-[#0B0C0F] shadow-[0_0_0_1px_rgba(255,255,255,.07),0_40px_80px_-40px_rgba(46,229,132,.35)] lg:order-2 lg:max-w-none lg:aspect-[5/4]">
-      <div aria-hidden className="absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_45%,#343942,transparent_75%)]"/>
-      <div aria-hidden className="grid-smoke absolute inset-0 opacity-40"/>
+    <div ref={stage} className="order-1 relative mx-auto aspect-[4/5] w-full max-w-[560px] overflow-hidden rounded-[32px] bg-[#F1F3F6] shadow-[0_0_0_1px_rgba(12,13,16,.08),0_40px_80px_-40px_rgba(12,13,16,.28)] lg:order-2 lg:max-w-none lg:aspect-[5/4]">
+      <div aria-hidden className="absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_45%,#FFFFFF,transparent_78%)]"/>
+      <div aria-hidden className="dot-grid absolute inset-0 opacity-70"/>
       <canvas ref={canvas} aria-hidden className="absolute inset-0 size-full"/>
       <div ref={flash} aria-hidden className="pointer-events-none absolute inset-0 bg-white opacity-0"/>
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(255,255,255,.025)_0_1px,transparent_1px_3px)]"/>
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(12,13,16,.025)_0_1px,transparent_1px_3px)]"/>
 
-      <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 font-mono text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-white/70 backdrop-blur"><span className="size-1.5 animate-pulse rounded-full bg-[#2EE584]"/>Step 0{step + 1} · {cur.title}</div>
-      <p className="absolute bottom-3 right-4 font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] text-white/30">Fictional sample scan · illustration</p>
+      <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-white/85 px-3 py-1.5 font-mono text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-ink/70 shadow-[0_0_0_1px_rgba(12,13,16,.08)] backdrop-blur"><span className="size-1.5 animate-pulse rounded-full bg-[#2EE584]"/>Step 0{step + 1} · {cur.title}</div>
+      <p className="absolute bottom-3 right-4 font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] text-ink/40">Fictional sample scan · illustration</p>
 
       {step === 0 && <>
         <div aria-hidden className="pointer-events-none absolute inset-[12%_18%]">{['left-0 top-0 border-l-2 border-t-2 rounded-tl-2xl', 'right-0 top-0 border-r-2 border-t-2 rounded-tr-2xl', 'left-0 bottom-0 border-l-2 border-b-2 rounded-bl-2xl', 'right-0 bottom-0 border-r-2 border-b-2 rounded-br-2xl'].map(c => <span key={c} className={cn('absolute size-8 border-[#2EE584]', c)}/>)}</div>
-        <div className="absolute right-4 top-4 rounded-full bg-black/50 px-3 py-1.5 font-mono text-[11px] font-extrabold text-[#2EE584] backdrop-blur">YAW <span ref={angle}>±00°</span></div>
-        <div className="absolute inset-x-0 bottom-9 flex justify-center gap-2">{['Left', 'Front', 'Right'].map((l, i) => <div key={l} className={cn('relative h-[74px] w-[58px] overflow-hidden rounded-xl bg-white/[0.06] shadow-[0_0_0_1.5px_rgba(255,255,255,.12)] transition-all duration-300 sm:h-[92px] sm:w-[72px]', shots > i && 'shadow-[0_0_0_2px_#2EE584] [animation:slot-pop_.4s_both]')}>
+        <div className="absolute right-4 top-4 rounded-full bg-white/85 px-3 py-1.5 font-mono text-[11px] font-extrabold text-[#12A150] shadow-[0_0_0_1px_rgba(12,13,16,.08)] backdrop-blur">YAW <span ref={angle}>±00°</span></div>
+        <div className="absolute inset-x-0 bottom-9 flex justify-center gap-2">{['Left', 'Front', 'Right'].map((l, i) => <div key={l} className={cn('relative h-[74px] w-[58px] overflow-hidden rounded-xl bg-white shadow-[0_0_0_1.5px_rgba(12,13,16,.12)] transition-all duration-300 sm:h-[92px] sm:w-[72px]', shots > i && 'shadow-[0_0_0_2px_#2EE584] [animation:slot-pop_.4s_both]')}>
           <canvas ref={el => { thumbs.current[i] = el; }} className={cn('size-full object-cover transition-opacity', shots > i ? 'opacity-100' : 'opacity-0')}/>
           <span className="absolute inset-x-0 bottom-0 bg-black/60 py-0.5 text-center font-mono text-[9px] font-extrabold uppercase text-white/80">{shots > i ? '✓ ' : ''}{l}</span>
         </div>)}</div>
       </>}
 
-      {step === 1 && <div className="absolute right-4 top-4 rounded-2xl bg-black/55 px-3.5 py-2.5 text-right backdrop-blur"><p className="font-mono text-[9.5px] font-extrabold uppercase tracking-[0.14em] text-white/50">Generating body</p><p className="display text-[30px] leading-none text-[#2EE584] tnum"><span ref={pct}>00%</span></p></div>}
+      {step === 1 && <div className="absolute right-4 top-4 rounded-2xl bg-white/90 px-3.5 py-2.5 text-right shadow-[0_0_0_1px_rgba(12,13,16,.08)] backdrop-blur"><p className="font-mono text-[9.5px] font-extrabold uppercase tracking-[0.14em] text-ink/50">Generating body</p><p className="display text-[30px] leading-none text-[#12A150] tnum"><span ref={pct}>00%</span></p></div>}
 
-      {step === 2 && <div ref={chartCard} className="absolute right-[4%] top-[18%] w-[46%] max-w-[250px] rounded-[20px] bg-white/[0.08] p-3.5 text-white opacity-0 shadow-[0_0_0_1px_rgba(255,255,255,.14),0_30px_60px_-20px_rgba(0,0,0,.8)] backdrop-blur-md will-change-transform">
-        <p className="truncate text-[12px] font-bold text-white/60">{name || 'Your name'}</p>
+      {step === 2 && <div ref={chartCard} className="absolute right-[4%] top-[18%] w-[46%] max-w-[250px] rounded-[20px] bg-white p-3.5 text-ink opacity-0 shadow-[0_0_0_1px_rgba(12,13,16,.08),0_30px_60px_-24px_rgba(12,13,16,.35)] will-change-transform">
+        <p className="truncate text-[12px] font-bold text-ink/55">{name || 'Your name'}</p>
         <p className="display text-[26px] leading-none">${ticker}</p>
         <svg viewBox="0 0 200 80" className="mt-2 w-full" aria-hidden><defs><linearGradient id="story-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#2EE584" stopOpacity=".45"/><stop offset="1" stopColor="#2EE584" stopOpacity="0"/></linearGradient></defs><path d="M0 70 L20 64 L36 66 L52 52 L70 56 L88 40 L104 44 L122 28 L140 34 L158 18 L178 22 L200 8 L200 80 L0 80Z" fill="url(#story-fill)"/><path d="M0 70 L20 64 L36 66 L52 52 L70 56 L88 40 L104 44 L122 28 L140 34 L158 18 L178 22 L200 8" fill="none" stroke="#2EE584" strokeWidth="3" strokeLinejoin="round"/></svg>
-        {hit && <p className="mt-1.5 font-mono text-[9.5px] font-extrabold uppercase tracking-[0.14em] text-[#2EE584] [animation:stamp_.5s_both]">Fused · approved double</p>}
+        {hit && <p className="mt-1.5 font-mono text-[9.5px] font-extrabold uppercase tracking-[0.14em] text-[#12A150] [animation:stamp_.5s_both]">Fused · approved double</p>}
       </div>}
 
       {step === 3 && <div className="absolute inset-x-0 bottom-9 flex flex-col items-center px-4">
-        <p className="display text-[clamp(30px,6vw,46px)] leading-none text-white [animation:fuse-born_.6s_both]">${ticker}</p>
-        <p className="mt-1 max-w-[80%] truncate text-[13px] font-bold text-white/55">{name || 'Your name'} · your own coin</p>
+        <p className="display text-[clamp(30px,6vw,46px)] leading-none text-ink [animation:fuse-born_.6s_both]">${ticker}</p>
+        <p className="mt-1 max-w-[80%] truncate text-[13px] font-bold text-ink/55">{name || 'Your name'} · your own coin</p>
         <svg key={ticker} viewBox="0 0 300 50" className="mt-3 w-[72%] max-w-[320px]" aria-hidden><path d="M0 44 L25 40 L45 42 L70 30 L95 34 L120 22 L150 26 L175 14 L205 18 L230 8 L260 12 L300 2" fill="none" stroke="#FFD84A" strokeWidth="3" strokeLinejoin="round" pathLength={1} strokeDasharray="1" strokeDashoffset="1" style={{ animation: 'chart-draw 1.6s .3s cubic-bezier(.2,.8,.2,1) forwards' }}/></svg>
       </div>}
     </div>
