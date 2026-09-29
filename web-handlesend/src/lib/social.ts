@@ -98,7 +98,18 @@ export function useChat() {
   }, [session]);
   useEffect(() => { cursor.current = 0; setMessages([]); void poll(); const id = setInterval(() => { if (document.visibilityState === 'visible') void poll(); }, 2500); return () => clearInterval(id); }, [poll, session.authenticated]);
   const send = useMutation({ mutationFn: async (text: string) => api<{ seq: number }>('/social/chat', { token: await session.token(), method: 'POST', body: { text } }), onSuccess: () => void poll() });
-  return { messages, rains, loaded, failed, send, poll };
+  const remove = useCallback((id: string) => setMessages(prev => prev.filter(m => m.id !== id)), []);
+  return { messages, rains, loaded, failed, send, poll, remove };
+}
+
+export interface HiddenMessage { seq: number; id: string; kind: string; text: string; createdAt: number; user: SocialUser | null; }
+
+/** Admin-only moderation: hide a chat message, list hidden ones and restore them. The server re-checks the admin allowlist on every call. */
+export function useChatModeration(enabled: boolean) {
+  const session = useSession(); const qc = useQueryClient();
+  const hidden = useQuery({ queryKey: ['objectpad', 'social', 'hidden'], enabled, queryFn: async () => (await api<{ items: HiddenMessage[] }>('/social/ops/chat/hidden', { token: await session.token() })).items, refetchInterval: 8_000 });
+  const act = useMutation({ mutationFn: async (v: { id: string; action: 'hide' | 'restore' }) => api(`/social/ops/chat/${v.id}/${v.action}`, { token: await session.token(), method: 'POST', body: {} }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['objectpad', 'social', 'hidden'] }) });
+  return { hidden, act };
 }
 
 /** Everything happening on ObjectPad, newest first. */

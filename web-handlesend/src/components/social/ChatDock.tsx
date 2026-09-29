@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, ArrowDownRight, ArrowUpRight, ChevronsRight, CloudRain, Coins, Flame, Gift, LogIn, MessageCircle, Rocket, Send, Smile, Sparkles, X } from 'lucide-react';
-import { useActivity, useChat, useSocial, useUserSearch, mentionParts, amountLabel, socialError, type ActivityItem, type ChatMessage, type Rain } from '@/lib/social';
+import { Trash2, Undo2, ShieldAlert, Activity, ArrowDownRight, ArrowUpRight, ChevronsRight, CloudRain, Coins, Flame, Gift, LogIn, MessageCircle, Rocket, Send, Smile, Sparkles, X } from 'lucide-react';
+import { useChatModeration, useActivity, useChat, useSocial, useUserSearch, mentionParts, amountLabel, socialError, type ActivityItem, type ChatMessage, type Rain } from '@/lib/social';
 import { useSession } from '@/lib/session';
 import { api } from '@/lib/api';
 import { timeAgo, shortAddress } from '@/lib/format';
@@ -17,7 +17,7 @@ function Body({ text }: { text: string }) {
   return <>{mentionParts(text).map((p, i) => p.mention ? <Link key={i} to={`/u/${p.text.slice(1)}`} className="rounded-md bg-[#2F7BF2]/10 px-1 font-extrabold text-[#2F7BF2] hover:bg-[#2F7BF2]/20">{p.text}</Link> : <span key={i}>{p.text}</span>)}</>;
 }
 
-const Message = memo(function Message({ m, grouped, onTip, me }: { m: ChatMessage; grouped: boolean; onTip: (u: string) => void; me: string | null }) {
+const Message = memo(function Message({ m, grouped, onTip, me, onDelete }: { m: ChatMessage; grouped: boolean; onTip: (u: string) => void; me: string | null; onDelete?: (id: string) => void }) {
   if (m.kind === 'system') return <div className="chat-in mx-2 my-1.5 flex items-center gap-2 rounded-2xl bg-[#12A150]/10 px-3 py-2 text-[12.5px] font-bold text-[#0B7A3B]"><Sparkles size={14} className="shrink-0"/><span>{m.text}</span></div>;
   if (m.kind === 'tip' && m.tip) return <div className="chat-in mx-2 my-1.5 overflow-hidden rounded-2xl bg-gradient-to-br from-[#FCE7A2] via-[#F2C94C] to-[#D9A521] p-[1.5px] shadow-[0_10px_24px_-14px_rgba(217,165,33,.8)]"><div className="flex items-center gap-2.5 rounded-[15px] bg-white/85 px-3 py-2.5"><span className="tip-pop flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#FCE7A2] to-[#D9A521] text-[#3A2A05]"><Gift size={16}/></span><p className="min-w-0 flex-1 text-[12.5px] font-semibold leading-snug text-ink/80"><UserLink user={m.user}/> tipped <UserLink user={m.tip.to}/> <span className="font-mono font-black text-[#3A2A05]">{amountLabel(m.tip.amount, m.tip.decimals, m.tip.symbol)}</span>{m.text && <span className="block truncate text-ink/60">“{m.text}”</span>}</p></div></div>;
   const mine = me && m.user?.username === me; const tagged = me && m.text.toLowerCase().includes(`@${me.toLowerCase()}`);
@@ -27,7 +27,8 @@ const Message = memo(function Message({ m, grouped, onTip, me }: { m: ChatMessag
       {!grouped && <div className="mb-0.5 flex items-baseline gap-1.5"><UserLink user={m.user} className={cn('text-[13px]', mine ? 'text-[#12A150]' : 'text-ink')}/>{m.user?.x && <span className="truncate font-mono text-[10.5px] font-bold text-ink/35">𝕏 {m.user.x}</span>}<span className="ml-auto shrink-0 font-mono text-[10.5px] font-bold text-ink/35">{timeAgo(m.createdAt)}</span></div>}
       <p className="whitespace-pre-wrap break-words text-[13.5px] font-medium leading-[1.45] text-ink/85"><Body text={m.text}/></p>
     </div>
-    {m.user && !mine && <button onClick={() => onTip(m.user!.username)} className="press absolute right-1.5 top-1 hidden items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] font-extrabold text-[#3A2A05] shadow-[0_0_0_1px_rgba(12,13,16,.1),0_6px_14px_-8px_rgba(12,13,16,.4)] group-hover:flex" aria-label={`Tip @${m.user.username}`}><Gift size={12}/>Tip</button>}
+    {onDelete && <button onClick={() => onDelete(m.id)} className="press absolute right-1.5 top-1 z-[2] flex min-h-8 items-center gap-1 rounded-full bg-[#E5484D] px-2.5 py-1 text-[11px] font-extrabold text-white shadow-[0_6px_14px_-8px_rgba(229,72,77,.8)] sm:hidden sm:group-hover:flex" aria-label="Delete message (admin)"><Trash2 size={12}/>Delete</button>}
+    {m.user && !mine && !onDelete && <button onClick={() => onTip(m.user!.username)} className="press absolute right-1.5 top-1 hidden items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] font-extrabold text-[#3A2A05] shadow-[0_0_0_1px_rgba(12,13,16,.1),0_6px_14px_-8px_rgba(12,13,16,.4)] group-hover:flex" aria-label={`Tip @${m.user.username}`}><Gift size={12}/>Tip</button>}
   </div>;
 });
 
@@ -119,6 +120,8 @@ export function ChatPanel({ onClose, className }: { onClose?: () => void; classN
   const social = useSocial(); const session = useSession(); const chat = useChat(); const [tab, setTab] = useState<'chat' | 'activity'>('chat');
   const activity = useActivity(tab === 'activity'); const scroller = useRef<HTMLDivElement>(null); const stick = useRef<boolean>(true); const [joining, setJoining] = useState<string | null>(null); const [joinError, setJoinError] = useState<string | null>(null);
   const me = social.me?.username ?? null;
+  const isAdmin = social.me?.operator === true; const mod = useChatModeration(isAdmin); const [showHidden, setShowHidden] = useState<boolean>(false);
+  const removeMsg = useCallback((id: string) => { chat.remove(id); mod.act.mutate({ id, action: 'hide' }); }, [chat, mod.act]);
   useLayoutEffect(() => { const el = scroller.current; if (el && stick.current) el.scrollTop = el.scrollHeight; }, [chat.messages.length, chat.rains.length, tab]);
   const onScroll = () => { const el = scroller.current; if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; };
   const rainById = useMemo(() => new Map(chat.rains.map(r => [r.id, r])), [chat.rains]);
@@ -142,7 +145,8 @@ export function ChatPanel({ onClose, className }: { onClose?: () => void; classN
       {tab === 'chat' ? <>
         {!chat.loaded && <div className="space-y-3 p-3">{[0, 1, 2, 3, 4].map(i => <div key={i} className="flex gap-2.5"><span className="size-8 animate-pulse rounded-full bg-ink/[0.07]"/><span className="flex-1 space-y-1.5"><span className="block h-3 w-24 animate-pulse rounded bg-ink/[0.07]"/><span className="block h-3 w-full animate-pulse rounded bg-ink/[0.05]"/></span></div>)}</div>}
         {chat.loaded && !chat.messages.length && <div className="flex flex-col items-center px-6 py-14 text-center"><span className="float-soft flex size-14 items-center justify-center rounded-[20px] bg-ink text-white"><MessageCircle size={24}/></span><p className="display mt-4 text-[22px]">Be the first to say gm.</p><p className="mt-1.5 text-[13px] font-semibold text-ink/55">Tag people with @, tip them, or make it rain.</p></div>}
-        {chat.messages.map((m, i) => { const prev = chat.messages[i - 1]; const grouped = Boolean(prev && prev.kind === 'text' && m.kind === 'text' && prev.user?.username === m.user?.username && m.createdAt - prev.createdAt < 120_000); const rain = m.kind === 'rain' && m.ref ? rainById.get(m.ref) : undefined; return m.kind === 'rain' ? (rain ? <RainCard key={m.id} rain={rain} onJoin={id => void join(id)} joining={joining === rain.id}/> : null) : <Message key={m.id} m={m} grouped={grouped} onTip={tip} me={me}/>; })}
+        {chat.messages.map((m, i) => { const prev = chat.messages[i - 1]; const grouped = Boolean(prev && prev.kind === 'text' && m.kind === 'text' && prev.user?.username === m.user?.username && m.createdAt - prev.createdAt < 120_000); const rain = m.kind === 'rain' && m.ref ? rainById.get(m.ref) : undefined; return m.kind === 'rain' ? (rain ? <RainCard key={m.id} rain={rain} onJoin={id => void join(id)} joining={joining === rain.id}/> : null) : <Message key={m.id} m={m} grouped={grouped} onTip={tip} me={me} onDelete={isAdmin ? removeMsg : undefined}/>; })}
+        {isAdmin && <div className="mx-2 my-2 rounded-2xl bg-[#E5484D]/[0.06] p-2 shadow-[inset_0_0_0_1px_rgba(229,72,77,.2)]"><button onClick={() => setShowHidden(v => !v)} className="press flex min-h-9 w-full items-center gap-2 text-left text-[12px] font-extrabold text-[#C52F35]"><ShieldAlert size={14}/>Admin: {mod.hidden.data?.length ?? 0} hidden messages<span className="ml-auto">{showHidden ? 'Close' : 'Review'}</span></button>{showHidden && <ul className="mt-1 max-h-64 space-y-1 overflow-y-auto">{(mod.hidden.data ?? []).map(h => <li key={h.id} className="flex items-start gap-2 rounded-xl bg-white/80 p-2"><div className="min-w-0 flex-1"><p className="text-[11.5px] font-extrabold text-ink">@{h.user?.username ?? 'system'} <span className="font-mono font-bold text-ink/40">{timeAgo(h.createdAt)}</span></p><p className="break-words text-[12px] font-medium text-ink/75">{h.text}</p></div><button onClick={() => { mod.act.mutate({ id: h.id, action: 'restore' }); void chat.poll(); }} className="press flex min-h-9 shrink-0 items-center gap-1 rounded-full bg-ink px-2.5 text-[11px] font-extrabold text-white"><Undo2 size={12}/>Restore</button></li>)}{!(mod.hidden.data ?? []).length && <li className="p-2 text-[12px] font-semibold text-ink/50">Nothing hidden.</li>}</ul>}</div>}
         {joinError && <p className="mx-2 my-2 rounded-xl bg-[#E5484D]/10 px-3 py-2 text-[12px] font-bold text-[#C52F35]">{joinError}</p>}
       </> : <>
         {activity.isPending && <p className="p-6 text-center text-[13px] font-bold text-ink/50">Reading the chain…</p>}

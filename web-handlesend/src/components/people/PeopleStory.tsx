@@ -179,12 +179,12 @@ export const PeopleStory = memo(function PeopleStory({ name, ticker }: { name: s
   return <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
     <div className="order-2 lg:order-1">
       <ol className="grid gap-2">
-        {STORY_STEPS.map((st, i) => { const on = i === step; return <li key={st.id}><button type="button" onClick={() => jump(i)} aria-current={on ? 'step' : undefined} className={cn('press group relative w-full overflow-hidden rounded-[22px] p-4 text-left transition-colors', on ? 'bg-white/[0.09]' : 'hover:bg-white/[0.04]')}>
+        {STORY_STEPS.map((st, i) => { const on = i === step; return <li key={st.id}><button type="button" onClick={() => jump(i)} aria-current={on ? 'step' : undefined} className={cn('press group relative w-full overflow-hidden rounded-[22px] p-4 text-left transition-colors', on ? 'raised' : 'hover:bg-ink/[0.04]')}>
           <div className="flex items-center gap-3.5">
-            <span className={cn('flex size-11 shrink-0 items-center justify-center rounded-2xl font-mono text-[13px] font-extrabold transition-colors', on ? 'bg-[#2EE584] text-ink' : 'bg-white/[0.07] text-white/55')}>{on ? <st.icon size={19}/> : `0${i + 1}`}</span>
-            <div className="min-w-0 flex-1"><p className={cn('text-[17px] font-extrabold tracking-[-0.02em]', on ? 'text-white' : 'text-white/55')}>{st.title}</p>{on && <p className="slide-in mt-1 text-[13.5px] font-semibold leading-5 text-white/60">{st.line}</p>}</div>
+            <span className={cn('flex size-11 shrink-0 items-center justify-center rounded-2xl font-mono text-[13px] font-extrabold transition-colors', on ? 'bg-ink text-white' : 'bg-ink/[0.06] text-ink/55')}>{on ? <st.icon size={19}/> : `0${i + 1}`}</span>
+            <div className="min-w-0 flex-1"><p className={cn('text-[17px] font-extrabold tracking-[-0.02em]', on ? 'text-ink' : 'text-ink/55')}>{st.title}</p>{on && <p className="slide-in mt-1 text-[13.5px] font-semibold leading-5 text-ink/60">{st.line}</p>}</div>
           </div>
-          {on && <span className="absolute inset-x-4 bottom-0 h-[2px] overflow-hidden rounded-full bg-white/10"><span ref={bar} className="block h-full origin-left bg-[#2EE584]" style={{ transform: 'scaleX(0)' }}/></span>}
+          {on && <span className="absolute inset-x-4 bottom-0 h-[2px] overflow-hidden rounded-full bg-ink/10"><span ref={bar} className="block h-full origin-left bg-[#12A150]" style={{ transform: 'scaleX(0)' }}/></span>}
         </button></li>; })}
       </ol>
     </div>

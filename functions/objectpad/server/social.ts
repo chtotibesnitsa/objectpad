@@ -227,7 +227,15 @@ export class SocialService {
     for (const name of tagged) { const row = this.store.one<{ owner: string }>('SELECT owner FROM op_social WHERE username_lower=?', name); if (row && row.owner !== owner) this.notify(row.owner, 'mention', owner, `@${username} mentioned you: ${text.slice(0, 140)}`, `/?chat=${seq}`, String(seq)); }
     this.store.metric('chat_message'); return { seq };
   }
-  hide(id: string): void { this.store.run('UPDATE op_chat SET hidden=1 WHERE id=?', id); }
+  hide(id: string): boolean { const row = this.store.one<{ id: string }>('SELECT id FROM op_chat WHERE id=?', id); if (!row) return false; this.store.run('UPDATE op_chat SET hidden=1 WHERE id=?', id); return true; }
+  /** Admin-only: restores a hidden chat message to the public feed. */
+  restore(id: string): boolean { const row = this.store.one<{ id: string }>('SELECT id FROM op_chat WHERE id=?', id); if (!row) return false; this.store.run('UPDATE op_chat SET hidden=0 WHERE id=?', id); return true; }
+  /** Admin-only: recent hidden messages with authors, so a wrong deletion can be reverted. */
+  hiddenMessages(): Record<string, unknown> {
+    const rows = this.store.all<{ seq: number; id: string; owner: string | null; kind: string; text: string; created_at: number }>('SELECT seq,id,owner,kind,text,created_at FROM op_chat WHERE hidden=1 ORDER BY seq DESC LIMIT 200');
+    const users = this.users(rows.map(r => r.owner));
+    return { items: rows.map(r => ({ seq: r.seq, id: r.id, kind: r.kind, text: r.text, createdAt: r.created_at, user: r.owner ? users.get(r.owner) ?? null : null })) };
+  }
 
   // ─── Deposits ─────────────────────────────────────────────────────────────────
   /**

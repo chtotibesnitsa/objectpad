@@ -728,6 +728,7 @@ export class ObjectPad extends DurableObject<Env> {
     const owner = await this.identity(request); if (owner.startsWith('guest:')) throw new ApiError('SIGN_IN_REQUIRED', 401);
     if (method !== 'GET') { this.assertOrigin(request); this.store.rate(`mutation:${owner}`, 120, 60_000); }
     if (method === 'GET' && path === '/social/me') { await this.ensureProfile(owner); return json(await this.social.me(owner, this.isOperator(owner))); }
+    if (method === 'GET' && path === '/social/ops/chat/hidden') { this.operator(owner); return json(this.social.hiddenMessages()); }
     if (method === 'GET' && path === '/social/notifications') return json(this.social.notifications(owner));
     if (method === 'GET' && path === '/social/tips') return json(this.social.tips(owner));
     if (method === 'PUT' && path === '/social/avatar') { const type = request.headers.get('content-type') ?? ''; if (!['image/png', 'image/jpeg'].includes(type)) throw new ApiError('UNSUPPORTED_IMAGE', 415); this.store.rate(`avatar:${owner}`, 12, 86_400_000); return json(await this.social.setAvatar(owner, await boundedBody(request, 4_000_000))); }
@@ -736,6 +737,14 @@ export class ObjectPad extends DurableObject<Env> {
     const data = await body(request);
     if (path === '/social/profile') { await this.ensureProfile(owner); return json(this.social.setProfile(owner, data)); }
     if (path === '/social/chat') return json(this.social.sendChat(owner, string(data.text, 800)));
+    const chatMod = path.match(/^\/social\/ops\/chat\/([a-f0-9-]{36})\/(hide|restore)$/);
+    if (chatMod) {
+      this.operator(owner);
+      const ok = chatMod[2] === 'hide' ? this.social.hide(chatMod[1]) : this.social.restore(chatMod[1]);
+      if (!ok) throw new ApiError('NOT_FOUND', 404);
+      await this.store.audit(await sha256(owner), chatMod[1], `chat_${chatMod[2]}`, 'admin chat moderation');
+      return json({ ok: true, id: chatMod[1], hidden: chatMod[2] === 'hide' });
+    }
     if (path === '/social/notifications/read') { this.social.markRead(owner, typeof data.id === 'string' ? data.id.slice(0, 36) : undefined); return json({ ok: true }); }
     if (path === '/social/tips') { this.store.rate(`tip:${owner}`, 40, 3_600_000); return json(await this.social.createTip(owner, { to: string(data.to, 21), hash: string(data.hash, 66), note: typeof data.note === 'string' ? data.note.slice(0, 200) : '', public: data.public === true })); }
     const tipAct = path.match(/^\/social\/tips\/([a-f0-9-]{36})\/(accept|decline|cancel)$/);
