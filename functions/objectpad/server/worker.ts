@@ -730,6 +730,11 @@ export class ObjectPad extends DurableObject<Env> {
     if (method !== 'GET') { this.assertOrigin(request); this.store.rate(`mutation:${owner}`, 120, 60_000); }
     if (method === 'GET' && path === '/social/me') { await this.ensureProfile(owner); return json(await this.social.me(owner, this.isOperator(owner))); }
     if (method === 'GET' && path === '/social/ops/chat/hidden') { this.operator(owner); return json(this.social.hiddenMessages()); }
+    if (method === 'GET' && path === '/social/ops/coins/hidden') {
+      this.operator(owner);
+      const rows = this.store.all<{ id: string; name: string | null; symbol: string | null }>("SELECT id, json_extract(commitment,'$.publicName') AS name, json_extract(payload,'$.symbol') AS symbol FROM op_records WHERE moderation_state='hidden' ORDER BY rowid DESC LIMIT 100");
+      return json({ items: rows.map(r => ({ id: r.id, name: r.name ?? 'Untitled', symbol: r.symbol ?? '' })) });
+    }
     if (method === 'GET' && path === '/social/notifications') return json(this.social.notifications(owner));
     if (method === 'GET' && path === '/social/tips') return json(this.social.tips(owner));
     if (method === 'PUT' && path === '/social/avatar') { const type = request.headers.get('content-type') ?? ''; if (!['image/png', 'image/jpeg'].includes(type)) throw new ApiError('UNSUPPORTED_IMAGE', 415); this.store.rate(`avatar:${owner}`, 12, 86_400_000); return json(await this.social.setAvatar(owner, await boundedBody(request, 4_000_000))); }
@@ -742,6 +747,18 @@ export class ObjectPad extends DurableObject<Env> {
     if (cuText) return json(this.social.postCoinText(cuText[1], owner, this.isOperator(owner), string(data.text, 600)));
     const cuMod = path.match(/^\/social\/ops\/update\/([a-f0-9-]{36})\/(hide|restore)$/);
     if (cuMod) { this.operator(owner); if (!this.social.setUpdateHidden(cuMod[1], cuMod[2] === 'hide')) throw new ApiError('NOT_FOUND', 404); await this.store.audit(await sha256(owner), cuMod[1], `update_${cuMod[2]}`, 'admin update moderation'); return json({ ok: true }); }
+    const coinMod = path.match(/^\/social\/ops\/coin\/([a-f0-9]{64})\/(hide|restore)$/);
+    if (coinMod) {
+      this.operator(owner);
+      const { row } = this.records.load(coinMod[1]);
+      if (coinMod[2] === 'hide') {
+        this.store.atomic(() => { this.store.run("UPDATE op_records SET state='hidden',moderation_state='hidden' WHERE id=?", row.id); this.store.run('UPDATE op_artifacts SET public=0 WHERE session_id=?', row.session_id); });
+      } else {
+        this.store.atomic(() => { this.store.run("UPDATE op_records SET moderation_state='clear' WHERE id=?", row.id); this.records.refreshPublication(row.id); this.store.run("UPDATE op_artifacts SET public=1 WHERE session_id=? AND kind='metadata'", row.session_id); });
+      }
+      await this.store.audit(await sha256(owner), row.id, `coin_${coinMod[2]}`, 'admin coin moderation');
+      return json({ ok: true, id: row.id, hidden: coinMod[2] === 'hide' });
+    }
     if (path === '/social/profile') { await this.ensureProfile(owner); return json(this.social.setProfile(owner, data)); }
     if (path === '/social/chat') return json(this.social.sendChat(owner, string(data.text, 800)));
     const chatMod = path.match(/^\/social\/ops\/chat\/([a-f0-9-]{36})\/(hide|restore)$/);

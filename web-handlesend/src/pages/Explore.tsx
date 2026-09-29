@@ -19,6 +19,7 @@ import { PairBadge, PairLogo } from '@/components/PairBadge';
 import { usePairs } from '@/lib/pairs';
 import { isNsfwCoin, isNsfwText } from '@/shared/nsfw';
 import { AdultGate, AdultTabButton } from '@/components/AdultGate';
+import { useCoinModeration, useSocial } from '@/lib/social';
 
 const ExhibitViewer = lazy(() => import('@/components/ExhibitViewer'));
 
@@ -50,6 +51,7 @@ export const ObjectCard = memo(function ObjectCard({ object, curve, ethUsd: ethU
 const SORTS: { value: SortKey; label: string }[] = [{ value: 'trending', label: 'Trending' }, { value: 'newest', label: 'Newest' }, { value: 'marketcap', label: 'Market cap' }, { value: 'volume', label: 'Reserve' }];
 
 export default function Explore() {
+  const social = useSocial(); const isAdmin = social.me?.operator === true; const coinMod = useCoinModeration(isAdmin);
   const [params, setParams] = useSearchParams(); const [kind, setKind] = useState<string>('all'); const [search, setSearch] = useState<string>(params.get('q') ?? ''); const deferred = useDeferredValue(search);
   const tab = params.get('tab') === 'market' ? 'market' : 'objects'; const adult = params.get('view') === 'nsfw'; const sort = (params.get('sort') as SortKey | null) ?? 'trending';
   const query = useArchive({ q: deferred, sort }); const market = useMarket(); const ethUsd = market.data?.ethUsd ?? null;
@@ -71,6 +73,10 @@ export default function Explore() {
     <div className="flex flex-wrap items-end justify-between gap-5"><div className="flex items-end gap-4"><GlassIcon name={tab === 'market' ? 'chart' : 'mesh'} size={84} float className="hidden sm:block"/><div><p className="lab">Explore · Robinhood Chain</p><h1 className="display mt-3 text-[46px] sm:text-[64px]">{tab === 'market' ? 'Coin list.' : 'Object coins.'}</h1><p className="mt-2 max-w-xl text-[17px] font-extrabold text-ink/65">{tab === 'market' ? 'Every ObjectPad coin, ranked by 24h volume.' : 'Every coin here is a real thing someone scanned.'}</p></div></div>
       <SegmentedTabs label="View" value={tab} onChange={value => set('tab', value === 'market' ? 'market' : null)} items={[{ value: 'objects', label: 'Grid', icon: <Box size={14}/> }, { value: 'market', label: 'List', icon: <Activity size={14}/> }]}/></div>
     {tab === 'market' ? <div className="mt-6"><div className="mb-3 flex justify-end"><AdultTabButton on={adult} onClick={() => set('view', adult ? null : 'nsfw')}/></div><AdultGate active={adult} onLeave={() => set('view', null)}><MarketBoard limit={48} adult={adult}/></AdultGate></div> : <>
+      {isAdmin && (coinMod.hidden.data?.length ?? 0) > 0 && <section className="raised mt-6 rounded-[24px] p-4 sm:p-5">
+        <p className="text-[14px] font-extrabold">Hidden coins · admin only ({coinMod.hidden.data?.length})</p>
+        <ul className="mt-3 grid gap-2">{coinMod.hidden.data?.map(c => <li key={c.id} className="sunk flex items-center justify-between gap-3 rounded-2xl px-4 py-2.5"><span className="min-w-0 truncate text-[14px] font-bold">{c.name}{c.symbol ? ` · $${c.symbol}` : ''}</span><button type="button" disabled={coinMod.act.isPending} onClick={() => coinMod.act.mutate({ id: c.id, action: 'restore' })} className="btn press min-h-11 shrink-0 px-4 text-[13px]">Restore</button></li>)}</ul>
+      </section>}
       <div className="steel mt-6 flex flex-col gap-3 rounded-[24px] p-2.5 lg:flex-row lg:items-center lg:justify-between"><div className="relative w-full lg:max-w-md"><Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted"/><input aria-label="Search coins, tickers, tags or hashes" value={search} onChange={event => { setSearch(event.target.value); set('q', event.target.value || null); }} placeholder="Name, ticker, OP- tag or hash…" className="w-full pl-11"/></div>
         <div className="flex flex-wrap gap-1.5">{[['all', 'All'], ['live', 'Live'], ['memes', 'Memes'], ['toys', 'Toys'], ['desk', 'Desk & other'], ['people', 'People']].map(([v, l]) => <button key={v} onClick={() => setKind(v)} className={cn('press min-h-9 rounded-full px-3.5 text-xs font-extrabold', kind === v ? 'raised' : 'text-ink/65 hover:text-ink')}>{l}</button>)}</div>
         <div className="flex flex-wrap items-center gap-1.5"><SegmentedTabs label="Sort" size="sm" value={sort} onChange={value => set('sort', value === 'trending' ? null : value)} items={SORTS.map(s => ({ ...s, icon: s.value === 'trending' ? <TrendingUp size={12}/> : undefined }))}/>

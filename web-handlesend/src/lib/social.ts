@@ -112,6 +112,16 @@ export function useChatModeration(enabled: boolean) {
   return { hidden, act };
 }
 
+export interface HiddenCoin { id: string; name: string; symbol: string; }
+
+/** Admin-only coin moderation: hide a coin from every public page, list hidden coins and restore them. Re-checked server-side on every call. */
+export function useCoinModeration(enabled: boolean) {
+  const session = useSession(); const qc = useQueryClient();
+  const hidden = useQuery({ queryKey: ['objectpad', 'social', 'hidden-coins'], enabled, queryFn: async () => (await api<{ items: HiddenCoin[] }>('/social/ops/coins/hidden', { token: await session.token() })).items, refetchInterval: 10_000 });
+  const act = useMutation({ mutationFn: async (v: { id: string; action: 'hide' | 'restore' }) => api(`/social/ops/coin/${v.id}/${v.action}`, { token: await session.token(), method: 'POST', body: {} }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['objectpad'] }) });
+  return { hidden, act };
+}
+
 /** Everything happening on ObjectPad, newest first. */
 export function useActivity(enabled: boolean) {
   return useQuery({ queryKey: ['objectpad', 'social', 'activity'], enabled, queryFn: async () => (await api<{ items: ActivityItem[] }>('/social/activity')).items, refetchInterval: 5_000, staleTime: 3_000 });

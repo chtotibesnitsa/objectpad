@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { encodeFunctionData, type Address } from 'viem';
 import { ArrowUpRight, Bookmark, Camera, Check, Coins, Copy, Cpu, Cuboid, ExternalLink, Fingerprint, Flag, Hammer, ScanLine, ShieldCheck, Sparkles } from 'lucide-react';
@@ -29,6 +29,7 @@ import { explorerTx } from '@/shared/pons';
 import { shortHash } from '@/shared/security';
 import { cn } from '@/lib/utils';
 import { CoinUpdates } from '@/components/social/CoinUpdates';
+import { useCoinModeration, useSocial } from '@/lib/social';
 
 const ModelViewer = lazy(() => import('@/components/ModelViewer'));
 const reportSchema = z.object({ reason: z.string().trim().min(10, 'Please describe the concern.').max(1500) });
@@ -63,6 +64,7 @@ function Provenance({ object }: { object: ObjectRecord }) {
 /** Full coin page for one confirmed object. Rendered at /objects/:id and at the permanent /o/:code link. */
 export function ObjectView({ id }: { id: string }) {
   const auth = useSession(); const qc = useQueryClient(); const market = useMarket();
+  const social = useSocial(); const isAdmin = social.me?.operator === true; const coinMod = useCoinModeration(false); const navigate = useNavigate();
   const [reportOpen, setReportOpen] = useState<boolean>(false); const [copied, setCopied] = useState<boolean>(false); const [shareOpen, setShareOpen] = useState<boolean>(false);
   const form = useForm<z.infer<typeof reportSchema>>({ resolver: zodResolver(reportSchema) });
   const query = useQuery({ queryKey: ['objectpad', 'object', id], queryFn: () => api<ObjectRecord>(`/objects/${id}`), retry: false });
@@ -82,6 +84,11 @@ export function ObjectView({ id }: { id: string }) {
   const cap = state ? (ethUsd ? usd(state.marketCapEth * ethUsd) : eth(state.marketCapEth, 2)) : '—';
   const share = `$${object.symbol} is a real ${object.category || 'object'}, scanned in 3D and named on-chain on @ObjectPad.`;
   return <div className="page py-5 sm:py-8">
+    {isAdmin && <div className="raised mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[22px] p-3.5 sm:px-5">
+      <p className="flex items-center gap-2 text-[13.5px] font-extrabold"><ShieldCheck size={16} className="text-[#12A150]"/>Admin · only you can see this</p>
+      <button type="button" disabled={coinMod.act.isPending} onClick={() => { if (confirm(`Hide $${object.symbol} from every public page? You can restore it from Market.`)) coinMod.act.mutate({ id, action: 'hide' }, { onSuccess: () => navigate('/explore') }); }} className="btn-ghost press min-h-11 px-4 text-[13.5px] !text-down">{coinMod.act.isPending ? 'Hiding…' : 'Hide this coin'}</button>
+      {coinMod.act.isError && <p role="alert" className="w-full text-[13px] font-bold text-down">Couldn’t hide it. Check you’re signed in as the admin account.</p>}
+    </div>}
     <div className="grid gap-4 lg:grid-cols-[1.45fr_1fr]">
       <div className="relative">
         <Suspense fallback={<div className="glass h-[420px] rounded-[28px] sm:h-[600px]"/>}><ModelViewer src={object.model.modelUrl} poster={object.model.thumbnailUrl} height="h-[420px] sm:h-[600px]" autoLoad label={`Real 3D scan · ${object.model.triangles.toLocaleString()} triangles`}/></Suspense>
