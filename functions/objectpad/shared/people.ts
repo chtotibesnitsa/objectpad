@@ -24,7 +24,7 @@ export const CONSENT_TEXT: Record<ConsentKind, string> = {
 };
 export type CaptureMode = 'photo_relief' | 'stylized_head' | 'multi_view_head' | 'clothed_body';
 export const CAPTURE_MODES: { id: CaptureMode; label: string; short: string; fidelity: string; minutes: string }[] = [
-  { id: 'photo_relief', label: 'Quick selfie', short: '1 photo', fidelity: 'One front photo. Depth and hidden sides are AI-inferred, not measured.', minutes: '~1 min' },
+  { id: 'photo_relief', label: 'One photo → bust', short: '1 photo', fidelity: 'One front photo. Depth and hidden sides are AI-inferred, not measured.', minutes: '~1 min' },
   { id: 'stylized_head', label: 'Stylized head', short: '1 photo', fidelity: 'One photo, deliberately stylized. Resemblance is loose by design.', minutes: '~1 min' },
   { id: 'multi_view_head', label: 'Best head', short: '3–4 photos', fidelity: 'Front, left, right (and back) photos. Better shape, still an AI reconstruction.', minutes: '~2 min' },
   { id: 'clothed_body', label: 'Full body', short: '2–3 photos', fidelity: 'Full-body photos while clothed. AI reconstruction; fine detail varies.', minutes: '~2 min' },
